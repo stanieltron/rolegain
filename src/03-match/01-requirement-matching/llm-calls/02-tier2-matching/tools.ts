@@ -1,0 +1,1 @@
+export const tools = { mode: "none", allowed: [], forbidden: ["shell", "filesystem", "web_search", "browser", "MCP"], rationale: "Tier 2 receives a selected persisted evidence packet and cannot expand its own context." } as const;

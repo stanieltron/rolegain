@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+.codex/
+
+# Runtime data and generated artifacts
+data/
+tmp/
+.agent-runtime/
+.test-artifacts/
+evals/**/runs/
+evals/**/results/
+evals/**/artifacts/
+evals/**/reports/
+evals/**/output/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test and browser tooling output
+playwright-report/
+test-results/
+.playwright-cli/

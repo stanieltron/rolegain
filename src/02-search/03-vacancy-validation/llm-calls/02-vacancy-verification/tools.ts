@@ -1,0 +1,1 @@
+export const tools = { mode: "none", allowed: [], forbidden: ["shell", "filesystem", "web_search", "browser", "MCP"], rationale: "Parallel browser workers acquire snapshots; this call only interprets captured evidence." } as const;

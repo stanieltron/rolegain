@@ -1,0 +1,1 @@
+export const memory = { isolation: "same-call-retry", reads: ["validated vacancy", "retrieved canonical claims", "unknowns and prohibited inferences"], writes: ["requirement matrix", "Codex run trace"] } as const;

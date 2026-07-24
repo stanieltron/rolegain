@@ -1,0 +1,1 @@
+export const command = { runtime: "codex-exec", role: "public-web-job-researcher", modelEnvironment: "ROLEGAIN_SEARCH_MODEL", defaultModel: "gpt-5.4", sandbox: "readOnly", approvalPolicy: "never", effort: "low", timeoutMs: 3 * 60_000, webSearch: "live" } as const;

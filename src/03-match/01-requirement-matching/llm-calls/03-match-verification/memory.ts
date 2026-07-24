@@ -1,0 +1,1 @@
+export const memory = { isolation: "fresh-process", reads: ["vacancy originals", "candidate citation ledger", "generated matrices", "deterministic findings"], writes: ["verification verdicts", "repair instructions", "Codex run trace"] } as const;

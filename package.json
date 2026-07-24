@@ -1,0 +1,62 @@
+{
+  "name": "rolegain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:ui\"",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:ui": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "start": "tsx src/server/index.ts",
+    "codex:login": "tsx scripts/login-codex.ts",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
+    "test:evidence:steps": "vitest run --config vitest.config.ts tests/inspection/evidence-ingestion/*.test.ts",
+    "test:evidence:serial": "tsx scripts/inspect-evidence-ingestion.ts all",
+    "test:evidence:stage": "tsx scripts/inspect-evidence-ingestion.ts",
+    "stage": "tsx scripts/run-stage.ts",
+    "stage:list": "tsx scripts/run-stage.ts list",
+    "test:live:stage": "tsx scripts/inspect-live-user-flow.ts",
+    "test:live:flow": "tsx scripts/inspect-live-user-flow.ts full",
+    "test:cv-live": "tsx tests/live/cv-intelligence.live.ts",
+    "eval:evidence": "tsx scripts/eval-evidence-ingestion.ts",
+    "eval:match-requirements": "tsx evals/match-requirements/src/cli/run.ts",
+    "eval:match-requirements:compare": "tsx evals/match-requirements/src/cli/compare.ts",
+    "eval:match-requirements:next": "tsx evals/match-requirements/src/cli/run-variants.ts",
+    "eval:match-requirements:analyze": "tsx evals/match-requirements/src/cli/analyze-failures.ts",
+    "eval:llm-calls": "tsx evals/llm-calls/src/cli/run.ts",
+    "eval:ui": "concurrently -k \"npm:eval:ui:server\" \"npm:eval:ui:client\"",
+    "eval:ui:server": "tsx watch src/eval-server/index.ts",
+    "eval:ui:client": "vite --config vite.eval.config.ts --host 127.0.0.1",
+    "eval:ui:build": "tsc --noEmit && vite build --config vite.eval.config.ts"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "ajv": "^8.20.0",
+    "cheerio": "^1.2.0",
+    "docx-preview": "^0.4.0",
+    "lucide-react": "latest",
+    "mammoth": "^1.12.0",
+    "pdf-parse": "^2.4.5",
+    "playwright": "^1.61.1",
+    "react": "latest",
+    "react-dom": "latest",
+    "vite": "latest",
+    "word-extractor": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "concurrently": "latest",
+    "docx": "^9.7.1",
+    "pdf-lib": "^1.17.1",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

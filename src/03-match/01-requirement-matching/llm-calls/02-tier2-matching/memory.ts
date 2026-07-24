@@ -1,0 +1,1 @@
+export const memory = { isolation: "fresh-process", reads: ["unresolved Tier 1 rows", "selected detailed notes", "canonical citations"], writes: ["Tier 2 row replacements", "Codex run trace"] } as const;

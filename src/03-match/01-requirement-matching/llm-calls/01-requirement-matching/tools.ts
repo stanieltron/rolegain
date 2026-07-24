@@ -1,0 +1,1 @@
+export const tools = { mode: "none", allowed: [], forbidden: ["shell", "filesystem", "web_search", "browser", "MCP"], rationale: "Matching is prompt-only over the persisted vacancy and claim subset." } as const;

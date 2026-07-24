@@ -1,0 +1,1 @@
+export const tools = { mode: "web-search", allowed: ["web_search"], forbidden: ["shell", "filesystem", "browser", "MCP"], rationale: "Discovery needs current public results; page validation is delegated to the browser backend." } as const;

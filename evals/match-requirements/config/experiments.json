@@ -1,0 +1,85 @@
+[
+  {
+    "id": "reasoning-medium-v1",
+    "description": "One-factor experiment: increase reasoning effort from low to medium for every LLM call in the matching flow.",
+    "baseline": false,
+    "status": "pending",
+    "configuration": {
+      "id": "reasoning-medium-v1",
+      "overrides": {
+        "match.requirements": { "effort": "medium" },
+        "match.tier2-evidence": { "effort": "medium" },
+        "match.verification": { "effort": "medium" },
+        "match.repair": { "effort": "medium" }
+      }
+    },
+    "eval": {
+      "trials": 3,
+      "concurrency": 6,
+      "suites": [
+        "match.requirements.component",
+        "match.tier2.component",
+        "match.verification.component",
+        "match.repair.component",
+        "match.full-flow"
+      ]
+    },
+    "createdAt": "2026-07-24T00:00:00.000Z",
+    "updatedAt": "2026-07-24T00:00:00.000Z"
+  },
+  {
+    "id": "primary-model-v1",
+    "description": "One-factor experiment: replace the production fast model with gpt-5.4 for every LLM call in the matching flow.",
+    "baseline": false,
+    "status": "pending",
+    "configuration": {
+      "id": "primary-model-v1",
+      "overrides": {
+        "match.requirements": { "model": "gpt-5.4" },
+        "match.tier2-evidence": { "model": "gpt-5.4" },
+        "match.verification": { "model": "gpt-5.4" },
+        "match.repair": { "model": "gpt-5.4" }
+      }
+    },
+    "eval": {
+      "trials": 3,
+      "concurrency": 6,
+      "suites": [
+        "match.requirements.component",
+        "match.tier2.component",
+        "match.verification.component",
+        "match.repair.component",
+        "match.full-flow"
+      ]
+    },
+    "createdAt": "2026-07-24T00:00:00.000Z",
+    "updatedAt": "2026-07-24T00:00:00.000Z"
+  },
+  {
+    "id": "skill-calibration-v2",
+    "description": "One-factor experiment: replace only the first-tier matching skill with calibrated atomic-clause and adjacency guidance.",
+    "baseline": false,
+    "status": "pending",
+    "configuration": {
+      "id": "skill-calibration-v2",
+      "overrides": {
+        "match.requirements": {
+          "skill": {
+            "name": "rolegain-match-job-requirements-calibration-v2",
+            "sourcePath": "evals/match-requirements/variants/skill-calibration-v2/SKILL.md"
+          }
+        }
+      }
+    },
+    "eval": {
+      "trials": 3,
+      "concurrency": 6,
+      "suites": [
+        "match.requirements.component",
+        "match.full-flow"
+      ]
+    },
+    "createdAt": "2026-07-24T00:00:00.000Z",
+    "updatedAt": "2026-07-24T00:00:00.000Z"
+  }
+]

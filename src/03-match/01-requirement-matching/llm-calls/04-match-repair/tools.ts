@@ -1,0 +1,1 @@
+export const tools = { mode: "none", allowed: [], forbidden: ["shell", "filesystem", "web_search", "browser", "MCP"], rationale: "Repair is bounded to recorded defects and cannot seek new evidence." } as const;

@@ -1,0 +1,1 @@
+export const tools = { mode: "none", allowed: [], forbidden: ["shell", "filesystem", "web_search", "browser", "MCP"], rationale: "The call interprets one immutable browser snapshot; it must not fetch a different page." } as const;
