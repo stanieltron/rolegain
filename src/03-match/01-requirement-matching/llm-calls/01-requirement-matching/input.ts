@@ -25,7 +25,7 @@ export function buildInput(input: {
 }) {
   return `Build an exhaustive requirement-to-evidence matrix for the supplied vacancy.
 
-Candidate evidence packets (the only allowed evidence; each vacancy has a retrieved canonical subset):
+Candidate evidence packets (each vacancy has a retrieved canonical subset plus routed knowledge pages):
 ${JSON.stringify(input.assessmentEvidence, null, 2)}
 
 Vacancies:
@@ -41,6 +41,7 @@ Rules:
 - Use matchClass=explicit only for direct evidence at adequate scope, strong_adjacent for the same discipline with a learnable dialect/tool/platform/context gap, weak_adjacent when transfer is plausible but material, unsupported when no evidence exists, and contradicted when evidence conflicts.
 - matched corresponds to explicit; partial corresponds to strong_adjacent or weak_adjacent; missing corresponds to unsupported or contradicted. Set confidence from 0 to 1 and provide gapClass/gapSeverity for every row.
 - Preserve normalized capability, minimum duration, ownership, maturity, scope, work context, tool/method, credential, ambiguity, and a narrow vacancy source locator separately. Use 0, an empty string, or an empty list when the posting does not state one.
+- Use knowledgeRoutesByJob to understand broader or ambiguous capability language and to inspect deeper context. Knowledge page prose is retrieval and interpretation context, not independently citable evidence.
 - Every matched or partial row must cite a supplied claimId and sourceId and copy a faithful exact excerpt from that claim's citation. Missing rows must have no evidence.
 - supported claims may justify matched or partial. weakly_supported claims may justify partial only. Never cite unverified or contradicted claims.
 - Ownership, maturity, scope, outcomes, and limitations are independent fields. Do not promote designed to operated, contributor to lead, or architecture to measured scale.

@@ -61,4 +61,31 @@ describe("Stage 03 — synthesis", () => {
       "operational improvement",
     ]);
   });
+
+  it("03.3 restores reader provenance for an exactly selected profile value", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "inspection-synthesis-evidence-"));
+    const workspace = mockWorkspaceWithCv();
+    const reading = mockThreeChunkReading(workspace);
+    const synthesis = mockSynthesis(workspace);
+    synthesis.profile.summary = "Builds reliable workflow systems.";
+    synthesis.profileEvidence = synthesis.profileEvidence.filter(
+      (item) => item.field !== "summary",
+    );
+    const codex = mockCodex([synthesis]);
+
+    const output = await synthesizeCandidateEvidence({
+      codex: codex.client,
+      cwd,
+      workspace,
+      model: "mock-model",
+      reading,
+    });
+
+    expect(output.profileEvidence).toContainEqual(
+      expect.objectContaining({
+        field: "summary",
+        value: "Builds reliable workflow systems.",
+      }),
+    );
+  });
 });

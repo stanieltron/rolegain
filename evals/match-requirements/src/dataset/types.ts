@@ -11,7 +11,7 @@ import type {
 } from "../../../../src/contracts/job-search.js";
 import type { CanonicalClaimCitation } from "../../../../src/search-match-shared/evidence-context.js";
 
-export const MATCH_REQUIREMENTS_CORPUS_VERSION = "2.0.0";
+export const MATCH_REQUIREMENTS_CORPUS_VERSION = "3.0.0";
 
 export type MatchEvalFamily =
   | "direct"
@@ -22,7 +22,8 @@ export type MatchEvalFamily =
   | "evidence_quality"
   | "requirement_extraction"
   | "adversarial"
-  | "citation_integrity";
+  | "citation_integrity"
+  | "knowledge_routing";
 
 export type MatchEvalSplit = "development" | "test";
 export type MatchEvalDifficulty = "basic" | "intermediate" | "hard";
@@ -77,9 +78,15 @@ export interface MatchRequirementsEvalCase {
   labelStatus: MatchEvalLabelStatus;
   tags: string[];
   title: string;
+  candidateRoleTitle?: string;
   responsibilities: string[];
   qualifications: string[];
   claims: MatchEvalClaim[];
+  knowledgeRoutes?: Array<{
+    claimKey: string;
+    retrievalTerms: string[];
+    narrative: string;
+  }>;
   expected: ExpectedRequirement[];
   contradictions?: Array<{
     field: string;
@@ -101,6 +108,16 @@ export interface PreparedMatchEvalCase {
   opportunity: JobOpportunity;
   sourceLedger: CanonicalClaimCitation[];
   claimIdByKey: Record<string, string>;
+  knowledgeRoutesByJob: Array<{
+    jobId: string;
+    pages: Array<{
+      title: string;
+      path: string;
+      claimIds: string[];
+      content: string;
+      score: number;
+    }>;
+  }>;
 }
 
 export interface RequirementRowGrade {

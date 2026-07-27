@@ -2,11 +2,11 @@ export const command = {
   runtime: "codex-exec",
   role: "candidate-source-reader",
   modelEnvironment: "ROLEGAIN_FAST_MODEL",
-  defaultModel: "gpt-5.4-mini",
+  defaultModel: "gpt-5.6-luna",
   threadSandbox: "read-only",
   sandbox: "readOnly",
   approvalPolicy: "never",
-  effort: "medium",
+  effort: "low",
   timeoutMs: 15 * 60_000,
   webSearch: "disabled",
 } as const;

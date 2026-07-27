@@ -6,9 +6,12 @@
 [Next pipeline](../04-application-preparation/README.md)
 
 Match consumes live validated opportunities and the exact canonical evidence
-run. It scores requirement fit, independently verifies and repairs the match
-matrix, then inspects employer application forms for selected opportunities.
-It does not discover jobs and it does not draft application answers.
+run, including its small evidence knowledge base. The knowledge index routes
+broad vacancy wording to bounded topic and source context; canonical claims
+remain the only scoring authority. Match scores requirement fit, independently
+verifies and repairs the matrix, then inspects employer application forms for
+selected opportunities. It does not discover jobs and it does not draft
+application answers.
 
 ## Architecture
 
@@ -24,8 +27,9 @@ The reusable search/match types and deterministic helpers live in
 
 ## Public Runners
 
-`npm run stage -- match.requirements` matches already validated jobs against the
-canonical evidence ledger.
+`npm run stage -- match.requirements` routes already validated jobs through the
+evidence knowledge index and matches them against the resulting canonical claim
+subset.
 
 `npm run stage -- applications.inspect-form` maps employer application forms
 for already matched opportunities.

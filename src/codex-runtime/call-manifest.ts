@@ -42,3 +42,19 @@ export interface AgentCallManifest {
   command: CommandPolicy;
   verification: string[];
 }
+
+export function productionModel(
+  command: Pick<CommandPolicy, "modelEnvironment" | "defaultModel">,
+  runtimeModel?: string,
+) {
+  const configured = process.env[command.modelEnvironment];
+  if (configured) return configured;
+  if (command.defaultModel === "runtime default") {
+    if (!runtimeModel)
+      throw new Error(
+        `Runtime model is required for ${command.modelEnvironment}`,
+      );
+    return runtimeModel;
+  }
+  return command.defaultModel;
+}

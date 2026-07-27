@@ -3,7 +3,6 @@ import path from "node:path";
 import { readCandidateSourceChunks } from "../../01-evidence-ingestion/02-chunk-reader/index.js";
 import { synthesizeCandidateEvidence } from "../../01-evidence-ingestion/03-synthesis/index.js";
 import { verifyAndPersistEvidence } from "../../01-evidence-ingestion/04-verification/index.js";
-import { command as SOURCE_READER_COMMAND } from "../../01-evidence-ingestion/02-chunk-reader/llm-calls/01-chunk-analysis/index.js";
 import type {
   CandidateAnalysisResult,
   ChunkReadingResult,
@@ -157,7 +156,6 @@ export async function runLiveStage(input: {
         codex,
         cwd: projectRoot,
         workspace,
-        model: liveEvidenceModel(),
       });
       if (!reading.totalChunks || !reading.sourceNotes.length)
         throw new Error("Live reader returned no chunk evidence");
@@ -180,7 +178,6 @@ export async function runLiveStage(input: {
         codex,
         cwd: projectRoot,
         workspace,
-        model: liveEvidenceModel(),
         reading: resolved.reading,
       });
       if (!analysis.sourceInsights.length)
@@ -877,13 +874,6 @@ function liveDiscoveryTarget() {
 
 function liveApplicationTarget() {
   return Math.max(1, Number(process.env.LIVE_TEST_APPLICATION_TARGET || 5));
-}
-
-function liveEvidenceModel() {
-  return (
-    process.env[SOURCE_READER_COMMAND.modelEnvironment] ||
-    SOURCE_READER_COMMAND.defaultModel
-  );
 }
 
 async function writeJson(file: string, value: unknown) {

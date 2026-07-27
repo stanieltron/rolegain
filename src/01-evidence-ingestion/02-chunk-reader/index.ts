@@ -2,8 +2,12 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { JobSearchWorkspace } from "../../contracts/job-search.js";
 import type { CodexExecClient } from "../../codex-runtime/client.js";
+import { productionModel } from "../../codex-runtime/call-manifest.js";
 import { SOURCE_READER_PROMPT_VERSION } from "../../contracts/evidence.js";
-import type { SourceChunkNotes } from "./llm-calls/01-chunk-analysis/index.js";
+import {
+  command as SOURCE_READER_COMMAND,
+  type SourceChunkNotes,
+} from "./llm-calls/01-chunk-analysis/index.js";
 import {
   assertEvidenceAnalysisBudget,
 } from "./recovery/index.js";
@@ -23,10 +27,13 @@ export async function readCandidateSourceChunks(input: {
   codex: CodexExecClient;
   cwd: string;
   workspace: JobSearchWorkspace;
-  model: string;
+  /** Explicit inspection/eval override applied to every call in the reader flow. */
+  model?: string;
   onProgress?: (progress: CandidateAnalysisProgress) => void | Promise<void>;
 }): Promise<ChunkReadingResult> {
-  const { codex, cwd, workspace, model, onProgress } = input;
+  const { codex, cwd, workspace, onProgress } = input;
+  const analysisModel =
+    input.model ?? productionModel(SOURCE_READER_COMMAND);
 
   // 1–2. Select pending sources and split them into stable chunk jobs.
   const prepared = prepareCandidateSourceChunks(workspace);
@@ -45,7 +52,10 @@ export async function readCandidateSourceChunks(input: {
     "job-search",
     "analysis-checkpoints",
     workspace.candidateId,
-    `${SOURCE_READER_PROMPT_VERSION}-${model}`.replace(/[^a-zA-Z0-9._-]+/g, "-"),
+    `${SOURCE_READER_PROMPT_VERSION}-${analysisModel}`.replace(
+      /[^a-zA-Z0-9._-]+/g,
+      "-",
+    ),
   );
   let completedJobs = 0;
   let progressWrites = Promise.resolve();
@@ -72,14 +82,22 @@ export async function readCandidateSourceChunks(input: {
         ? await readCheckpoint(checkpointFile)
         : undefined;
       if (cached) {
+        const rebased = {
+          ...cached,
+          notes: normalizeChunkNotes(
+            cached.notes,
+            job.source.id,
+            job.locator,
+          ),
+        };
         await reportCompleted();
-        return cached;
+        return rebased;
       }
 
       const result = await readAndVerifyChunk({
         codex,
         cwd,
-        model,
+        model: input.model,
         job,
         normalize: normalizeChunkNotes,
       });
@@ -113,13 +131,13 @@ export function prepareCandidateSourceChunks(
         (source.insights.length === 0 || !source.knowledgePath)),
   );
   const jobs = sources.flatMap((source) =>
-    chunkSourceWithLocators(source.content || "").map((chunk, index, chunks) => ({
-      source,
-      chunk: chunk.content,
-      locator: chunk.locator,
-      index,
-      count: chunks.length,
-    })),
+    chunkSourceForAnalysis(source).map((chunk, index, chunks) => ({
+        source,
+        chunk: chunk.content,
+        locator: chunk.locator,
+        index,
+        count: chunks.length,
+      })),
   );
   assertEvidenceAnalysisBudget(jobs.length);
   return { jobs };
@@ -348,6 +366,87 @@ export function chunkSourceWithLocators(
     start = Math.max(start + 1, end - Math.min(overlapChars, maxChars - 1));
   }
   return chunks;
+}
+
+export function chunkSourceForAnalysis(
+  source: Pick<JobSearchWorkspace["sources"][number], "kind" | "content">,
+) {
+  const content = source.content || "";
+  if (
+    source.kind !== "webpage" &&
+    source.kind !== "portfolio"
+  )
+    return chunkSourceWithLocators(content);
+  const pageStarts = [...content.matchAll(/^Page:\s+https?:\/\/\S+/gm)].map(
+    (match) => match.index || 0,
+  );
+  if (pageStarts.length < 2) return chunkSourceWithLocators(content);
+
+  const pages = pageStarts.map((start, pageIndex) => {
+    const end = pageStarts[pageIndex + 1] ?? content.length;
+    return { start, end, content: content.slice(start, end).trim() };
+  });
+  const chunks: Array<{ content: string; locator: string }> = [];
+  const maxChars = 45_000;
+  let groupStart = -1;
+  let groupEnd = -1;
+  const flushGroup = () => {
+    if (groupStart < 0 || groupEnd <= groupStart) return;
+    chunks.push({
+      content: content.slice(groupStart, groupEnd).trim(),
+      locator: rangeLineLocator(content, groupStart, groupEnd),
+    });
+    groupStart = -1;
+    groupEnd = -1;
+  };
+  for (const page of pages) {
+    if (page.content.length > maxChars) {
+      flushGroup();
+      const sourceLineOffset =
+        content.slice(0, page.start).split("\n").length - 1;
+      const context = pageContext(page.content);
+      chunks.push(
+        ...chunkSourceWithLocators(page.content, maxChars, 2_000).map(
+          (chunk, chunkIndex) => ({
+            content:
+              chunkIndex === 0
+                ? chunk.content
+                : [
+                    "[Repeated page context for attribution and orientation]",
+                    context,
+                    "[Current page excerpt]",
+                    chunk.content,
+                  ].join("\n\n"),
+            locator: offsetLineLocator(chunk.locator, sourceLineOffset),
+          }),
+        ),
+      );
+      continue;
+    }
+    if (groupStart >= 0 && page.end - groupStart > maxChars) flushGroup();
+    if (groupStart < 0) groupStart = page.start;
+    groupEnd = page.end;
+  }
+  flushGroup();
+  return chunks;
+}
+
+function pageContext(page: string) {
+  const limit = Math.min(1_500, page.length);
+  const boundary = page.lastIndexOf("\n", limit);
+  return page.slice(0, boundary > 400 ? boundary : limit).trim();
+}
+
+function offsetLineLocator(locator: string, lineOffset: number) {
+  const match = locator.match(/^lines (\d+)-(\d+)$/);
+  if (!match) return locator;
+  return `lines ${Number(match[1]) + lineOffset}-${Number(match[2]) + lineOffset}`;
+}
+
+function rangeLineLocator(content: string, start: number, end: number) {
+  const startLine = content.slice(0, start).split("\n").length;
+  const endLine = content.slice(0, end).split("\n").length;
+  return `lines ${startLine}-${endLine}`;
 }
 
 function uniqueObjects<T>(values: T[], key: (value: T) => string) {

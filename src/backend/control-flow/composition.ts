@@ -4,6 +4,7 @@ import { CodexCandidateAnalyzer } from "../../01-evidence-ingestion/evidence-ing
 import { LiveOpportunityResearcher } from "../../03-match/opportunity-researcher.js";
 import { CodexCoverLetterWriter } from "../../04-application-preparation/application-preparation.js";
 import { CodexExecClient } from "../../codex-runtime/client.js";
+import { createLlmClient } from "../../llm-runtime/client.js";
 import { JobSearchService } from "./service.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -25,7 +26,7 @@ export async function createRolegainDependencies(
 ): Promise<RolegainDependencies> {
   const root = options.rootDir ?? defaultProjectRoot;
   const dataRoot = options.dataRoot ?? path.join(root, "data");
-  const codex = new CodexExecClient(root);
+  const codex = createLlmClient(root);
   const researcher = new LiveOpportunityResearcher(codex, root, dataRoot);
   const writer = new CodexCoverLetterWriter(codex, root, dataRoot);
   const jobSearch = new JobSearchService(

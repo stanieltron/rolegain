@@ -49,16 +49,129 @@ describe("deterministic LLM result gateway", () => {
     );
   });
 
-  it("rejects provenance text that is absent from the supplied input", () => {
+  it("drops ungrounded chunk evidence so coverage can repair the omission", () => {
     const result = evaluateResultGateway({
       callId: "evidence.chunk-analysis",
-      finalText: JSON.stringify({ claims: [{ id: "c1", quote: "invented quote" }] }),
+      finalText: JSON.stringify({
+        profileEvidence: [
+          { field: "skills", value: "Invented", quote: "invented quote" },
+        ],
+        claims: [
+          {
+            id: "c1",
+            sourceEvidence: [{ quote: "invented quote" }],
+          },
+        ],
+      }),
       outputSchema: objectSchema,
       prompt: "The supplied CV chunk contains different text.",
     });
-    expect(result.report.defects).toContainEqual(
-      expect.objectContaining({ code: "SOURCE_TEXT_NOT_IN_INPUT", path: "$.claims[0].quote" }),
+    expect(result.report.accepted).toBe(true);
+    expect(result.report.adjustments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "UNGROUNDED_EVIDENCE_DROPPED" }),
+        expect.objectContaining({ code: "UNGROUNDED_CLAIM_DROPPED" }),
+      ]),
     );
+    expect(result.output).toMatchObject({
+      profileEvidence: [],
+      claims: [],
+    });
+  });
+
+  it("drops only ungrounded coverage findings and preserves the incomplete verdict", () => {
+    const result = evaluateResultGateway({
+      callId: "evidence.chunk-coverage",
+      finalText: JSON.stringify({
+        complete: false,
+        missingEvidence: [
+          {
+            quote: "exact source fact",
+            reason: "Grounded omission",
+          },
+          {
+            quote: "paraphrased source fact",
+            reason: "Ungrounded omission",
+          },
+        ],
+        unsupportedExtractions: [],
+        summary: "Repair is required.",
+      }),
+      outputSchema: objectSchema,
+      prompt: "The chunk contains an exact source fact.",
+    });
+    expect(result.report.accepted).toBe(true);
+    expect(result.report.adjustments).toContainEqual(
+      expect.objectContaining({
+        code: "UNGROUNDED_COVERAGE_FINDING_DROPPED",
+      }),
+    );
+    expect(result.output).toMatchObject({
+      complete: false,
+      missingEvidence: [
+        expect.objectContaining({ quote: "exact source fact" }),
+      ],
+    });
+  });
+
+  it("corrects a complete coverage verdict that still contains blocking findings", () => {
+    const result = evaluateResultGateway({
+      callId: "evidence.chunk-coverage",
+      finalText: JSON.stringify({
+        complete: true,
+        missingEvidence: [
+          {
+            findingId: "missing-claim",
+            operation: "add",
+            target: "claims",
+            field: "capability",
+            severity: "blocking",
+            quote: "exact source fact",
+            reason: "A material claim is missing.",
+            category: "experience",
+          },
+        ],
+        unsupportedExtractions: [],
+        summary: "A repair is required.",
+      }),
+      outputSchema: objectSchema,
+      prompt: "The chunk contains an exact source fact.",
+    });
+    expect(result.report.accepted).toBe(true);
+    expect(result.report.adjustments).toContainEqual(
+      expect.objectContaining({ code: "COVERAGE_VERDICT_CORRECTED" }),
+    );
+    expect(result.output).toMatchObject({ complete: false });
+  });
+
+  it("drops orphaned repair removals instead of applying an unresolved deletion", () => {
+    const result = evaluateResultGateway({
+      callId: "evidence.chunk-repair",
+      finalText: JSON.stringify({
+        additions: {
+          profileEvidence: [],
+          claims: [],
+        },
+        removals: [
+          {
+            target: "claim",
+            match: "unsupported claim",
+            findingId: "missing-resolution",
+            reason: "Remove unsupported material.",
+          },
+        ],
+        resolutions: [],
+      }),
+      outputSchema: objectSchema,
+      prompt: "Source and extraction input.",
+    });
+    expect(result.report.accepted).toBe(true);
+    expect(result.report.adjustments).toContainEqual(
+      expect.objectContaining({
+        code: "ORPHANED_REPAIR_REMOVAL_DROPPED",
+      }),
+    );
+    expect(result.output).toMatchObject({ removals: [] });
   });
 
   it("deterministically restores exact source line breaks and records the adjustment", () => {

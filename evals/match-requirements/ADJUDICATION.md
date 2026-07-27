@@ -4,7 +4,8 @@ The benchmark currently uses machine-reviewed labels. Complete this process
 before setting any case to `human_reviewed`.
 
 1. Two reviewers independently inspect only the vacancy text, canonical claims,
-   and proposed gold rows. They do not inspect model outputs.
+   routed knowledge pages when present, and proposed gold rows. They do not
+   inspect model outputs.
 2. For every atomic requirement, each reviewer records category, acceptable
    match classes, allowed claim keys, criticality, and rationale.
 3. Exact agreement is required for direct, unsupported, category, and citation
@@ -31,3 +32,7 @@ Decision rules:
 - Numeric minimums are not satisfied by lower or unspecified quantities.
 - Team activity is not individual ownership without attribution.
 - Citations must be both canonical and relevant to that specific requirement.
+- Knowledge-page prose may explain why a claim is relevant, but it cannot
+  satisfy a requirement without a linked canonical claim and exact citation.
+- A retrieval alias may route broad wording to a page; it must not upgrade the
+  claim's ownership, maturity, scope, duration, outcomes, or support status.

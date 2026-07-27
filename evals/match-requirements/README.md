@@ -36,7 +36,8 @@ Generated run artifacts and mutable variant state live under
 
 - `match.requirements.component`: runs only the first production
   `match.requirements` call and grades extraction, category, match class, and
-  requirement-specific citations.
+  requirement-specific citations. Its input includes the same bounded
+  `knowledgeRoutesByJob` packet as production.
 - `match.tier2.component`: starts from an unresolved gold matrix, runs only
   `match.tier2-evidence`, and grades bounded evidence recovery.
 - `match.verification.component`: runs `match.verification` against clean or
@@ -50,10 +51,12 @@ Generated run artifacts and mutable variant state live under
 
 ## Dataset
 
-The synthetic v2 corpus contains 50 cases and 104 atomic gold requirements.
+The synthetic v3 corpus contains 52 cases and 108 atomic gold requirements.
 Families cover direct support, honest missing evidence, adjacent capabilities,
 scope/ownership, duration/quantity, evidence quality, extraction errors,
-adversarial vacancy text, and citation integrity.
+adversarial vacancy text, citation integrity, and knowledge routing for broad
+requirements. The routing cases cover both software and industrial electrical
+work.
 
 The labels are still `machine_reviewed`. The release gate intentionally fails
 until independent human adjudication is complete. See `DATASET.md` and
@@ -104,8 +107,9 @@ Use this loop for matching upgrades:
 1. Run a targeted component suite on the development split.
 2. Inspect `failure-analysis.json` and the per-trial `calls.json`,
    `grade.json`, and `gold.json`.
-3. Make one-factor changes: prompt/skill, schema/gateway, Tier 2 retrieval,
-   verifier rubric, repair instructions, or dataset labels.
+3. Make one-factor changes: prompt/skill, schema/gateway, knowledge-index
+   routing, Tier 2 retrieval, verifier rubric, repair instructions, or dataset
+   labels.
 4. Run the same development suite and compare to baseline.
 5. If non-inferior or improved, run `match.full-flow` on development.
 6. If still clean, run all suites on the test split.

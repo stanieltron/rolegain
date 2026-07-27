@@ -322,19 +322,29 @@ export const LLM_EVAL_CASES: LlmEvalCase[] = [
   {
     id: "match.requirements",
     suite: "match.components",
-    prompt: "Build a requirement matrix for a TypeScript platform engineering job.",
+    prompt:
+      "Build a requirement matrix for a TypeScript platform engineering job using routed knowledge context and canonical citations.",
     expected: requirementAssessment,
     schema: requirementMatchingSchema,
-    semanticChecks: ["has requirement rows", "matched rows cite canonical claims"],
+    semanticChecks: [
+      "has requirement rows",
+      "uses knowledge pages only as retrieval context",
+      "matched rows cite canonical claims",
+    ],
     live: "opt-in",
   },
   {
     id: "match.tier2-evidence",
     suite: "match.components",
-    prompt: "Reassess unresolved TypeScript service operations rows against bounded evidence.",
+    prompt:
+      "Reassess unresolved TypeScript service operations rows against bounded topic and source-page context.",
     expected: requirementAssessment,
     schema: tier2MatchingSchema,
-    semanticChecks: ["preserves job id", "does not drop unresolved row"],
+    semanticChecks: [
+      "preserves job id",
+      "does not drop unresolved row",
+      "cites canonical claims rather than knowledge prose",
+    ],
     live: "opt-in",
   },
   {

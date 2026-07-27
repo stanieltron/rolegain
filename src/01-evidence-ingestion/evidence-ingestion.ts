@@ -7,7 +7,6 @@ export {
 import { readCandidateSourceChunks } from "./02-chunk-reader/index.js";
 import { synthesizeCandidateEvidence } from "./03-synthesis/index.js";
 import { verifyAndPersistEvidence } from "./04-verification/index.js";
-import { command as SOURCE_READER_COMMAND } from "./02-chunk-reader/llm-calls/01-chunk-analysis/index.js";
 import type {
   CandidateAnalysisProgress,
   CandidateAnalysisResult,
@@ -41,22 +40,17 @@ export class CodexCandidateAnalyzer implements CandidateAnalyzer {
   ): Promise<CandidateAnalysisResult> {
     const runtime = await this.codex.start();
     if (!runtime.authenticated) throw new Error("Codex is not authenticated");
-    const model =
-      process.env[SOURCE_READER_COMMAND.modelEnvironment] ??
-      SOURCE_READER_COMMAND.defaultModel;
 
     const reading = await readCandidateSourceChunks({
       codex: this.codex,
       cwd: this.cwd,
       workspace,
-      model,
       onProgress,
     });
     return synthesizeCandidateEvidence({
       codex: this.codex,
       cwd: this.cwd,
       workspace,
-      model,
       reading,
       message,
       onProgress,

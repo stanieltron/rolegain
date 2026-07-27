@@ -16,7 +16,7 @@ The pipeline is organized as four numbered stage folders:
 | [`01-evidence-acquisition/`](./01-evidence-acquisition/README.md) | Install a CV or add and deduplicate supplemental evidence | Deterministic |
 | [`02-chunk-reader/`](./02-chunk-reader/README.md) | Split sources, extract evidence per chunk, verify coverage, repair omissions, and join results | Hybrid: deterministic code plus bounded LLM calls |
 | [`03-synthesis/`](./03-synthesis/README.md) | Reduce all verified source readings into a candidate-wide interpretation | One LLM call |
-| [`04-verification/`](./04-verification/README.md) | Audit exact quotations and profile provenance, persist ledgers, and calculate readiness | Deterministic and fail-closed |
+| [`04-verification/`](./04-verification/README.md) | Audit exact quotations and profile provenance, persist ledgers and a layered knowledge base, and calculate readiness | Deterministic and fail-closed |
 
 The request phase ends after `acquireEvidence()`. The application can return
 HTTP 202 while the queued phase runs `buildCandidateEvidence()`. Inside that
@@ -250,7 +250,7 @@ flowchart TD
         direction TB
         V_PROFILE["profile-evidence/: audit every proposed profile value<br/>against an exact quote in an active source"]
         V_APPLY["Apply supported profile values<br/>Unsupported new values become blockers"]
-        V_KNOWLEDGE["Write one human-readable knowledge note<br/>per analyzed source"]
+        V_KNOWLEDGE["Build knowledge/START_HERE.md, routing index,<br/>capability pages, and deep source pages"]
         V_SNAPSHOT["Create immutable source snapshots and source blocks"]
         V_CLAIMS["Audit every claim quote<br/>Downgrade unsupported or unresolved claims"]
         V_AGGREGATE["Build capabilities, constraints, timeline, unknowns,<br/>contradictions, prohibited inferences, role families,<br/>and search vocabulary"]

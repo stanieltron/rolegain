@@ -55,7 +55,8 @@ export const FLOW_EVAL_CASES: FlowEvalCase[] = [
       "match.repair",
     ],
     handoff: {
-      input: "validated opportunities and canonical evidence ledger",
+      input:
+        "validated opportunities, canonical evidence ledger, and bounded knowledge routes",
       output: "matched opportunities with verified requirement matrices",
     },
   },

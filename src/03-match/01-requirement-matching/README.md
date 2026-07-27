@@ -7,9 +7,11 @@
 [Verifier LLM execution](./run-match-verification.ts)
 
 This stage builds an exhaustive vacancy-requirement matrix against the
-canonical claim ledger, escalates unresolved rows to bounded Tier 2 evidence,
-independently verifies the result, repairs it at most once, and calculates the
-final deterministic score.
+canonical claim ledger. The evidence knowledge base routes broad vacancy
+language to a bounded set of topic pages and their claim ids. Unresolved rows
+can inspect bounded topic and source-page excerpts in Tier 2. Knowledge prose
+provides retrieval context only; independently verified canonical citations
+remain the scoring authority.
 
 ## Entry point
 
@@ -23,16 +25,17 @@ batch-compatible public adapter.
 
 ```mermaid
 flowchart TD
-    A["Load canonical claims for each vacancy"] --> B["Requirement-matching LLM"]
-    B --> C["Retry omitted jobs in the same call"]
-    C --> D["Tier 2 retrieval for unresolved rows"]
-    D --> E["Fresh independent verifier LLM"]
-    E --> F{"Verifier passed?"}
-    F -->|"No"| G["One bounded repair LLM"]
-    G --> H["Fresh final verification"]
-    F -->|"Yes"| I["Deterministic citation audit and scoring"]
-    H --> I
-    I --> J["Persist match ledger"]
+    A["Route vacancy through knowledge index"] --> B["Load routed canonical claims and topic excerpts"]
+    B --> C["Requirement-matching LLM"]
+    C --> D["Retry omitted jobs in the same call"]
+    D --> E["Tier 2 knowledge retrieval for unresolved rows"]
+    E --> F["Fresh independent verifier LLM"]
+    F --> G{"Verifier passed?"}
+    G -->|"No"| H["One bounded repair LLM"]
+    H --> I["Fresh final verification"]
+    G -->|"Yes"| J["Deterministic citation audit and scoring"]
+    I --> J
+    J --> K["Persist match ledger"]
 ```
 
 ## LLM boundaries
@@ -41,14 +44,15 @@ flowchart TD
 
 Extracts every core responsibility, mandatory qualification, preferred
 qualification, and constraint. Every matched or partial row must cite a
-supplied canonical claim. A same-thread retry is allowed only when a job was
-omitted.
+supplied canonical claim. Routed topic excerpts help interpret ambiguous
+requirements but cannot be cited independently. A same-thread retry is allowed
+only when a job was omitted.
 
 ### `match.tier2-evidence`
 
-Runs only for unresolved rows and reads a bounded selection of already acquired
-candidate knowledge. It cannot browse. Its citations must map back to the
-canonical ledger.
+Runs only for unresolved rows and reads bounded topic excerpts plus relevant
+sections from linked source pages. It cannot browse. Its citations must map
+back to the canonical ledger.
 
 ### `match.verification`
 

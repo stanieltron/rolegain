@@ -2,7 +2,8 @@
 
 [Back to Evidence Ingestion](../README.md) · [Stage implementation](./index.ts) ·
 [Canonical model implementation](./evidence-model.ts) ·
-[Profile provenance audit](./profile-evidence/README.md)
+[Profile provenance audit](./profile-evidence/README.md) ·
+[Knowledge-base publisher](./knowledge-base/README.md)
 
 This is a deterministic, fail-closed stage. The model does not verify its own
 quotations.
@@ -16,26 +17,27 @@ quotations.
 ```mermaid
 flowchart TD
     A["Audit profile provenance"] --> B["Apply supported profile facts and insights"]
-    B --> C["Write one knowledge note per analyzed source"]
-    C --> D["Locate every quoted claim in source text"]
-    D --> E["Build canonical claims, capabilities and constraints"]
+    B --> C["Locate every quoted claim in source text"]
+    C --> D["Build canonical claims, capabilities and constraints"]
+    D --> E["Build layered knowledge pages from verified evidence"]
     E --> F["Calculate readiness blockers and warnings"]
-    F --> G["Persist the evidence run"]
+    F --> G["Atomically persist the evidence run and knowledge base"]
     G --> H["Publish workspace intelligence state"]
 ```
 
 1. Accept a new source-derived profile value only when a provenance item points
    to an exact quote in an active source. Existing user-confirmed values remain
    authoritative. Invalid phone-like year ranges are rejected.
-2. Write human-readable source notes under
-   `job-search/runs/<candidate-id>/knowledge/`.
-3. Build source blocks and accept a claim only when its exact quotation can be
+2. Build source blocks and accept a claim only when its exact quotation can be
    found in the current source content.
-4. Aggregate accepted claims into capabilities, constraints, timeline,
+3. Aggregate accepted claims into capabilities, constraints, timeline,
    unknowns, contradictions, prohibited inferences, role families, and search
    vocabulary.
+4. Publish `knowledge/START_HERE.md`, `knowledge/index.json`, capability pages,
+   and deep source pages from the verified model and source-reader notes.
 5. Compute deterministic readiness blockers and warnings.
-6. Persist the canonical run and update the workspace pointer.
+6. Atomically persist the canonical run and its knowledge directory, then
+   update the workspace pointer.
 7. Mark analyzed sources ready and advance profile setup when its prerequisites
    are satisfied.
 
@@ -44,7 +46,9 @@ flowchart TD
 The evidence-run directory contains a manifest plus JSON/JSONL ledgers for
 sources, source blocks, claims, profile evidence, capabilities, constraints,
 timeline, unknowns, contradictions, prohibited inferences, role families,
-search vocabulary, and readiness.
+search vocabulary, and readiness. It also contains a layered `knowledge/`
+directory for human review and future retrieval. Canonical claim IDs and exact
+source quotations remain authoritative.
 
 ## Readiness rule
 

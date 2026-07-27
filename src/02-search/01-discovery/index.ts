@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { JobOpportunity, JobResearchFailure, JobSearchWorkspace } from "../../contracts/job-search.js";
 import type { CodexExecClient } from "../../codex-runtime/client.js";
+import { productionModel } from "../../codex-runtime/call-manifest.js";
 import {
   buildInput as buildWebSearchInput,
   command as WEB_SEARCH_COMMAND,
@@ -753,10 +754,7 @@ export async function discoverWebJobsWithAgent(
   const runtime = await codex.start();
   if (!runtime.authenticated)
     throw new Error("Codex is not authenticated for live web job search");
-  const model =
-    process.env.ROLEGAIN_SEARCH_MODEL ??
-    runtime.models.find((item) => item.id === "gpt-5.4")?.id ??
-    runtime.model;
+  const model = productionModel(WEB_SEARCH_COMMAND, runtime.model);
   const workIntent = discoveryWorkIntent(workspace);
   const canonicalPlan = phase2DiscoveryPacket(phase2Evidence);
   const queryPortfolio = phase2QueryPortfolio(phase2Evidence, waveNumber);

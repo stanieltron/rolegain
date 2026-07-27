@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -19,6 +19,7 @@ import {
   phase2DiscoveryPacket,
   phase2QueryPortfolio,
   retrieveCanonicalClaimLedger,
+  retrieveKnowledgeRoutes,
 } from "../src/search-match-shared/evidence-context.js";
 
 describe("canonical Phase 2 evidence", () => {
@@ -108,9 +109,73 @@ describe("canonical Phase 2 evidence", () => {
     ).toEqual([]);
   });
 
+  it("uses wiki retrieval terms to expose canonical evidence for an ambiguous requirement", async () => {
+    const fixture = await canonicalFixture();
+    const knowledgeIndexFile = path.join(
+      fixture.root,
+      "job-search",
+      "runs",
+      fixture.workspace.candidateId,
+      "evidence-runs",
+      fixture.workspace.intelligence.evidenceRun!.id,
+      "knowledge",
+      "index.json",
+    );
+    const knowledgeIndex = JSON.parse(
+      await readFile(knowledgeIndexFile, "utf8"),
+    ) as {
+      pages: Array<{
+        title: string;
+        keywords: string[];
+      }>;
+    };
+    const agentPage = knowledgeIndex.pages.find(
+      (page) => page.title === "agent control planes",
+    )!;
+    agentPage.keywords.push("complex software delivery");
+    await writeFile(
+      knowledgeIndexFile,
+      `${JSON.stringify(knowledgeIndex, null, 2)}\n`,
+      "utf8",
+    );
+
+    const context = await loadPhase2EvidenceContext(
+      fixture.root,
+      fixture.workspace,
+    );
+    const ambiguousJob = opportunity(
+      "job-ambiguous",
+      "Technical Specialist",
+      "Own complex software delivery under ambiguous requirements.",
+    );
+    const routes = retrieveKnowledgeRoutes(context!, [ambiguousJob]);
+    expect(routes[0].pages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "agent control planes",
+          claimIds: expect.arrayContaining([expect.stringMatching(/^claim-/)]),
+        }),
+      ]),
+    );
+    expect(routes[0].pages[0].content).toContain("Canonical claim");
+
+    const withoutWiki = { ...context!, knowledgePages: [] };
+    expect(
+      retrieveCanonicalClaimLedger(withoutWiki, [ambiguousJob])[0].evidence,
+    ).toEqual([]);
+    expect(
+      retrieveCanonicalClaimLedger(context!, [ambiguousJob])[0].evidence,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ capability: "agent control planes" }),
+      ]),
+    );
+  });
+
   it("matches requirements from canonical claims and preserves their locator", async () => {
     const fixture = await canonicalFixture();
     let assessorPrompt = "";
+    const callModels: Array<{ callId: string; model: string }> = [];
     const context = await loadPhase2EvidenceContext(
       fixture.root,
       fixture.workspace,
@@ -128,7 +193,18 @@ describe("canonical Phase 2 evidence", () => {
         model: "test-model",
         models: [{ id: "test-model" }],
       }),
-      startThread: async ({ role }: { role: string }) => ({ id: role }),
+      startThread: async ({
+        callId,
+        role,
+        model,
+      }: {
+        callId: string;
+        role: string;
+        model: string;
+      }) => {
+        callModels.push({ callId, model });
+        return { id: role };
+      },
       runTurn: async ({ threadId, prompt }: { threadId: string; prompt: string }) => {
         if (threadId === "job-requirement-assessor") {
           assessorPrompt = prompt;
@@ -173,6 +249,8 @@ describe("canonical Phase 2 evidence", () => {
     const assessed = Array.isArray(result) ? result : result.opportunities;
     expect(assessorPrompt).toContain(fixture.workspace.intelligence.evidenceRun!.id);
     expect(assessorPrompt).toContain(citation.claimId);
+    expect(assessorPrompt).toContain("knowledgeRoutesByJob");
+    expect(assessorPrompt).toContain("This page is a routing and synthesis layer");
     expect(assessorPrompt).not.toContain("LEGACY_INSIGHT_SHOULD_NOT_BE_USED");
     expect(assessed[0].fit).toBe(81);
     expect(assessed[0].scoreBreakdown).toMatchObject({
@@ -189,6 +267,10 @@ describe("canonical Phase 2 evidence", () => {
       locator: citation.locator,
       excerpt: citation.excerpt,
     });
+    expect(callModels).toEqual([
+      { callId: "match.requirements", model: "gpt-5.6-terra" },
+      { callId: "match.verification", model: "gpt-5.6-luna" },
+    ]);
   });
 
   it("does not allow a weak canonical claim to produce a full match", async () => {

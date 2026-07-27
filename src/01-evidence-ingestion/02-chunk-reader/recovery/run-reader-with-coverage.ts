@@ -1,5 +1,6 @@
 import type { JobSearchWorkspace } from "../../../contracts/job-search.js";
 import type { CodexExecClient } from "../../../codex-runtime/client.js";
+import { productionModel } from "../../../codex-runtime/call-manifest.js";
 import {
   buildInput as buildSourceChunkPrompt,
   command as SOURCE_READER_COMMAND,
@@ -71,7 +72,7 @@ export interface ChunkRepairResult {
 export async function analyzeChunkOnce(input: {
   codex: CodexExecClient;
   cwd: string;
-  model: string;
+  model?: string;
   job: ChunkReadJob;
   recoveryFeedback?: string[];
   normalize: (
@@ -80,7 +81,8 @@ export async function analyzeChunkOnce(input: {
     locator: string,
   ) => SourceChunkNotes;
 }): Promise<ChunkAnalysisResult> {
-  const { codex, cwd, model, job } = input;
+  const { codex, cwd, job } = input;
+  const model = input.model ?? productionModel(SOURCE_READER_COMMAND);
   const readerThread = await codex.startThread({
     cwd,
     callId: "evidence.chunk-analysis",
@@ -122,12 +124,13 @@ export async function analyzeChunkOnce(input: {
 export async function verifyChunkCoverageOnce(input: {
   codex: CodexExecClient;
   cwd: string;
-  model: string;
+  model?: string;
   job: ChunkReadJob;
   extraction: SourceChunkNotes;
   attempt?: number;
 }): Promise<ChunkCoverageResult> {
-  const { codex, cwd, model, job } = input;
+  const { codex, cwd, job } = input;
+  const model = input.model ?? productionModel(COVERAGE_COMMAND);
   const attempt = input.attempt || 1;
   const coverageThread = await codex.startThread({
     cwd,
@@ -170,12 +173,13 @@ export async function verifyChunkCoverageOnce(input: {
 export async function repairChunkOnce(input: {
   codex: CodexExecClient;
   cwd: string;
-  model: string;
+  model?: string;
   job: ChunkReadJob;
   extraction: SourceChunkNotes;
   coverage: CoverageDecision;
 }): Promise<ChunkRepairResult> {
-  const { codex, cwd, model, job } = input;
+  const { codex, cwd, job } = input;
+  const model = input.model ?? productionModel(REPAIR_COMMAND);
   const repairThread = await codex.startThread({
     cwd,
     callId: "evidence.chunk-repair",
@@ -212,7 +216,7 @@ export async function repairChunkOnce(input: {
 export async function readAndVerifyChunk(input: {
   codex: CodexExecClient;
   cwd: string;
-  model: string;
+  model?: string;
   job: ChunkReadJob;
   normalize: (
     value: Partial<SourceChunkNotes>,
@@ -220,19 +224,37 @@ export async function readAndVerifyChunk(input: {
     locator: string,
   ) => SourceChunkNotes;
 }): Promise<ChunkReadResult> {
-  const { codex, cwd, model, job } = input;
+  const { codex, cwd, job } = input;
   const readerThreadIds: string[] = [];
   const coverageThreadIds: string[] = [];
   const repairThreadIds: string[] = [];
   const repairs: ChunkRepairPatch[] = [];
 
-  const analysis = await analyzeChunkOnce({
-    codex,
-    cwd,
-    model,
-    job,
-    normalize: input.normalize,
-  });
+  let analysis: ChunkAnalysisResult | undefined;
+  let readerError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      analysis = await analyzeChunkOnce({
+        codex,
+        cwd,
+        model: input.model,
+        job,
+        normalize: input.normalize,
+        recoveryFeedback:
+          attempt === 1
+            ? []
+            : [
+                "The previous reader output failed deterministic exact-source validation. Every profileEvidence.quote and sourceEvidence.quote must be one contiguous, byte-for-byte substring of this chunk. Do not join labels and sentences, normalize punctuation, or add conjunctions. Omit evidence that cannot be quoted exactly.",
+              ],
+      });
+      break;
+    } catch (error) {
+      readerError = error;
+      if (attempt === 2 || !isRetryableReaderValidationError(error))
+        throw error;
+    }
+  }
+  if (!analysis) throw readerError;
   readerThreadIds.push(analysis.threadId);
   let notes = analysis.notes;
   let finalCoverage: ChunkCoverageResult | undefined;
@@ -240,7 +262,7 @@ export async function readAndVerifyChunk(input: {
     finalCoverage = await verifyChunkCoverageOnce({
       codex,
       cwd,
-      model,
+      model: input.model,
       job,
       extraction: notes,
       attempt,
@@ -261,7 +283,7 @@ export async function readAndVerifyChunk(input: {
     const repair = await repairChunkOnce({
       codex,
       cwd,
-      model,
+      model: input.model,
       job,
       extraction: notes,
       coverage: finalCoverage.decision,
@@ -282,5 +304,16 @@ export async function readAndVerifyChunk(input: {
     finalCoverage?.decision.feedback.length
       ? finalCoverage.decision.feedback
       : ["The independently verified repaired extraction remains incomplete."],
+  );
+}
+
+function isRetryableReaderValidationError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes(
+      "Deterministic result gateway rejected evidence.chunk-analysis",
+    ) &&
+    (message.includes("SOURCE_TEXT_NOT_IN_INPUT") ||
+      message.includes("SOURCE_ID_MISMATCH"))
   );
 }

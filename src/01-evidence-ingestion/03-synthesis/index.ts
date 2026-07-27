@@ -1,5 +1,7 @@
 import type { JobSearchWorkspace } from "../../contracts/job-search.js";
 import type { CodexExecClient } from "../../codex-runtime/client.js";
+import { productionModel } from "../../codex-runtime/call-manifest.js";
+import type { ProfileFieldEvidenceDraft } from "../../contracts/evidence.js";
 import {
   buildInput as buildSynthesisPrompt,
   command as SYNTHESIS_COMMAND,
@@ -18,12 +20,14 @@ export async function synthesizeCandidateEvidence(input: {
   codex: CodexExecClient;
   cwd: string;
   workspace: JobSearchWorkspace;
-  model: string;
+  /** Explicit inspection/eval override. */
+  model?: string;
   reading: ChunkReadingResult;
   message?: string;
   onProgress?: (progress: CandidateAnalysisProgress) => void | Promise<void>;
 }): Promise<CandidateAnalysisResult> {
-  const { codex, cwd, workspace, model, reading, message, onProgress } = input;
+  const { codex, cwd, workspace, reading, message, onProgress } = input;
+  const model = input.model ?? productionModel(SYNTHESIS_COMMAND);
 
   // 1. Tell the product that all reader calls have joined.
   await onProgress?.({
@@ -63,7 +67,45 @@ export async function synthesizeCandidateEvidence(input: {
   const synthesis = JSON.parse(turn.finalText) as EvidenceSynthesisOutput;
   return {
     ...synthesis,
+    profileEvidence: restoreSelectedProfileEvidence(
+      synthesis,
+      reading,
+    ),
     threadId: thread.id,
     sourceInsights: reading.sourceInsights,
   };
+}
+
+function restoreSelectedProfileEvidence(
+  synthesis: EvidenceSynthesisOutput,
+  reading: ChunkReadingResult,
+) {
+  const readerEvidence = reading.sourceNotes.flatMap((source) =>
+    source.chunks.flatMap((chunk) => chunk.profileEvidence),
+  );
+  const selectedReaderEvidence = readerEvidence.filter((evidence) => {
+    const selected = synthesis.profile[evidence.field];
+    return Array.isArray(selected)
+      ? selected.some((value) => sameValue(value, evidence.value))
+      : sameValue(selected, evidence.value);
+  });
+  const seen = new Set<string>();
+  return [
+    ...(synthesis.profileEvidence || []),
+    ...selectedReaderEvidence,
+  ].filter((evidence: ProfileFieldEvidenceDraft) => {
+    const key = [
+      evidence.field,
+      evidence.value.trim().toLowerCase(),
+      evidence.sourceId,
+      evidence.quote,
+    ].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function sameValue(left: string, right: string) {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
 }

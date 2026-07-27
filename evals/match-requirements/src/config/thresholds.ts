@@ -1,7 +1,7 @@
 export const MATCH_REQUIREMENTS_RELEASE_THRESHOLDS = {
   dataset: {
-    minimumCases: 50,
-    minimumGoldRows: 100,
+    minimumCases: 52,
+    minimumGoldRows: 108,
     humanReviewedRate: 1,
   },
   execution: {
@@ -18,7 +18,7 @@ export const MATCH_REQUIREMENTS_RELEASE_THRESHOLDS = {
   reliability: {
     minimumPassAllTrialsRate: 0.95,
     maximumUnstableCaseRate: 0.05,
-    // With 50 cases, 48/50 has a 95% Wilson lower bound of about 0.865.
+    // With 52 cases, 50/52 has a 95% Wilson lower bound of about 0.87.
     minimumPassAllTrialsLowerBound95: 0.85,
   },
   component: {

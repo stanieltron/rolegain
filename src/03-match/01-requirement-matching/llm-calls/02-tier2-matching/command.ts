@@ -1,1 +1,1 @@
-export const command = { runtime: "codex-exec", role: "tier2-requirement-assessor", modelEnvironment: "ROLEGAIN_FAST_MODEL", defaultModel: "gpt-5.4-mini", sandbox: "readOnly", approvalPolicy: "never", effort: "low", timeoutMs: 4 * 60_000, webSearch: "disabled" } as const;
+export const command = { runtime: "codex-exec", role: "tier2-requirement-assessor", modelEnvironment: "ROLEGAIN_FAST_MODEL", defaultModel: "gpt-5.6-terra", sandbox: "readOnly", approvalPolicy: "never", effort: "low", timeoutMs: 4 * 60_000, webSearch: "disabled" } as const;

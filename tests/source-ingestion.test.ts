@@ -2,6 +2,7 @@ import { Document, Packer, Paragraph } from "docx";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import {
+  isReadableDisclosureLabel,
   normalizeWebUrl,
   readSupplementalEvidence,
   readUploadedDocument,
@@ -33,6 +34,17 @@ describe("candidate source ingestion", () => {
 
   it("blocks private-network webpage ingestion", async () => {
     await expect(readSupplementalEvidence({ kind: "webpage", name: "local", url: "http://127.0.0.1/private" })).rejects.toThrow("Private network URLs");
+  });
+
+  it("expands only read-only detail disclosures during webpage ingestion", () => {
+    expect(
+      isReadableDisclosureLabel(
+        "Show detailed case study Deep technical sections and implementation notes",
+      ),
+    ).toBe(true);
+    expect(isReadableDisclosureLabel("View more technical details")).toBe(true);
+    expect(isReadableDisclosureLabel("Submit and publish details")).toBe(false);
+    expect(isReadableDisclosureLabel("Delete more records")).toBe(false);
   });
 
   it("hashes normalized supplemental text for duplicate prevention", async () => {

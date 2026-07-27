@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  chunkSourceForAnalysis,
   chunkSourceWithLocators,
   joinCandidateSourceChunkReadings,
   normalizeChunkNotes,
@@ -82,7 +83,46 @@ describe("Stage 02 — chunk reader", () => {
     ]);
   });
 
-  it("02.1a does not turn non-representable warning context into a blocker", async () => {
+  it("02.1a packs small website pages and preserves context for oversized pages", () => {
+    const firstPage = [
+      "Page: https://example.test/project-a",
+      "Project A - built by the candidate",
+      "I designed and implemented this system.",
+      "A".repeat(19_000),
+    ].join("\n");
+    const secondPage = [
+      "Page: https://example.test/project-b",
+      "Project B",
+      "I operated this service.",
+    ].join("\n");
+    const chunks = chunkSourceForAnalysis({
+      kind: "webpage",
+      content: `${firstPage}\n\n${secondPage}`,
+    });
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].content).toContain("Page: https://example.test/project-a");
+    expect(chunks[0].content).toContain(
+      "Page: https://example.test/project-b",
+    );
+
+    const oversized = chunkSourceForAnalysis({
+      kind: "webpage",
+      content: `${firstPage}${"A".repeat(35_000)}\n\n${secondPage}`,
+    });
+    expect(oversized.length).toBeGreaterThan(1);
+    expect(oversized[1].content).toContain(
+      "[Repeated page context for attribution and orientation]",
+    );
+    expect(oversized[1].content).toContain(
+      "I designed and implemented this system.",
+    );
+    expect(oversized.at(-1)?.content).toContain(
+      "Page: https://example.test/project-b",
+    );
+  });
+
+  it("02.1b does not turn non-representable warning context into a blocker", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "inspection-warning-"));
     const workspace = mockWorkspaceWithCv();
     const prepared = prepareCandidateSourceChunks(workspace);
@@ -239,6 +279,46 @@ describe("Stage 02 — chunk reader", () => {
     expect(output.sourceNotes[0].chunks).toHaveLength(chunkCount);
     expect(output.sourceInsights[0].insights).toHaveLength(1);
     expect(output.sourceInsights[0].claims).toHaveLength(chunkCount);
+  });
+
+  it("02.4a rebases cached webpage evidence to the current source id", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "inspection-reader-cache-"));
+    const firstWorkspace = mockWorkspaceWithCv();
+    firstWorkspace.sources[0] = {
+      ...firstWorkspace.sources[0],
+      id: "first-source-id",
+      kind: "webpage",
+      url: "https://example.test/profile",
+      contentHash: "stable-page-content",
+    };
+    const firstCodex = mockCodex([
+      mockChunkNotes(firstWorkspace.sources[0].id),
+      mockCoverage(),
+    ]);
+    await readCandidateSourceChunks({
+      codex: firstCodex.client,
+      cwd,
+      workspace: firstWorkspace,
+      model: "mock-model",
+    });
+
+    const resetWorkspace = structuredClone(firstWorkspace);
+    resetWorkspace.sources[0].id = "reset-source-id";
+    const cachedCodex = mockCodex([]);
+    const cached = await readCandidateSourceChunks({
+      codex: cachedCodex.client,
+      cwd,
+      workspace: resetWorkspace,
+      model: "mock-model",
+    });
+
+    expect(cachedCodex.calls).toHaveLength(0);
+    expect(
+      cached.sourceInsights[0].claims?.[0].sourceEvidence[0].sourceId,
+    ).toBe("reset-source-id");
+    expect(cached.sourceNotes[0].chunks[0].profileEvidence[0].sourceId).toBe(
+      "reset-source-id",
+    );
   });
 
   it("02.5 patches only the failed chunk and verifies the merged extraction", async () => {

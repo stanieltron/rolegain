@@ -37,6 +37,10 @@ import {
   type SourceRef,
   type SourceSnapshot,
 } from "../../contracts/evidence.js";
+import {
+  buildEvidenceKnowledgeBase,
+  writeEvidenceKnowledgeBase,
+} from "./knowledge-base/index.js";
 
 const OWNERSHIP_RANK: EvidenceOwnership[] = [
   "unknown",
@@ -108,6 +112,16 @@ export async function persistCanonicalEvidenceRun(input: {
   const constraints = candidateConstraints(workspace.profile);
   const roleFamilies = canonicalRoleFamilies(analysis, capabilities, workspace.profile);
   const searchVocabulary = canonicalSearchVocabulary(analysis, capabilities, roleFamilies);
+  const knowledge = buildEvidenceKnowledgeBase({
+    workspace,
+    analysis,
+    snapshots,
+    claims,
+    capabilities,
+    roleFamilies,
+    unknowns,
+    prohibitedInferences,
+  });
   const readiness = evidenceReadiness({
     snapshots,
     blocks,
@@ -132,6 +146,7 @@ export async function persistCanonicalEvidenceRun(input: {
       profileEvidence,
       roleFamilies,
       searchVocabulary,
+      knowledge: knowledge.files,
       readiness,
     }),
   );
@@ -158,6 +173,7 @@ export async function persistCanonicalEvidenceRun(input: {
     "role-families.json",
     "search-vocabulary.json",
     "readiness.json",
+    ...knowledge.files.map((file) => path.posix.join("knowledge", file.path)),
     "manifest.json",
   ];
   const manifest: EvidenceRunManifest = {
@@ -196,6 +212,7 @@ export async function persistCanonicalEvidenceRun(input: {
         writeJson(path.join(temporary, "role-families.json"), roleFamilies),
         writeJson(path.join(temporary, "search-vocabulary.json"), searchVocabulary),
         writeJson(path.join(temporary, "readiness.json"), readiness),
+        writeEvidenceKnowledgeBase(temporary, knowledge),
         writeJson(path.join(temporary, "manifest.json"), manifest),
       ]);
       await rename(temporary, runDirectory);
@@ -1024,21 +1041,41 @@ export async function readCurrentEvidenceRun(dataRoot: string, candidateId: stri
 
 export async function readCurrentEvidenceModel(dataRoot: string, candidateId: string) {
   const current = await readCurrentEvidenceRun(dataRoot, candidateId);
+  return readEvidenceModelFromDirectory(current.manifest, current.directory);
+}
+
+export async function readEvidenceModel(
+  dataRoot: string,
+  candidateId: string,
+  evidenceRunId: string,
+) {
+  const root = path.join(dataRoot, "job-search", "runs", candidateId, "evidence-runs");
+  const directory = path.join(root, evidenceRunId);
+  const manifest = JSON.parse(
+    await readFile(path.join(directory, "manifest.json"), "utf8"),
+  ) as EvidenceRunManifest;
+  return readEvidenceModelFromDirectory(manifest, directory);
+}
+
+async function readEvidenceModelFromDirectory(
+  manifest: EvidenceRunManifest,
+  directory: string,
+) {
   const [claims, capabilities, constraints, unknowns, contradictions, prohibitedInferences, profileEvidence, roleFamilies, searchVocabulary, readiness] =
     await Promise.all([
-      readJsonlFile(path.join(current.directory, "claims.jsonl")),
-      readJsonFile(path.join(current.directory, "capabilities.json")),
-      readJsonFile(path.join(current.directory, "constraints.json")),
-      readJsonFile(path.join(current.directory, "unknowns.json")),
-      readJsonFile(path.join(current.directory, "contradictions.json")),
-      readJsonFile(path.join(current.directory, "prohibited-inferences.json")),
-      readJsonFile(path.join(current.directory, "profile-evidence.json")),
-      readJsonFile(path.join(current.directory, "role-families.json")),
-      readJsonFile(path.join(current.directory, "search-vocabulary.json")),
-      readJsonFile(path.join(current.directory, "readiness.json")),
+      readJsonlFile(path.join(directory, "claims.jsonl")),
+      readJsonFile(path.join(directory, "capabilities.json")),
+      readJsonFile(path.join(directory, "constraints.json")),
+      readJsonFile(path.join(directory, "unknowns.json")),
+      readJsonFile(path.join(directory, "contradictions.json")),
+      readJsonFile(path.join(directory, "prohibited-inferences.json")),
+      readJsonFile(path.join(directory, "profile-evidence.json")),
+      readJsonFile(path.join(directory, "role-families.json")),
+      readJsonFile(path.join(directory, "search-vocabulary.json")),
+      readJsonFile(path.join(directory, "readiness.json")),
     ]);
   return {
-    manifest: current.manifest,
+    manifest,
     claims,
     capabilities,
     constraints,

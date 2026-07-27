@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { persistCanonicalEvidenceRun } from "../../../../src/01-evidence-ingestion/04-verification/evidence-model.js";
 import type { CandidateAnalysisResult } from "../../../../src/01-evidence-ingestion/types.js";
@@ -12,6 +12,7 @@ import type { EvidenceClaim } from "../../../../src/contracts/evidence.js";
 import {
   loadPhase2EvidenceContext,
   retrieveCanonicalClaimLedger,
+  retrieveKnowledgeRoutes,
 } from "../../../../src/search-match-shared/evidence-context.js";
 import type {
   MatchEvalClaim,
@@ -51,12 +52,25 @@ export async function prepareMatchEvalCase(
       return [claim.key, persistedClaim.claimId];
     }),
   );
+  await applyKnowledgeRoutes(
+    testCase,
+    persisted.directory,
+    claimIdByKey,
+  );
   const opportunity = opportunityFor(testCase);
   const context = await loadPhase2EvidenceContext(dataRoot, workspace);
   if (!context) throw new Error(`${testCase.id}: canonical context was not persisted`);
   const sourceLedger = retrieveCanonicalClaimLedger(context, [opportunity], 80)
     .flatMap((packet) => packet.evidence);
-  return { testCase, workspace, opportunity, sourceLedger, claimIdByKey };
+  const knowledgeRoutesByJob = retrieveKnowledgeRoutes(context, [opportunity]);
+  return {
+    testCase,
+    workspace,
+    opportunity,
+    sourceLedger,
+    claimIdByKey,
+    knowledgeRoutesByJob,
+  };
 }
 
 function sourceFor(testCase: MatchRequirementsEvalCase): CandidateSource {
@@ -157,7 +171,7 @@ function analysisFor(
     prohibitedInferences: [],
     roleFamilies: [
       {
-        canonicalTitle: testCase.title,
+        canonicalTitle: testCase.candidateRoleTitle || testCase.title,
         titleAliases: [],
         problemPhrases: testCase.responsibilities,
         leadingCapabilities: testCase.claims.map((claim) => claim.capability),
@@ -166,7 +180,7 @@ function analysisFor(
         confidence: 0.9,
       },
       {
-        canonicalTitle: `${testCase.title} Adjacent`,
+        canonicalTitle: `${testCase.candidateRoleTitle || testCase.title} Adjacent`,
         titleAliases: [],
         problemPhrases: [],
         leadingCapabilities: testCase.claims.map((claim) => claim.capability),
@@ -176,7 +190,7 @@ function analysisFor(
       },
     ],
     searchVocabulary: {
-      titleAliases: [testCase.title],
+      titleAliases: [testCase.candidateRoleTitle || testCase.title],
       evidenceIntersections: testCase.claims.map((claim) => claim.capability),
       problemPhrases: testCase.responsibilities,
       toolsMethodsStandards: testCase.claims.flatMap(
@@ -246,3 +260,47 @@ async function readJsonl<T>(file: string): Promise<T[]> {
     .map((line) => JSON.parse(line) as T);
 }
 
+async function applyKnowledgeRoutes(
+  testCase: MatchRequirementsEvalCase,
+  runDirectory: string,
+  claimIdByKey: Record<string, string>,
+) {
+  if (!testCase.knowledgeRoutes?.length) return;
+  const indexFile = path.join(runDirectory, "knowledge", "index.json");
+  const index = JSON.parse(await readFile(indexFile, "utf8")) as {
+    pages: Array<{
+      type: string;
+      path: string;
+      summary: string;
+      keywords: string[];
+      claimIds: string[];
+    }>;
+  };
+  for (const route of testCase.knowledgeRoutes) {
+    const claimId = claimIdByKey[route.claimKey];
+    if (!claimId)
+      throw new Error(
+        `${testCase.id}: unknown knowledge-route claim key ${route.claimKey}`,
+      );
+    const page = index.pages.find(
+      (item) =>
+        item.type === "capability" && item.claimIds.includes(claimId),
+    );
+    if (!page)
+      throw new Error(
+        `${testCase.id}: no capability page contains ${route.claimKey}`,
+      );
+    page.keywords = [
+      ...new Set([...route.retrievalTerms, ...page.keywords]),
+    ].slice(0, 40);
+    page.summary = `${page.summary} ${route.narrative}`.trim();
+    const pageFile = path.join(runDirectory, "knowledge", page.path);
+    const content = await readFile(pageFile, "utf8");
+    await writeFile(
+      pageFile,
+      `${content.trim()}\n\n## Evaluation retrieval context\n\n${route.narrative}\n\n**Retrieval terms:** ${route.retrievalTerms.join(", ")}\n`,
+      "utf8",
+    );
+  }
+  await writeFile(indexFile, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+}

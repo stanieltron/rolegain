@@ -45,7 +45,7 @@ describe("candidate intelligence", () => {
     expect(results).toEqual(items.map((item) => `chunk-${item}`));
   });
 
-  it("uses GPT-5.4 mini and always runs synthesis after chunk analysis", async () => {
+  it("uses per-call evidence models and always runs synthesis after chunk analysis", async () => {
     const roles: string[] = [];
     const models: string[] = [];
     const threadRoles = new Map<string, string>();
@@ -192,12 +192,12 @@ describe("candidate intelligence", () => {
       "candidate-intelligence",
     ]);
     expect(models).toEqual([
-      "gpt-5.4-mini",
-      "gpt-5.4-mini",
-      "gpt-5.4-mini",
-      "gpt-5.4-mini",
-      "gpt-5.4-mini",
-      "gpt-5.4-mini",
+      "gpt-5.6-luna",
+      "gpt-5.6-luna",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.6-luna",
+      "gpt-5.6-terra",
     ]);
     expect(result.profile.headline).toBe("Platform engineer");
     expect(resumed.profile.headline).toBe("Platform engineer");
@@ -396,7 +396,7 @@ describe("candidate intelligence", () => {
     );
     const detailRef = workspace.sources[0].knowledgePath;
     expect(detailRef).toMatch(
-      /^job-search\/runs\/[^/]+\/knowledge\/nina-cv-txt-[^.]+\.md$/,
+      /^job-search\/runs\/[^/]+\/evidence-runs\/evidence-[^/]+\/knowledge\/sources\/nina-cv-dot-txt-[^.]+\.md$/,
     );
     expect(workspace.sources[0].insights[0].detailRef).toBe(detailRef);
     expect(

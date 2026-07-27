@@ -1,5 +1,21 @@
 import type { JobOpportunity, JobSearchWorkspace } from "../contracts/job-search.js";
-import { readCurrentEvidenceModel } from "../01-evidence-ingestion/04-verification/evidence-model.js";
+import { readEvidenceModel } from "../01-evidence-ingestion/04-verification/evidence-model.js";
+import {
+  knowledgeOverlap as overlap,
+  knowledgeTokens as tokens,
+  loadEvidenceKnowledgePages,
+  normalizeKnowledgeText as normalize,
+  retrieveKnowledgeRoutes,
+  type Phase2KnowledgePage,
+} from "./knowledge-context.js";
+export {
+  retrieveKnowledgeRoutes,
+  selectKnowledgeExcerpt,
+} from "./knowledge-context.js";
+export type {
+  Phase2KnowledgePage,
+  Phase2KnowledgeRoute,
+} from "./knowledge-context.js";
 import type {
   CandidateConstraints,
   CandidateContradiction,
@@ -51,6 +67,7 @@ export interface Phase2EvidenceContext {
   prohibitedInferences: ProhibitedInference[];
   searchLanes: Phase2SearchLane[];
   sourceNames: Record<string, string>;
+  knowledgePages: Phase2KnowledgePage[];
 }
 
 export interface CanonicalClaimCitation {
@@ -96,20 +113,22 @@ export async function loadPhase2EvidenceContext(
     throw new Error(
       `Canonical evidence is not ready for search: ${expected.blockers.join("; ") || "readiness gate failed"}`,
     );
-  const model = (await readCurrentEvidenceModel(
+  const model = (await readEvidenceModel(
     dataRoot,
     workspace.candidateId,
+    expected.id,
   )) as StoredEvidenceModel;
-  if (model.manifest.evidenceRunId !== expected.id)
-    throw new Error(
-      `Canonical evidence pointer mismatch: workspace expects ${expected.id}, current run is ${model.manifest.evidenceRunId}`,
-    );
   if (!model.readiness.readyForSearch)
     throw new Error(
       `Canonical evidence is not ready for search: ${model.readiness.blockers.join("; ") || "readiness gate failed"}`,
     );
   const sourceNames = Object.fromEntries(
     workspace.sources.map((source) => [source.id, source.name]),
+  );
+  const knowledgePages = await loadEvidenceKnowledgePages(
+    dataRoot,
+    workspace.candidateId,
+    model.manifest.evidenceRunId,
   );
   return {
     evidenceRunId: model.manifest.evidenceRunId,
@@ -129,6 +148,7 @@ export async function loadPhase2EvidenceContext(
       model.searchVocabulary,
     ),
     sourceNames,
+    knowledgePages,
   };
 }
 
@@ -329,11 +349,21 @@ export function retrieveCanonicalClaimLedger(
         capability,
       ]);
   return opportunities.map((opportunity) => {
+    const knowledgeRoutes = retrieveKnowledgeRoutes(context, [opportunity])[0]
+      ?.pages || [];
+    const knowledgeScoreByClaim = new Map<string, number>();
+    for (const route of knowledgeRoutes)
+      for (const claimId of route.claimIds)
+        knowledgeScoreByClaim.set(
+          claimId,
+          Math.max(knowledgeScoreByClaim.get(claimId) || 0, route.score),
+        );
     const alignment = canonicalOpportunityAlignment(context, {
       title: opportunity.title,
       description: `${opportunity.summary} ${opportunity.description || ""}`,
     });
-    if (alignment < 20) return { jobId: opportunity.id, evidence: [] };
+    if (alignment < 20 && knowledgeRoutes.length === 0)
+      return { jobId: opportunity.id, evidence: [] };
     const jobText = `${opportunity.title} ${opportunity.summary} ${opportunity.description || ""}`;
     const jobTokens = tokens(jobText);
     const ranked = context.claims
@@ -372,14 +402,19 @@ export function retrieveCanonicalClaimLedger(
         )
           ? 4
           : 0;
+        const knowledgeScore = knowledgeScoreByClaim.get(claim.claimId) || 0;
         return {
           claim,
           hasSubstantiveOverlap:
-            capabilityOverlap > 0 || claimOverlap >= 2 || roleBonus > 0,
+            capabilityOverlap > 0 ||
+            claimOverlap >= 2 ||
+            roleBonus > 0 ||
+            knowledgeScore > 0,
           score:
             capabilityOverlap * 7 +
             claimOverlap * 3 +
             roleBonus +
+            Math.min(20, knowledgeScore) +
             claim.confidence +
             (claim.supportStatus === "supported" ? 2 : 0),
         };
@@ -552,43 +587,6 @@ function rankCapabilityTools(
 
 function roleClassRank(value: RoleFamily["roleClass"]) {
   return value === "direct" ? 0 : value === "adjacent" ? 1 : 2;
-}
-
-function overlap(left: Set<string>, right: Set<string>) {
-  let count = 0;
-  for (const token of left) if (right.has(token)) count += 1;
-  return count;
-}
-
-function tokens(value: string) {
-  const stopwords = new Set([
-    "and",
-    "are",
-    "build",
-    "building",
-    "candidate",
-    "experience",
-    "for",
-    "from",
-    "have",
-    "role",
-    "the",
-    "with",
-  ]);
-  return new Set(
-    normalize(value)
-      .split(/[^a-z0-9+#.]+/)
-      .filter((token) => token.length >= 3 && !stopwords.has(token)),
-  );
-}
-
-function normalize(value: string) {
-  return value
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function unique(values: string[]) {

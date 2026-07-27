@@ -1,4 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { JobSearchWorkspace } from "../../contracts/job-search.js";
 import {
@@ -10,6 +9,7 @@ import {
   auditProfileEvidence,
   type ProfileEvidenceAudit,
 } from "./profile-evidence/index.js";
+import { knowledgeSourceFilename } from "./knowledge-base/index.js";
 
 /**
  * Stage 4: apply model output, audit exact quotations, persist the current
@@ -32,15 +32,8 @@ export async function verifyAndPersistEvidence(input: {
   });
   applyCandidateAnalysis(workspace, analysis, profileEvidence);
 
-  // 2. Persist one human-readable knowledge note per analyzed source.
-  await persistKnowledgeNotes(
-    dataRoot,
-    workspace,
-    analysis,
-    sourceIdsToAnalyze,
-  );
-
-  // 3. Deterministically audit quotes and write the canonical evidence model.
+  // 2. Deterministically audit quotes and atomically write both the canonical
+  // ledgers and their layered, human-readable knowledge base.
   const evidenceRun = await persistCanonicalEvidenceRun({
     dataRoot,
     workspace,
@@ -48,6 +41,23 @@ export async function verifyAndPersistEvidence(input: {
     profileEvidence: profileEvidence.verified,
     profileEvidenceBlockers: profileEvidence.blockers,
   });
+
+  // 3. Link each analyzed source to its immutable deep knowledge page.
+  for (const source of workspace.sources) {
+    if (!sourceIdsToAnalyze.has(source.id)) continue;
+    source.knowledgePath = path.posix.join(
+      "job-search",
+      "runs",
+      workspace.candidateId,
+      "evidence-runs",
+      evidenceRun.manifest.evidenceRunId,
+      "knowledge",
+      "sources",
+      knowledgeSourceFilename(source),
+    );
+    for (const insight of source.insights)
+      insight.detailRef = source.knowledgePath;
+  }
 
   // 4. Publish readiness and mark every analyzed source complete.
   workspace.intelligence.evidenceRun = {
@@ -151,50 +161,6 @@ function applyCandidateAnalysis(
   }
 }
 
-async function persistKnowledgeNotes(
-  dataRoot: string,
-  workspace: JobSearchWorkspace,
-  analysis: CandidateAnalysisResult,
-  sourceIdsToAnalyze: ReadonlySet<string>,
-) {
-  const knowledgeDirectory = path.join(
-    dataRoot,
-    "job-search",
-    "runs",
-    workspace.candidateId,
-    "knowledge",
-  );
-  await mkdir(knowledgeDirectory, { recursive: true });
-  const resultBySource = new Map(
-    analysis.sourceInsights.map((group) => [group.sourceId, group]),
-  );
-
-  for (const source of workspace.sources) {
-    if (sourceIdsToAnalyze.has(source.id)) {
-      const group = resultBySource.get(source.id);
-      if (group) {
-        const filename = knowledgeFilename(source);
-        source.knowledgePath = path.posix.join(
-          "job-search",
-          "runs",
-          workspace.candidateId,
-          "knowledge",
-          filename,
-        );
-        await writeFile(
-          path.join(knowledgeDirectory, filename),
-          renderKnowledgeMarkdown(source, group.knowledgeMarkdown),
-          "utf8",
-        );
-      }
-    }
-
-    if (source.knowledgePath)
-      for (const insight of source.insights)
-        insight.detailRef = source.knowledgePath;
-  }
-}
-
 function advanceProfileSetupAfterAnalysis(workspace: JobSearchWorkspace) {
   if (!workspace.sources.some((source) => source.kind === "cv")) return;
   const evidenceReady =
@@ -210,43 +176,6 @@ function advanceProfileSetupAfterAnalysis(workspace: JobSearchWorkspace) {
     workspace.profileSetupStep ?? 1,
     basicsReady ? 3 : 2,
   ) as 2 | 3 | 4;
-}
-
-function knowledgeFilename(source: JobSearchWorkspace["sources"][number]) {
-  const slug =
-    source.name
-      .normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 64) || "source";
-  const id = source.id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 12);
-  return `${slug}-${id}.md`;
-}
-
-function renderKnowledgeMarkdown(
-  source: JobSearchWorkspace["sources"][number],
-  generated: string | undefined,
-) {
-  const details =
-    generated?.trim() ||
-    source.insights
-      .map(
-        (insight) =>
-          `## ${insight.title}\n\n${insight.summary}\n\n**Source evidence:** ${insight.evidence}\n\n**Skills:** ${insight.skills.join(", ") || "Not specified"}`,
-      )
-      .join("\n\n");
-  const metadata = [
-    `- Source ID: \`${source.id}\``,
-    `- Kind: ${source.kind}`,
-    source.url ? `- URL: ${source.url}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-  return `# ${source.name}\n\n${metadata}\n\n${
-    details || "No job-relevant detail was identified in this source."
-  }\n`;
 }
 
 function isPlausiblePhone(value: string) {

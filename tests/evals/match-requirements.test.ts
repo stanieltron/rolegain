@@ -16,13 +16,13 @@ describe("match-requirements eval corpus", () => {
     expect(new Set(matchRequirementsCorpus.map((item) => item.id)).size).toBe(
       matchRequirementsCorpus.length,
     );
-    expect(matchRequirementsCorpus).toHaveLength(50);
+    expect(matchRequirementsCorpus).toHaveLength(52);
     expect(
       matchRequirementsCorpus.reduce(
         (total, testCase) => total + testCase.expected.length,
         0,
       ),
-    ).toBeGreaterThanOrEqual(100);
+    ).toBe(108);
     for (const testCase of matchRequirementsCorpus) {
       const claimKeys = testCase.claims.map((item) => item.key);
       expect(new Set(claimKeys).size).toBe(claimKeys.length);
@@ -37,6 +37,11 @@ describe("match-requirements eval corpus", () => {
         expect(
           expected.allowedClaimKeys.every((key) => claimKeys.includes(key)),
         ).toBe(true);
+      }
+      for (const route of testCase.knowledgeRoutes || []) {
+        expect(claimKeys).toContain(route.claimKey);
+        expect(route.retrievalTerms.length).toBeGreaterThan(0);
+        expect(route.narrative.trim()).not.toBe("");
       }
     }
   });
@@ -59,13 +64,14 @@ describe("match-requirements eval corpus", () => {
       duration_quantity: 4,
       requirement_extraction: 5,
       citation_integrity: 4,
+      knowledge_routing: 2,
     });
     expect(matchRequirementsCorpus.filter((item) => item.split === "development"))
-      .toHaveLength(25);
+      .toHaveLength(26);
     expect(matchRequirementsCorpus.filter((item) => item.split === "test"))
-      .toHaveLength(25);
+      .toHaveLength(26);
     expect(matchRequirementsCorpus.filter((item) => item.verifierChallenge))
-      .toHaveLength(50);
+      .toHaveLength(52);
     expect(matchRequirementsCorpus.filter((item) => item.repairChallenge).length)
       .toBeGreaterThanOrEqual(15);
   });
@@ -90,6 +96,21 @@ describe("match-requirements eval corpus", () => {
         rowAccuracy: 1,
         citationPrecision: 1,
       });
+      for (const route of testCase.knowledgeRoutes || []) {
+        const claimId = prepared.claimIdByKey[route.claimKey];
+        expect(
+          prepared.knowledgeRoutesByJob[0].pages.some(
+            (page) =>
+              page.claimIds.includes(claimId) &&
+              page.content.includes(route.narrative),
+          ),
+          `${testCase.id}: expected routed knowledge page for ${route.claimKey}`,
+        ).toBe(true);
+        expect(
+          prepared.sourceLedger.some((citation) => citation.claimId === claimId),
+          `${testCase.id}: routed claim missing from canonical ledger`,
+        ).toBe(true);
+      }
       if (testCase.verifierChallenge)
         expect(() =>
           buildAssessmentChallenge(prepared, testCase.verifierChallenge!),

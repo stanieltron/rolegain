@@ -23,6 +23,7 @@ import {
 import {
   loadPhase2EvidenceContext,
   retrieveCanonicalClaimLedger,
+  retrieveKnowledgeRoutes,
 } from "../../../../src/search-match-shared/evidence-context.js";
 import { matchRequirementsCorpus } from "../dataset/corpus.js";
 import { prepareMatchEvalCase } from "../dataset/fixtures.js";
@@ -280,6 +281,7 @@ async function runJob(
         workspace: prepared.workspace,
         opportunity: prepared.opportunity,
         canonicalLedger: prepared.sourceLedger,
+        knowledgeRoutesByJob: prepared.knowledgeRoutesByJob,
       });
       await writeJson(path.join(artifactDirectory, "gold.json"), {
         corpusVersion: MATCH_REQUIREMENTS_CORPUS_VERSION,
@@ -470,6 +472,9 @@ async function runMatchRequirementsComponent(input: {
   const evidenceByJob = retrieveCanonicalClaimLedger(phase2Evidence, [
     input.prepared.opportunity,
   ]);
+  const knowledgeRoutesByJob = retrieveKnowledgeRoutes(phase2Evidence, [
+    input.prepared.opportunity,
+  ]);
   const thread = await input.codex.startThread({
     cwd: input.cwd,
     callId: "match.requirements",
@@ -485,6 +490,7 @@ async function runMatchRequirementsComponent(input: {
       assessmentEvidence: {
         evidenceRunId: phase2Evidence.evidenceRunId,
         evidenceByJob,
+        knowledgeRoutesByJob,
         materialUnknowns: phase2Evidence.unknowns.filter(
           (unknown) => unknown.materiality !== "low",
         ),

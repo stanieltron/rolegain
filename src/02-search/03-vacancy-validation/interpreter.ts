@@ -1,4 +1,5 @@
 import type { CodexExecClient } from "../../codex-runtime/client.js";
+import { productionModel } from "../../codex-runtime/call-manifest.js";
 import {
   buildInput as buildListingExtractionInput,
   command as LISTING_EXTRACTION_COMMAND,
@@ -126,10 +127,7 @@ export async function extractVacancyLeadsFromListing(
   limit = 8,
 ): Promise<ListingVacancyLead[]> {
   const runtime = await codex.start();
-  const model =
-    process.env.ROLEGAIN_FAST_MODEL ||
-    runtime.models.find((item) => item.id === "gpt-5.4-mini")?.id ||
-    runtime.model;
+  const model = productionModel(LISTING_EXTRACTION_COMMAND, runtime.model);
   const thread = await codex.startThread({
     cwd,
     callId: "search.listing-extraction",
@@ -194,10 +192,7 @@ export async function interpretVacancySnapshot(
   },
 ): Promise<VacancyInterpretation> {
   const runtime = await codex.start();
-  const model =
-    process.env.ROLEGAIN_FAST_MODEL ||
-    runtime.models.find((item) => item.id === "gpt-5.4-mini")?.id ||
-    runtime.model;
+  const model = productionModel(VACANCY_VERIFICATION_COMMAND, runtime.model);
   const thread = await codex.startThread({
     cwd,
     callId: "search.vacancy-verification",

@@ -18,11 +18,10 @@ import {
   type ChunkRepairResult,
 } from "../../01-evidence-ingestion/02-chunk-reader/recovery/run-reader-with-coverage.js";
 import { applyChunkRepairPatch } from "../../01-evidence-ingestion/02-chunk-reader/repair/apply-chunk-repair.js";
-import { command as SOURCE_READER_COMMAND } from "../../01-evidence-ingestion/02-chunk-reader/llm-calls/01-chunk-analysis/index.js";
 import type { JobSearchWorkspace } from "../../contracts/job-search.js";
 import type { ChunkReadingResult } from "../../01-evidence-ingestion/types.js";
 import type { EvidenceInput } from "../../01-evidence-ingestion/evidence-ingestion.js";
-import { CodexExecClient } from "../../codex-runtime/client.js";
+import { createLlmClient } from "../../llm-runtime/client.js";
 import { createRolegainDependencies } from "./composition.js";
 import { MOCK_CV_TEXT } from "../../01-evidence-ingestion/inspection/fixtures.js";
 
@@ -247,16 +246,15 @@ export async function runEvidencePipelineStage(input: {
     } else {
       const workspace = requireWorkspace(resolved);
       const job = selectJob(resolved, input.target);
-      const codex = new CodexExecClient(projectRoot);
+      const codex = createLlmClient(projectRoot);
       try {
         const runtime = await codex.start();
-        if (!runtime.authenticated) throw new Error("Codex is not authenticated");
-        const model = evidenceModel();
+        if (!runtime.authenticated)
+          throw new Error("The configured LLM transport is not authenticated");
         if (input.stage === "chunk-analysis") {
           const analysis = await analyzeChunkOnce({
             codex,
             cwd: projectRoot,
-            model,
             job,
             recoveryFeedback:
               resolved.recoveryFeedback || resolved.coverage?.decision.feedback,
@@ -278,7 +276,6 @@ export async function runEvidencePipelineStage(input: {
           const coverage = await verifyChunkCoverageOnce({
             codex,
             cwd: projectRoot,
-            model,
             job,
             extraction: analysis.notes,
             attempt,
@@ -308,7 +305,6 @@ export async function runEvidencePipelineStage(input: {
           const repair = await repairChunkOnce({
             codex,
             cwd: projectRoot,
-            model,
             job,
             extraction: resolved.analysis.notes,
             coverage: resolved.coverage.decision,
@@ -339,7 +335,6 @@ export async function runEvidencePipelineStage(input: {
           const chunkResult = await readAndVerifyChunk({
             codex,
             cwd: projectRoot,
-            model,
             job,
             normalize: normalizeChunkNotes,
           });
@@ -674,13 +669,6 @@ async function writeNaturalOutputs(
       characters: job.chunk.length,
       file: `chunk-${String(index + 1).padStart(3, "0")}.txt`,
     })),
-  );
-}
-
-function evidenceModel() {
-  return (
-    process.env[SOURCE_READER_COMMAND.modelEnvironment] ||
-    SOURCE_READER_COMMAND.defaultModel
   );
 }
 

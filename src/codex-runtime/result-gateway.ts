@@ -120,11 +120,34 @@ export function evaluateResultGateway(input: {
   const exactKeys = EXACT_SOURCE_KEYS[input.callId];
   if (exactKeys) {
     checks.push("exact-source-grounding");
+    const sources = sourceCandidates(input.prompt);
+    if (
+      input.callId === "match.requirements" ||
+      input.callId === "match.tier2-evidence" ||
+      input.callId === "match.repair"
+    ) {
+      sanitizeContainedExcerptGrounding(output, sources, adjustments);
+      sanitizeDuplicateAssessmentRequirements(output, adjustments);
+      sanitizeMatchedAssessmentState(output, adjustments);
+    }
+    if (input.callId === "evidence.chunk-analysis")
+      sanitizeChunkAnalysisGrounding(output, sources, adjustments);
+    if (input.callId === "evidence.chunk-coverage")
+      sanitizeChunkCoverageGrounding(output, sources, adjustments);
+    if (input.callId === "evidence.chunk-repair") {
+      if (isObject(output))
+        sanitizeChunkAnalysisGrounding(
+          output.additions,
+          sources,
+          adjustments,
+        );
+      sanitizeChunkRepairReferences(output, adjustments);
+    }
     validateExactSourceStrings(
       output,
       "$",
       exactKeys,
-      sourceCandidates(input.prompt),
+      sources,
       defects,
       adjustments,
     );
@@ -255,6 +278,259 @@ function validateExactSourceStrings(
       adjustments,
     );
   }
+}
+
+function sanitizeContainedExcerptGrounding(
+  output: unknown,
+  sources: string[],
+  adjustments: ResultGatewayAdjustment[],
+) {
+  visitObjects(output, "$", (item, path) => {
+    const excerpt = item.excerpt;
+    if (
+      typeof excerpt !== "string" ||
+      !excerpt.trim() ||
+      sources.some((source) => source.includes(excerpt))
+    )
+      return;
+    const replacement = sources
+      .filter((source) => source.length >= 20 && excerpt.includes(source))
+      .sort((left, right) => right.length - left.length)[0];
+    if (!replacement) return;
+    adjustments.push({
+      code: "CONTAINED_EXCERPT_ALIGNED",
+      path: `${path}.excerpt`,
+      message:
+        "Replaced a concatenated match evidence excerpt with the longest exact supplied source span it contained",
+      before: excerpt,
+      after: replacement,
+    });
+    item.excerpt = replacement;
+  });
+}
+
+function sanitizeDuplicateAssessmentRequirements(
+  output: unknown,
+  adjustments: ResultGatewayAdjustment[],
+) {
+  for (const [assessment, path] of assessmentObjects(output)) {
+    if (!Array.isArray(assessment.requirements)) continue;
+    const seen = new Set<string>();
+    const kept: unknown[] = [];
+    for (const [index, row] of assessment.requirements.entries()) {
+      if (!isObject(row) || typeof row.requirement !== "string") {
+        kept.push(row);
+        continue;
+      }
+      const key = row.requirement.trim().toLowerCase();
+      if (!key || !seen.has(key)) {
+        if (key) seen.add(key);
+        kept.push(row);
+        continue;
+      }
+      adjustments.push({
+        code: "DUPLICATE_REQUIREMENT_DROPPED",
+        path: `${path}.requirements[${index}]`,
+        message:
+          "Dropped a repeated match requirement row after preserving the first occurrence",
+        before: row,
+        after: undefined,
+      });
+    }
+    assessment.requirements = kept;
+  }
+}
+
+function sanitizeMatchedAssessmentState(
+  output: unknown,
+  adjustments: ResultGatewayAdjustment[],
+) {
+  for (const [assessment, path] of assessmentObjects(output)) {
+    if (!Array.isArray(assessment.requirements)) continue;
+    assessment.requirements.forEach((row, index) => {
+      if (
+        !isObject(row) ||
+        row.status !== "matched" ||
+        row.gapSeverity === undefined ||
+        row.gapSeverity === "none"
+      )
+        return;
+      adjustments.push({
+        code: "MATCHED_GAP_SEVERITY_ALIGNED",
+        path: `${path}.requirements[${index}].gapSeverity`,
+        message:
+          "Set gapSeverity to none for a row that the model classified as matched",
+        before: row.gapSeverity,
+        after: "none",
+      });
+      row.gapSeverity = "none";
+    });
+  }
+}
+
+function assessmentObjects(output: unknown) {
+  if (!isObject(output)) return [];
+  if (Array.isArray(output.assessments)) {
+    const assessments: Array<readonly [Record<string, unknown>, string]> = [];
+    output.assessments.forEach((item, index) => {
+      if (isObject(item)) assessments.push([item, `$.assessments[${index}]`]);
+    });
+    return assessments;
+  }
+  return [[output, "$"] as const];
+}
+
+function visitObjects(
+  value: unknown,
+  path: string,
+  visitor: (item: Record<string, unknown>, path: string) => void,
+) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => visitObjects(item, `${path}[${index}]`, visitor));
+    return;
+  }
+  if (!isObject(value)) return;
+  visitor(value, path);
+  for (const [key, nested] of Object.entries(value))
+    visitObjects(nested, `${path}.${key}`, visitor);
+}
+
+function sanitizeChunkAnalysisGrounding(
+  output: unknown,
+  sources: string[],
+  adjustments: ResultGatewayAdjustment[],
+) {
+  if (!isObject(output)) return;
+  if (Array.isArray(output.profileEvidence))
+    output.profileEvidence = output.profileEvidence.filter((item, index) =>
+      keepGroundedEvidenceItem(
+        item,
+        sources,
+        `$.profileEvidence[${index}]`,
+        adjustments,
+      ),
+    );
+  if (!Array.isArray(output.claims)) return;
+  output.claims = output.claims.filter((claim, claimIndex) => {
+    if (!isObject(claim) || !Array.isArray(claim.sourceEvidence)) return true;
+    const groundedEvidence = claim.sourceEvidence.filter((item, evidenceIndex) =>
+      keepGroundedEvidenceItem(
+        item,
+        sources,
+        `$.claims[${claimIndex}].sourceEvidence[${evidenceIndex}]`,
+        adjustments,
+      ),
+    );
+    claim.sourceEvidence = groundedEvidence;
+    if (groundedEvidence.length > 0) return true;
+    adjustments.push({
+      code: "UNGROUNDED_CLAIM_DROPPED",
+      path: `$.claims[${claimIndex}]`,
+      message:
+        "Dropped a chunk-reader claim after all of its source quotations failed exact-source validation",
+      before: claim,
+      after: undefined,
+    });
+    return false;
+  });
+}
+
+function sanitizeChunkCoverageGrounding(
+  output: unknown,
+  sources: string[],
+  adjustments: ResultGatewayAdjustment[],
+) {
+  if (!isObject(output) || !Array.isArray(output.missingEvidence)) return;
+  const groundedFindings = output.missingEvidence.filter((item, index) => {
+    if (!isObject(item) || typeof item.quote !== "string" || !item.quote.trim())
+      return true;
+    const quote = item.quote;
+    if (
+      sources.some(
+        (source) =>
+          source.includes(quote) || Boolean(alignSourceWhitespace(source, quote)),
+      )
+    )
+      return true;
+    adjustments.push({
+      code: "UNGROUNDED_COVERAGE_FINDING_DROPPED",
+      path: `$.missingEvidence[${index}]`,
+      message:
+        "Dropped one coverage finding whose supporting quotation was not present in the supplied source chunk; the incomplete verdict remains unchanged",
+      before: item,
+      after: undefined,
+    });
+    return false;
+  });
+  output.missingEvidence = groundedFindings;
+  const blocking = groundedFindings.some(
+    (finding) => isObject(finding) && finding.severity === "blocking",
+  );
+  const hasUnsupported = asArray(output.unsupportedExtractions).length > 0;
+  if (output.complete === true && (blocking || hasUnsupported)) {
+    adjustments.push({
+      code: "COVERAGE_VERDICT_CORRECTED",
+      path: "$.complete",
+      message:
+        "Changed a contradictory complete verdict to incomplete while preserving all blocking and unsupported findings",
+      before: true,
+      after: false,
+    });
+    output.complete = false;
+  }
+}
+
+function sanitizeChunkRepairReferences(
+  output: unknown,
+  adjustments: ResultGatewayAdjustment[],
+) {
+  if (!isObject(output) || !Array.isArray(output.removals)) return;
+  const resolutions = new Set(
+    asArray(output.resolutions)
+      .filter(isObject)
+      .map((item) => item.findingId)
+      .filter((value): value is string => typeof value === "string"),
+  );
+  output.removals = output.removals.filter((removal, index) => {
+    if (
+      !isObject(removal) ||
+      typeof removal.findingId !== "string" ||
+      resolutions.has(removal.findingId)
+    )
+      return true;
+    adjustments.push({
+      code: "ORPHANED_REPAIR_REMOVAL_DROPPED",
+      path: `$.removals[${index}]`,
+      message:
+        "Dropped one removal that had no corresponding finding resolution; unresolved removals are not applied",
+      before: removal,
+      after: undefined,
+    });
+    return false;
+  });
+}
+
+function keepGroundedEvidenceItem(
+  item: unknown,
+  sources: string[],
+  path: string,
+  adjustments: ResultGatewayAdjustment[],
+) {
+  if (!isObject(item) || typeof item.quote !== "string" || !item.quote.trim())
+    return true;
+  const quote = item.quote;
+  if (sources.some((source) => source.includes(quote))) return true;
+  if (sources.some((source) => alignSourceWhitespace(source, quote)))
+    return true;
+  adjustments.push({
+    code: "UNGROUNDED_EVIDENCE_DROPPED",
+    path,
+    message:
+      "Dropped one chunk-reader evidence item whose quotation was not present in the supplied source chunk",
+    before: item,
+    after: undefined,
+  });
+  return false;
 }
 
 function sourceCandidates(prompt: string) {

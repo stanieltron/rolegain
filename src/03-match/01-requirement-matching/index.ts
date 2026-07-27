@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { JobOpportunity, JobResearchFailure, JobSearchWorkspace, RequirementMatch } from "../../contracts/job-search.js";
 import type { CodexExecClient } from "../../codex-runtime/client.js";
+import { productionModel } from "../../codex-runtime/call-manifest.js";
 import { ResultGatewayError } from "../../codex-runtime/result-gateway.js";
 import {
   buildInput as buildRequirementMatchingInput,
@@ -30,6 +31,8 @@ import {
   canonicalCitationIsValid,
   loadPhase2EvidenceContext,
   retrieveCanonicalClaimLedger,
+  retrieveKnowledgeRoutes,
+  selectKnowledgeExcerpt,
   type CanonicalClaimCitation,
   type Phase2EvidenceContext,
 } from "../../search-match-shared/evidence-context.js";
@@ -61,13 +64,27 @@ export async function matchOpportunities(input: {
         phase: "match",
         state: "running",
       });
-      return assessOpportunityWithAgent(
-        codex,
-        cwd,
-        dataRoot,
-        workspace,
-        opportunity,
-      );
+      try {
+        return await assessOpportunityWithAgent(
+          codex,
+          cwd,
+          dataRoot,
+          workspace,
+          opportunity,
+        );
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        await onProgress?.({
+          item: progressItemFromOpportunity(opportunity),
+          phase: "match",
+          state: "failed",
+          reason,
+        });
+        return {
+          opportunities: [],
+          failures: [failureFromOpportunity(opportunity, "requirements", reason)],
+        };
+      }
     },
   );
   const result = {
@@ -106,9 +123,7 @@ export async function assessOpportunityWithAgent(
     throw new Error("Codex is not authenticated for requirement matching");
   const model =
     modelOverride ??
-    process.env.ROLEGAIN_FAST_MODEL ??
-    runtime.models.find((item) => item.id === "gpt-5.4-mini")?.id ??
-    runtime.model;
+    productionModel(REQUIREMENT_MATCHING_COMMAND, runtime.model);
   const thread = await codex.startThread({
     cwd,
     callId: "match.requirements",
@@ -133,6 +148,10 @@ export async function assessOpportunityWithAgent(
   const assessmentEvidence = {
     evidenceRunId: phase2Evidence.evidenceRunId,
     evidenceByJob: canonicalPackets,
+    knowledgeRoutesByJob: retrieveKnowledgeRoutes(
+      phase2Evidence,
+      opportunities,
+    ),
     materialUnknowns: phase2Evidence.unknowns.filter(
       (unknown) => unknown.materiality !== "low",
     ),
@@ -173,7 +192,7 @@ export async function assessOpportunityWithAgent(
   const escalated = await escalateUnresolvedRequirements(
     codex,
     cwd,
-    model,
+    modelOverride,
     opportunities,
     [assessment],
     phase2Evidence,
@@ -186,7 +205,7 @@ export async function assessOpportunityWithAgent(
   const verified = await verifyAndRepairAssessments(
     codex,
     cwd,
-    model,
+    modelOverride,
     verificationLedger,
     opportunities,
     [assessment],
@@ -436,13 +455,14 @@ export async function escalateUnresolvedRequirements(
     phase2Evidence,
   );
   if (documents.length === 0) return { assessments, documents };
+  const tier2Model = model ?? productionModel(TIER2_MATCHING_COMMAND);
 
   const thread = await codex.startThread({
     cwd,
     callId: "match.tier2-evidence",
     role: TIER2_MATCHING_COMMAND.role,
     sandbox: "read-only",
-    model,
+    model: tier2Model,
     approvalPolicy: TIER2_MATCHING_COMMAND.approvalPolicy,
     developerInstructions: TIER2_MATCHING_ROLE_PROMPT,
   });
@@ -451,7 +471,7 @@ export async function escalateUnresolvedRequirements(
     cwd,
     sandbox: TIER2_MATCHING_COMMAND.sandbox,
     outputSchema: tier2AssessmentsSchema,
-    model,
+    model: tier2Model,
     effort: TIER2_MATCHING_COMMAND.effort,
     timeoutMs: TIER2_MATCHING_COMMAND.timeoutMs,
     prompt: buildTier2MatchingInput({ unresolved, documents }),
@@ -530,19 +550,68 @@ export async function loadTier2MatchingDocuments(
     retrievalJobs,
     80,
   ).flatMap((packet) => packet.evidence);
+  const knowledgeRoutes = retrieveKnowledgeRoutes(
+    phase2Evidence,
+    retrievalJobs,
+    4,
+  ).flatMap((packet) => packet.pages);
   const bySource = new Map<string, CanonicalClaimCitation[]>();
   for (const citation of citations)
     bySource.set(citation.sourceId, [
       ...(bySource.get(citation.sourceId) || []),
       citation,
     ]);
-  return [...bySource.entries()].map(([sourceId, sourceCitations]) => ({
-    sourceId,
-    sourceName: phase2Evidence.sourceNames[sourceId] || sourceId,
-    detailRef: `canonical:${phase2Evidence.evidenceRunId}:${sourceId}`,
-    content: JSON.stringify(uniqueCanonicalCitations(sourceCitations), null, 2),
-    citations: uniqueCanonicalCitations(sourceCitations),
-  }));
+  const unresolvedText = retrievalJobs
+    .map(
+      (job) =>
+        `${job.title}\n${job.summary}\n${job.description || ""}`,
+    )
+    .join("\n");
+  return [...bySource.entries()].map(([sourceId, sourceCitations]) => {
+    const sourcePage = phase2Evidence.knowledgePages.find(
+      (page) => page.type === "source" && page.sourceIds.includes(sourceId),
+    );
+    const routedTopics = knowledgeRoutes
+      .filter((page) => page.sourceIds.includes(sourceId))
+      .map((page) => ({
+        title: page.title,
+        path: page.path,
+        summary: page.summary,
+        claimIds: page.claimIds,
+        excerpt: page.content,
+      }));
+    const knowledgeContext = [
+      ...routedTopics,
+      ...(sourcePage
+        ? [{
+            title: sourcePage.title,
+            path: sourcePage.path,
+            summary: sourcePage.summary,
+            claimIds: sourcePage.claimIds,
+            excerpt: selectKnowledgeExcerpt(
+              sourcePage.content,
+              unresolvedText,
+              12_000,
+            ),
+          }]
+        : []),
+    ];
+    const canonicalCitations = uniqueCanonicalCitations(sourceCitations);
+    return {
+      sourceId,
+      sourceName: phase2Evidence.sourceNames[sourceId] || sourceId,
+      detailRef: `knowledge:${phase2Evidence.evidenceRunId}:${sourceId}`,
+      content: JSON.stringify(
+        {
+          knowledgeContext,
+          canonicalCitations,
+        },
+        null,
+        2,
+      ),
+      citations: canonicalCitations,
+    };
+  });
 }
 
 export function uniqueCanonicalCitations(values: CanonicalClaimCitation[]) {
@@ -806,12 +875,13 @@ export async function verifyAndRepairAssessments(
     };
 
   const failedIds = new Set(failed.map((item) => item.jobId));
+  const repairModel = model ?? productionModel(MATCH_REPAIR_COMMAND);
   const thread = await codex.startThread({
     cwd,
     callId: "match.repair",
     role: MATCH_REPAIR_COMMAND.role,
     sandbox: "read-only",
-    model,
+    model: repairModel,
     approvalPolicy: MATCH_REPAIR_COMMAND.approvalPolicy,
     developerInstructions: MATCH_REPAIR_ROLE_PROMPT,
   });
@@ -820,7 +890,7 @@ export async function verifyAndRepairAssessments(
     cwd,
     sandbox: MATCH_REPAIR_COMMAND.sandbox,
     outputSchema: matchRepairSchema,
-    model,
+    model: repairModel,
     effort: MATCH_REPAIR_COMMAND.effort,
     timeoutMs: MATCH_REPAIR_COMMAND.timeoutMs,
   } as const;

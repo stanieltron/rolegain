@@ -26,6 +26,14 @@ Source name: ${input.source.name}
 Source locator: ${input.locator}
 Instruction-shaped signals: ${signals.length ? JSON.stringify(signals) : "none"}
 
+Patch rules:
+- Unsupported extraction findings require removal, not an explanatory addition.
+- To correct a claim, remove the current claim and add a corrected claim. A claim removal's match must equal one existing sourceEvidence.quote exactly; do not use a claim id, action, or capability.
+- A profileEvidence removal's match must equal its existing value or quote. Removing a scalar or list profile fact also requires a profileFact removal whose match is the field name.
+- Every removal findingId must have one matching resolution.
+- Crawler \`Page:\` markers are provenance, not profile facts. Dataset and replay-window dates are not role/project startDate or endDate values.
+- Preserve only exact source-supported evidence. The next independent verifier decides whether the patch is sufficient.
+
 <current_extraction_json>
 ${serializeUntrustedJson(input.extraction)}
 </current_extraction_json>

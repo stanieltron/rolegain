@@ -21,7 +21,7 @@ export function buildInput({
   const action = message
     ? `Re-analyze the supplied candidate evidence with this additional context:\n${message}`
     : "Extract the candidate profile and concrete career evidence from all sources.";
-  const roleSignals = uniqueObjects(
+  const allRoleSignals = uniqueObjects(
     sourceNotes.flatMap((source) =>
       source.chunks.flatMap((chunk) =>
         chunk.claims.map((claim) => ({
@@ -41,18 +41,48 @@ export function buildInput({
     (claim) =>
       `${claim.action}|${claim.capability}|${claim.ownership}|${claim.maturity}|${claim.scope}`.toLowerCase(),
   );
-  const profileFacts = sourceNotes.flatMap((source) =>
-    source.chunks.map((chunk) => ({
-      sourceId: source.sourceId,
-      ...chunk.profileFacts,
-    })),
+  const roleSignals = selectRoleSignals(allRoleSignals, 40).map((claim) => ({
+    action: claim.action,
+    capability: claim.capability,
+    workContexts: claim.workContexts.slice(0, 4),
+    toolsMethods: claim.toolsMethods.slice(0, 10),
+    ownership: claim.ownership,
+    maturity: claim.maturity,
+    scope: claim.scope,
+    outcomes: claim.outcomes.slice(0, 3),
+  }));
+  const chunkFacts = sourceNotes.flatMap((source) =>
+    source.chunks.map((chunk) => chunk.profileFacts),
   );
-  const profileEvidence = sourceNotes.flatMap((source) =>
-    source.chunks.flatMap((chunk) => chunk.profileEvidence),
-  );
-  const materialUnknowns = sourceNotes.flatMap((source) =>
-    source.chunks.flatMap((chunk) => chunk.unknowns),
-  );
+  const profileFacts = {
+    names: unique(chunkFacts.map((facts) => facts.name)),
+    emails: unique(chunkFacts.map((facts) => facts.email)),
+    phones: unique(chunkFacts.map((facts) => facts.phone)),
+    linkedin: unique(chunkFacts.map((facts) => facts.linkedin)),
+    github: unique(chunkFacts.map((facts) => facts.github)),
+    websites: unique(chunkFacts.map((facts) => facts.website)),
+    locations: unique(chunkFacts.map((facts) => facts.location)),
+    headlines: unique(chunkFacts.map((facts) => facts.headline)).slice(0, 6),
+    summaries: unique(chunkFacts.map((facts) => facts.summary)).slice(0, 4),
+    skills: unique(chunkFacts.flatMap((facts) => facts.skills)).slice(0, 80),
+    languages: unique(chunkFacts.flatMap((facts) => facts.languages)).slice(
+      0,
+      20,
+    ),
+  };
+  const profileEvidence = uniqueObjects(
+    sourceNotes.flatMap((source) =>
+      source.chunks.flatMap((chunk) => chunk.profileEvidence),
+    ),
+    (item) =>
+      `${item.field}|${item.value}|${item.sourceId}`.toLowerCase(),
+  ).slice(0, 60);
+  const materialUnknowns = uniqueObjects(
+    sourceNotes.flatMap((source) =>
+      source.chunks.flatMap((chunk) => chunk.unknowns),
+    ),
+    (item) => `${item.field}|${item.reason}`.toLowerCase(),
+  ).slice(0, 30);
   return `${action}
 
 Current profile (preserve confirmed non-empty values):
@@ -91,6 +121,84 @@ function uniqueObjects<T>(values: T[], key: (value: T) => string): T[] {
     seen.add(identity);
     return true;
   });
+}
+
+function selectRoleSignals<T extends {
+  capability: string;
+  ownership: string;
+  maturity: string;
+  scope: string;
+  outcomes: unknown[];
+  toolsMethods: string[];
+}>(claims: T[], limit: number) {
+  const ownership = [
+    "unknown",
+    "assisted",
+    "contributor",
+    "primary",
+    "shared_owner",
+    "lead",
+    "manager",
+    "end_to_end_owner",
+    "organizational_owner",
+  ];
+  const maturity = [
+    "unknown",
+    "concept",
+    "designed",
+    "piloted",
+    "implemented",
+    "operated",
+    "measured",
+  ];
+  const scope = [
+    "unknown",
+    "task",
+    "process",
+    "component",
+    "system",
+    "service",
+    "site",
+    "team",
+    "department",
+    "product",
+    "organization",
+  ];
+  const ranked = [...claims].sort((left, right) => {
+    const score = (claim: T) =>
+      ownership.indexOf(claim.ownership) * 3 +
+      maturity.indexOf(claim.maturity) * 2 +
+      scope.indexOf(claim.scope) +
+      Math.min(3, claim.outcomes.length) * 2 +
+      Math.min(2, claim.toolsMethods.length / 4);
+    return score(right) - score(left);
+  });
+  const selected: T[] = [];
+  const capabilities = new Set<string>();
+  for (const claim of ranked) {
+    const key = claim.capability.toLowerCase().trim();
+    if (!key || capabilities.has(key)) continue;
+    selected.push(claim);
+    capabilities.add(key);
+    if (selected.length >= limit) return selected;
+  }
+  for (const claim of ranked) {
+    if (selected.includes(claim)) continue;
+    selected.push(claim);
+    if (selected.length >= limit) break;
+  }
+  return selected;
+}
+
+function unique(values: Array<string | null | undefined>) {
+  return [
+    ...new Set(
+      values
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 export const inputDescription =

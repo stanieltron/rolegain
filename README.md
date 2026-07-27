@@ -1,7 +1,8 @@
 # RolegAIn
 
 RolegAIn is an evidence-backed job search and application system powered by
-isolated Codex CLI calls. The repository is organized as composable pipelines:
+isolated LLM calls through either Codex CLI or an OpenAI-compatible API. The
+repository is organized as composable pipelines:
 each one accepts a documented input, produces a documented output, and can be
 run alone or composed by the backend control flow.
 
@@ -13,7 +14,7 @@ src/
 |   |-- 01-evidence-acquisition/ # deterministic
 |   |-- 02-chunk-reader/         # hybrid; owns its llm-calls/
 |   |-- 03-synthesis/            # LLM; owns its llm-calls/
-|   |-- 04-verification/         # deterministic
+|   |-- 04-verification/         # canonical ledger + evidence knowledge base
 |   `-- evidence-ingestion.ts    # top-level executable facade
 |-- 02-search/                   # evidence -> validated live jobs
 |   |-- 01-discovery/            # hybrid
@@ -37,6 +38,8 @@ src/
 |-- ui/                          # React user interface
 |-- contracts/                   # shared persisted data contracts
 |-- codex-runtime/               # isolated model process runtime
+|-- api-runtime/                 # OpenAI-compatible model transport
+|-- llm-runtime/                 # process-level transport selection
 `-- infrastructure/              # shared technical utilities and safety boundaries
 ```
 
@@ -61,6 +64,11 @@ Pipelines never import UI, server, or backend orchestration. The architecture
 test enforces that boundary and checks every model call against its owning
 `llm-calls/` directory and the central LLM call catalog.
 
+Each verified evidence run also publishes a compact `knowledge/` tree with an
+overview, routing index, capability topics, and deep source pages. Matching
+uses that tree to find relevant canonical claims for broad requirements, but
+only exact canonical citations can affect the final score.
+
 ## Run
 
 ```powershell
@@ -72,7 +80,26 @@ npm start
 Open `http://127.0.0.1:4317`.
 
 For development, run `npm run dev`. This starts the API on port 4317 and the UI
-on port 5173.
+on port 5173 using Codex CLI.
+
+To run the same flows through an OpenAI-compatible Chat Completions API:
+
+```powershell
+npm run dev:api
+```
+
+`dev:api` loads the gitignored `.env`; copy provider values from
+`.env.example` and replace `ROLEGAIN_API_KEY`. `ROLEGAIN_API_BASE_URL` must be
+the provider's OpenAI-compatible base URL, and `ROLEGAIN_API_MODEL` is the
+provider model used for every call. Call-specific roles, skills, task builders,
+schemas, reasoning efforts, verification, repair, and result gateways are
+unchanged.
+
+Providers differ around optional extensions. Set
+`ROLEGAIN_API_OMIT_REASONING_EFFORT=true` if the endpoint rejects that field.
+The discovery call fails closed unless `ROLEGAIN_API_WEB_SEARCH_BODY` contains
+the provider-specific JSON fields that enable grounded web search. All other
+calls use supplied context and need no provider tools.
 
 ## Run individual stages
 

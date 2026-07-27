@@ -1,5 +1,6 @@
 import type { JobOpportunity } from "../../contracts/job-search.js";
 import type { CodexExecClient } from "../../codex-runtime/client.js";
+import { productionModel } from "../../codex-runtime/call-manifest.js";
 import {
   buildInput,
   command,
@@ -22,12 +23,13 @@ export interface MatchVerificationCallInput {
 export async function runMatchVerificationCall(
   input: MatchVerificationCallInput,
 ): Promise<AssessmentVerificationOutput> {
+  const model = input.model ?? productionModel(command);
   const thread = await input.codex.startThread({
     cwd: input.cwd,
     callId: "match.verification",
     role: command.role,
     sandbox: "read-only",
-    model: input.model,
+    model,
     approvalPolicy: command.approvalPolicy,
     developerInstructions: rolePrompt,
   });
@@ -36,7 +38,7 @@ export async function runMatchVerificationCall(
     cwd: input.cwd,
     sandbox: command.sandbox,
     outputSchema,
-    model: input.model,
+    model,
     effort: command.effort,
     timeoutMs: command.timeoutMs,
     prompt: buildInput(input),

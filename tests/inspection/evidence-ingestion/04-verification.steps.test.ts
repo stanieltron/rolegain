@@ -32,7 +32,7 @@ describe("Stage 04 — deterministic verification and persistence", () => {
     expect(workspace.sources[0].insights).toHaveLength(3);
   });
 
-  it("04.2 writes one readable knowledge note for the analyzed source", async () => {
+  it("04.2 writes a layered knowledge base inside the immutable evidence run", async () => {
     const dataRoot = await mkdtemp(path.join(tmpdir(), "inspection-verify-note-"));
     const workspace = mockWorkspaceWithCv();
 
@@ -44,12 +44,47 @@ describe("Stage 04 — deterministic verification and persistence", () => {
     });
 
     expect(workspace.sources[0].knowledgePath).toBeTruthy();
-    const note = await readFile(
+    const sourcePage = await readFile(
       path.join(dataRoot, workspace.sources[0].knowledgePath!),
       "utf8",
     );
-    expect(note).toContain("# mira-cv.txt");
-    expect(note).toContain("workflow orchestration");
+    const currentRunDirectory = path.dirname(
+      path.dirname(
+        path.dirname(path.join(dataRoot, workspace.sources[0].knowledgePath!)),
+      ),
+    );
+    const startHere = await readFile(
+      path.join(currentRunDirectory, "knowledge", "START_HERE.md"),
+      "utf8",
+    );
+    const index = JSON.parse(
+      await readFile(
+        path.join(currentRunDirectory, "knowledge", "index.json"),
+        "utf8",
+      ),
+    ) as {
+      entryPoint: string;
+      pages: Array<{
+        type: string;
+        title: string;
+        path: string;
+        claimIds: string[];
+      }>;
+    };
+
+    expect(sourcePage).toContain("# mira-cv.txt");
+    expect(sourcePage).toContain("Deep reader analysis");
+    expect(sourcePage).toContain("workflow orchestration");
+    expect(sourcePage).toContain("../../claims.jsonl");
+    expect(startHere).toContain("How to use this knowledge base");
+    expect(startHere).toContain("Topic routes");
+    expect(index.entryPoint).toBe("START_HERE.md");
+    const topics = index.pages.filter((page) => page.type === "capability");
+    expect(topics.length).toBeGreaterThan(0);
+    expect(topics.every((page) => page.path.startsWith("topics/"))).toBe(true);
+    expect(
+      topics.every((page) => page.claimIds.length > 0),
+    ).toBe(true);
   });
 
   it("04.3 accepts exact quotes and publishes a search-ready evidence run", async () => {

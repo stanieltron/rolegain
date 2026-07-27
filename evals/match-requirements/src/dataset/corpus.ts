@@ -382,6 +382,149 @@ const foundationalCorpus: MatchRequirementsEvalCase[] = [
     verifierChallenge: "phantom_requirement",
     repairChallenge: "phantom_requirement",
   },
+  {
+    id: "knowledge-route-complex-delivery",
+    family: "knowledge_routing",
+    split: "development",
+    difficulty: "hard",
+    labelStatus: "machine_reviewed",
+    description:
+      "A broad software requirement must reach concrete architectural evidence through the knowledge index without treating wiki prose as a citation.",
+    tags: ["knowledge-routing", "ambiguous-requirement", "software"],
+    title: "Technical Delivery Specialist",
+    candidateRoleTitle: "Workflow Infrastructure Builder",
+    responsibilities: [
+      "Own complex software delivery in environments with incomplete requirements.",
+    ],
+    qualifications: [
+      "Ambiguous technical problem solving is required.",
+    ],
+    claims: [
+      {
+        key: "workflow-control-plane",
+        quote:
+          "Implemented dependency-aware execution waves, isolated worker scopes, durable checkpoints, and independent verifier gates.",
+        action:
+          "implemented dependency-aware execution and independent verification",
+        capability: "agent workflow control plane",
+        toolsMethods: [
+          "dependency DAGs",
+          "durable checkpoints",
+          "verifier gates",
+        ],
+        workContexts: ["agent workflow infrastructure"],
+        ownership: "primary",
+        maturity: "implemented",
+        scope: "system",
+      },
+    ],
+    knowledgeRoutes: [
+      {
+        claimKey: "workflow-control-plane",
+        retrievalTerms: [
+          "complex software delivery",
+          "ambiguous technical problem solving",
+        ],
+        narrative:
+          "The linked claim demonstrates a multi-component control plane with dependency ordering, isolation, recovery, and independent verification. These details are relevant when interpreting broad requirements about complex delivery and ambiguous technical work.",
+      },
+    ],
+    expected: [
+      {
+        id: "complex-software-delivery",
+        requirement:
+          "Own complex software delivery in environments with incomplete requirements.",
+        aliases: [["complex", "software", "delivery"]],
+        category: "responsibility",
+        allowedMatchClasses: ["explicit", "strong_adjacent"],
+        allowedClaimKeys: ["workflow-control-plane"],
+        critical: true,
+        rationale:
+          "The routed canonical claim establishes substantial system complexity, while the broad wording still requires cautious interpretation.",
+      },
+      {
+        id: "ambiguous-problem-solving",
+        requirement: "Ambiguous technical problem solving is required.",
+        aliases: [["ambiguous", "technical", "problem", "solving"]],
+        category: "mandatory",
+        allowedMatchClasses: ["strong_adjacent", "weak_adjacent"],
+        allowedClaimKeys: ["workflow-control-plane"],
+        rationale:
+          "The architecture is relevant evidence of difficult problem solving, but the source does not explicitly characterize the original requirements as ambiguous.",
+      },
+    ],
+    verifierChallenge: "clean_control",
+  },
+  {
+    id: "knowledge-route-electrical-diagnostics",
+    family: "knowledge_routing",
+    split: "test",
+    difficulty: "hard",
+    labelStatus: "machine_reviewed",
+    description:
+      "Knowledge routing must work for trade evidence and connect an abstract troubleshooting requirement to a concrete electrical diagnostic procedure.",
+    tags: ["knowledge-routing", "ambiguous-requirement", "electrical"],
+    title: "Industrial Maintenance Electrician",
+    candidateRoleTitle: "Electrical Controls Technician",
+    responsibilities: [
+      "Resolve difficult breakdowns where the cause is unclear.",
+    ],
+    qualifications: [
+      "Systematic troubleshooting under uncertainty is required.",
+    ],
+    claims: [
+      {
+        key: "conveyor-fault-isolation",
+        quote:
+          "Traced intermittent failures across PLC-controlled conveyor circuits using schematics and a multimeter, then replaced a failed contactor.",
+        action:
+          "traced intermittent failures and replaced a failed contactor",
+        capability: "PLC circuit fault isolation",
+        toolsMethods: ["electrical schematics", "multimeter", "PLC circuits"],
+        workContexts: ["industrial conveyor maintenance"],
+        ownership: "primary",
+        maturity: "implemented",
+        scope: "system",
+      },
+    ],
+    knowledgeRoutes: [
+      {
+        claimKey: "conveyor-fault-isolation",
+        retrievalTerms: [
+          "difficult breakdowns",
+          "cause is unclear",
+          "systematic troubleshooting under uncertainty",
+        ],
+        narrative:
+          "The linked claim records a systematic diagnostic sequence across an industrial electrical circuit: trace an intermittent failure, use schematics and measurement tools, identify the failed component, and complete the repair.",
+      },
+    ],
+    expected: [
+      {
+        id: "unclear-breakdown-cause",
+        requirement: "Resolve difficult breakdowns where the cause is unclear.",
+        aliases: [["difficult", "breakdowns"], ["cause", "unclear"]],
+        category: "responsibility",
+        allowedMatchClasses: ["explicit", "strong_adjacent"],
+        allowedClaimKeys: ["conveyor-fault-isolation"],
+        critical: true,
+        rationale:
+          "The concrete intermittent-fault diagnosis and completed repair directly support difficult breakdown resolution.",
+      },
+      {
+        id: "troubleshooting-uncertainty",
+        requirement: "Systematic troubleshooting under uncertainty is required.",
+        aliases: [["systematic", "troubleshooting", "uncertainty"]],
+        category: "mandatory",
+        allowedMatchClasses: ["explicit", "strong_adjacent"],
+        allowedClaimKeys: ["conveyor-fault-isolation"],
+        rationale:
+          "The diagnostic sequence and tool use demonstrate systematic troubleshooting of an initially unresolved fault.",
+      },
+    ],
+    verifierChallenge: "inflated_match",
+    repairChallenge: "inflated_match",
+  },
 ];
 
 export const matchRequirementsCorpus: MatchRequirementsEvalCase[] = [

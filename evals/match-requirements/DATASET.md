@@ -8,18 +8,21 @@ seniority/scope/duration claims, and repair regressions.
 
 ## Composition
 
-- Version: `2.0.0`
-- Cases: 50
-- Atomic gold requirements: 104
-- Development/test split: 25/25
-- Sources: synthetic candidate claims and synthetic vacancy text
+- Version: `3.0.0`
+- Cases: 52
+- Atomic gold requirements: 108
+- Development/test split: 26/26
+- Sources: synthetic candidate claims, evidence-wiki routes, and vacancy text
 - Personal data: none
 - Label status: machine-reviewed, awaiting independent human adjudication
 
 Every case supplies exact vacancy sections, canonical evidence claims, allowed
 match classes, requirement-specific allowed claim keys, criticality, aliases,
 and a written gold rationale. Some cases also contain untrusted instruction text
-or distractor evidence.
+or distractor evidence. Knowledge-routing cases add synthetic retrieval terms
+and narrative to the generated capability page after canonical evidence
+persistence. This tests the index/page contract while canonical claims remain
+the only valid citations.
 
 ## Coverage
 
@@ -34,6 +37,7 @@ or distractor evidence.
 | Requirement extraction | 5 | Omission, duplication, category, and atomicity errors |
 | Adversarial | 4 | Following instruction-shaped vacancy data |
 | Citation integrity | 4 | Valid-looking but requirement-wrong citations |
+| Knowledge routing | 2 | Missing deep evidence for broad or cross-domain requirement language |
 
 ## Splits and leakage
 
@@ -50,6 +54,10 @@ a model paraphrases aggressively. Allowed adjacent classes intentionally admit
 more than one defensible judgment. Runtime measurements depend on service tier,
 parallel load, caching, and network conditions. Add redacted real-world cases as
 a separate protected corpus before making high-stakes deployment claims.
+
+The two knowledge-routing cases validate deterministic page selection and
+claim exposure, not semantic retrieval completeness. They do not establish
+recall across every profession, language, or evidence shape.
 
 This dataset is deliberately limited to the requirement-matching decision
 boundary. Its coverage counts must not be interpreted as coverage of the

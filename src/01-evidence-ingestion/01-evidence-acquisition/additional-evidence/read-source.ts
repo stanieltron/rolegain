@@ -3,7 +3,7 @@ import { extname } from "node:path";
 import * as cheerio from "cheerio";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 import WordExtractor from "word-extractor";
 import type { CandidateSource } from "../../../contracts/job-search.js";
 import { assertPublicHttpUrl } from "../../../infrastructure/public-http.js";
@@ -417,6 +417,7 @@ async function renderWebsite(initialUrl: URL, signal?: AbortSignal): Promise<str
       if (!response?.ok()) continue;
       await page.waitForLoadState("networkidle", { timeout: 4_000 }).catch(() => undefined);
       await page.waitForTimeout(250);
+      await expandReadableDisclosures(page);
       const finalUrl = new URL(page.url());
       await assertPublicHttpUrl(finalUrl);
       if (finalUrl.origin !== allowedOrigin) continue;
@@ -459,6 +460,36 @@ async function renderWebsite(initialUrl: URL, signal?: AbortSignal): Promise<str
     signal?.removeEventListener("abort", abort);
     await browser.close();
   }
+}
+
+async function expandReadableDisclosures(page: Page) {
+  const disclosures = page.locator(
+    'main button[aria-expanded="false"][aria-controls], article button[aria-expanded="false"][aria-controls], [role="main"] button[aria-expanded="false"][aria-controls]',
+  );
+  const count = Math.min(await disclosures.count(), 24);
+  let expanded = false;
+  for (let index = 0; index < count; index += 1) {
+    const disclosure = disclosures.nth(index);
+    const label = (await disclosure.textContent().catch(() => "")) || "";
+    if (!isReadableDisclosureLabel(label)) continue;
+    await disclosure.click({ timeout: 1_500 }).catch(() => undefined);
+    expanded = true;
+  }
+  if (expanded) await page.waitForTimeout(150);
+}
+
+export function isReadableDisclosureLabel(value: string) {
+  const label = cleanText(value).toLowerCase();
+  return (
+    label.length <= 240 &&
+    /\b(?:show|read|expand|open|view)\b/.test(label) &&
+    /\b(?:details?|case study|technical|analysis|implementation|more)\b/.test(
+      label,
+    ) &&
+    !/\b(?:buy|checkout|delete|remove|submit|send|publish|sign in|log in)\b/.test(
+      label,
+    )
+  );
 }
 
 function websitePathPriority(value: string) {

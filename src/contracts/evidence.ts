@@ -1,7 +1,7 @@
 export const EVIDENCE_SCHEMA_VERSION = "1.0.0";
-export const EVIDENCE_PROMPT_VERSION = "evidence-grounding-v3";
-export const SOURCE_READER_PROMPT_VERSION = "evidence-grounding-v2";
-export const SOURCE_PARSER_VERSION = "rolegain-parser-v1";
+export const EVIDENCE_PROMPT_VERSION = "evidence-grounding-v19";
+export const SOURCE_READER_PROMPT_VERSION = "evidence-grounding-v7";
+export const SOURCE_PARSER_VERSION = "rolegain-parser-v2";
 
 export type AccessPolicy = "public" | "private_authorized" | "local_only";
 export type EvidenceSupportStatus =
