@@ -8,8 +8,8 @@ import {
   PlayCircle,
   RefreshCw,
   Search,
+  Settings as SettingsIcon,
   Users,
-  Zap,
 } from "lucide-react";
 import "./admin.css";
 
@@ -38,7 +38,6 @@ interface AdminUser {
   searchReadyJobs: number;
   applications: number;
   applied: number;
-  tokens: number;
   beta: BetaStatus;
   events: Record<string, number>;
   latestWorkflow?: {
@@ -56,7 +55,6 @@ interface AdminOverview {
   };
   totals: {
     users: number;
-    tokens: number;
     applications: number;
     jobSourceClicks: number;
   };
@@ -137,7 +135,7 @@ export function AdminApp() {
         <div>
           <span className="admin-kicker">Rolegain closed beta</span>
           <h1>Admin control room</h1>
-          <p>User progression, feature activity, token usage and Codex control.</p>
+          <p>User progression, feature activity and Codex control.</p>
         </div>
         <div className="admin-header-actions">
           <button
@@ -187,19 +185,26 @@ export function AdminApp() {
           >
             <RefreshCw size={16} />
           </button>
-          <button
-            type="button"
-            onClick={async () => {
-              await fetch("/api/admin/logout", {
-                method: "POST",
-                credentials: "same-origin",
-              });
-              setAuthenticated(false);
-              setOverview(undefined);
-            }}
-          >
-            <LogOut size={16} /> Sign out
-          </button>
+          <details className="admin-settings">
+            <summary>
+              <SettingsIcon size={16} /> Settings
+            </summary>
+            <div className="admin-settings-menu">
+              <button
+                type="button"
+                onClick={async () => {
+                  await fetch("/api/admin/logout", {
+                    method: "POST",
+                    credentials: "same-origin",
+                  });
+                  setAuthenticated(false);
+                  setOverview(undefined);
+                }}
+              >
+                <LogOut size={16} /> Sign out
+              </button>
+            </div>
+          </details>
         </div>
       </header>
 
@@ -222,11 +227,6 @@ export function AdminApp() {
           icon={Users}
           label="Registered users"
           value={overview?.totals.users ?? 0}
-        />
-        <Metric
-          icon={Zap}
-          label="Tokens used"
-          value={(overview?.totals.tokens ?? 0).toLocaleString()}
         />
         <Metric
           icon={CheckCircle2}
@@ -286,7 +286,6 @@ export function AdminApp() {
                 <th>Jobs</th>
                 <th>Applications</th>
                 <th>Beta</th>
-                <th>Tokens</th>
                 <th>Activity</th>
               </tr>
             </thead>
@@ -335,10 +334,6 @@ export function AdminApp() {
                         : "Release updates: no"}
                     </small>
                     <UserLimitControl user={user} onUpdated={refresh} />
-                  </td>
-                  <td>
-                    <strong>{user.tokens.toLocaleString()}</strong>
-                    <span>total tokens</span>
                   </td>
                   <td>
                     <strong>{formatDate(user.lastActiveAt)}</strong>

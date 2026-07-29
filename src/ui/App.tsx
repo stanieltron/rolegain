@@ -18,6 +18,7 @@ import {
   Download,
   Inbox,
   LoaderCircle,
+  LogOut,
   MapPin,
   Paperclip,
   Play,
@@ -68,6 +69,7 @@ import {
   updateCandidateProfile,
   updateSearchConfig,
 } from "./api.js";
+import { useAuthActions } from "./auth.js";
 import type {
   BetaStatus,
   CanonicalEvidenceModel,
@@ -258,6 +260,7 @@ type StagedEvidenceSource = {
 };
 
 export function App() {
+  const authActions = useAuthActions();
   const [workspace, setWorkspace] = useState<JobSearchWorkspace>();
   const [beta, setBeta] = useState<BetaStatus>();
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus>();
@@ -338,6 +341,13 @@ export function App() {
   }, [view]);
   const executionStopped =
     workspace?.backgroundExecution?.state === "stopped";
+  const hasPausedWork =
+    executionStopped &&
+    Boolean(
+      workspace?.backgroundExecution?.resumeCandidateAnalysis ||
+        workspace?.backgroundExecution?.resumeProfileSourceSync ||
+        workspace?.backgroundExecution?.resumeSearch,
+    );
   const monitoring =
     !executionStopped &&
     (workspace?.intelligence.status === "analyzing" ||
@@ -551,6 +561,17 @@ export function App() {
                 Reset user
               </button>
               <small>Deletes all candidate and job-search data.</small>
+              {authActions && (
+                <button
+                  className="settings-sign-out-action"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => authActions.signOut()}
+                >
+                  <LogOut size={15} />
+                  Sign out
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -562,27 +583,33 @@ export function App() {
             <h1>{title(view)}</h1>
           </div>
           <div className="top-actions">
-            <div
-              className={`execution-controls ${executionStopped ? "stopped" : ""}`}
-              aria-label="Background execution controls"
-            >
-              <button
-                type="button"
-                className="stop-execution"
-                disabled={busy || executionStopped}
-                onClick={() => void act(stopBackgroundWork)}
+            {(monitoring || hasPausedWork) && (
+              <div
+                className={`execution-controls ${hasPausedWork ? "stopped" : ""}`}
+                aria-label="Background execution controls"
               >
-                <Square size={12} fill="currentColor" /> Stop
-              </button>
-              <button
-                type="button"
-                className="continue-execution"
-                disabled={busy || !executionStopped}
-                onClick={() => void act(continueBackgroundWork)}
-              >
-                <Play size={13} fill="currentColor" /> Continue
-              </button>
-            </div>
+                {monitoring && (
+                  <button
+                    type="button"
+                    className="stop-execution"
+                    disabled={busy}
+                    onClick={() => void act(stopBackgroundWork)}
+                  >
+                    <Square size={12} fill="currentColor" /> Stop
+                  </button>
+                )}
+                {hasPausedWork && (
+                  <button
+                    type="button"
+                    className="continue-execution"
+                    disabled={busy}
+                    onClick={() => void act(continueBackgroundWork)}
+                  >
+                    <Play size={13} fill="currentColor" /> Continue
+                  </button>
+                )}
+              </div>
+            )}
             <div className="ready-summary">
               <CheckCircle2 size={16} />
               <span>

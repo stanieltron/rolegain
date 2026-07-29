@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { App } from "./App.js";
 import { AdminApp } from "./AdminApp.js";
 import { AuthGate } from "./auth.js";
+import "./design-system.css";
 import "./styles.css";
 import "./cv-workspace.css";
 
