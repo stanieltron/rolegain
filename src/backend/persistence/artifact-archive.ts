@@ -50,7 +50,7 @@ export class SupabaseArtifactArchive implements ArtifactArchive {
     if (error && !/not found/i.test(error.message)) throw error;
     const created = await this.client.storage.createBucket(this.bucket, {
       public: false,
-      fileSizeLimit: 100 * 1024 * 1024,
+      fileSizeLimit: 50 * 1024 * 1024,
       allowedMimeTypes: ["application/gzip"],
     });
     if (created.error && !isAlreadyExistsError(created.error))
