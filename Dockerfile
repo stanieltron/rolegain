@@ -19,7 +19,9 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npx playwright install --with-deps chromium
+RUN npm ci --omit=dev \
+    && npm install --global @openai/codex@0.139.0 \
+    && npx playwright install --with-deps chromium
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/migrations ./migrations
 COPY --from=build /app/.agents ./.agents

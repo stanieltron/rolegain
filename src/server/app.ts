@@ -15,6 +15,7 @@ import {
 } from "./auth.js";
 import { ApiRateLimiter } from "./rate-limit.js";
 import { withUserLock } from "../infrastructure/database.js";
+import { AdminRoutes } from "./admin-routes.js";
 
 const projectRoot = process.cwd();
 
@@ -33,6 +34,7 @@ export async function createRolegainApp(
   const { root, codex, jobSearch, configuration } = dependencies;
   const authenticator = createRequestAuthenticator(configuration);
   const rateLimiter = new ApiRateLimiter();
+  const adminRoutes = new AdminRoutes(configuration, dependencies.platform);
   const restoredUsers = new Set<string>();
   const applicationFormAutofillScript = await readFile(
     path.join(
@@ -77,6 +79,10 @@ export async function createRolegainApp(
         request.url ?? "/",
         "http://127.0.0.1",
       ).pathname;
+      if (adminRoutes.matches(pathname)) {
+        await adminRoutes.route(request, response, pathname);
+        return;
+      }
       const actor =
         pathname === "/api/health" ||
         request.method === "OPTIONS" ||

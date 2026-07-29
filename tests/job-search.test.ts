@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   JobSearchService,
   coalesceSearchVerificationSeeds,
+  discoveryLimitAfterBenchValidation,
   evidenceUrlsMatch,
   selectPhase2ApplicationPortfolio,
   stageProfileEvidenceSources,
@@ -203,6 +204,36 @@ const serviceFor = (root: string) =>
   );
 
 describe("job-search lifecycle", () => {
+  it("discovers only after validating an insufficient scored bench", () => {
+    expect(
+      discoveryLimitAfterBenchValidation({
+        remainingApplications: 5,
+        reusableOpenJobs: 5,
+        configuredDiscoveryTarget: 20,
+        firstBatch: false,
+        refillRound: 0,
+      }),
+    ).toBe(0);
+    expect(
+      discoveryLimitAfterBenchValidation({
+        remainingApplications: 5,
+        reusableOpenJobs: 4,
+        configuredDiscoveryTarget: 20,
+        firstBatch: false,
+        refillRound: 0,
+      }),
+    ).toBe(4);
+    expect(
+      discoveryLimitAfterBenchValidation({
+        remainingApplications: 5,
+        reusableOpenJobs: 0,
+        configuredDiscoveryTarget: 20,
+        firstBatch: true,
+        refillRound: 0,
+      }),
+    ).toBe(20);
+  });
+
   it("isolates parallel matching and application-verification failures per job", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "rolegain-isolated-pipeline-"));
     const jobs: JobOpportunity[] = [
@@ -1383,6 +1414,153 @@ describe("job-search lifecycle", () => {
     expect(staged.applications.map((item) => item.jobId)).toEqual(
       staged.opportunities.map((item) => item.id),
     );
+  });
+
+  it("revalidates the scored bench, drops closed jobs, and avoids new discovery when enough remain open", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-open-bench-"));
+    let researchCalls = 0;
+    let revalidationCalls = 0;
+    const jobs: JobOpportunity[] = Array.from({ length: 11 }, (_, index) => ({
+      id: `bench-${index}`,
+      company: `Bench Employer ${index}`,
+      title: `Bench Role ${index}`,
+      location: "Remote",
+      workplace: "Remote",
+      compensation: "Not disclosed",
+      sourceUrl: `https://jobs.example.test/bench/${index}`,
+      applyUrl: `https://jobs.example.test/bench/${index}/apply`,
+      capturedAt: "2026-07-29",
+      fit: 100 - index,
+      summary: `Bench role ${index}`,
+      description: `Bench role ${index} requires platform experience.`,
+      requirements: ["Platform experience"],
+      requirementMatches: [],
+      strengths: [],
+      gaps: [],
+    }));
+    const closedJobId = "bench-10";
+    const research = {
+      async research() {
+        researchCalls += 1;
+        return {
+          opportunities: jobs,
+          applications: [] as ApplicationDraft[],
+          failures: [] as JobResearchFailure[],
+          seenUrls: jobs.map((job) => job.applyUrl),
+        };
+      },
+      async revalidate(
+        _workspace: JobSearchWorkspace,
+        opportunities: JobOpportunity[],
+      ) {
+        revalidationCalls += 1;
+        const closed = opportunities.find((job) => job.id === closedJobId)!;
+        return {
+          opportunities: opportunities.filter((job) => job.id !== closedJobId),
+          failures: [
+            {
+              id: closed.id,
+              company: closed.company,
+              title: closed.title,
+              location: closed.location,
+              sourceUrl: closed.sourceUrl,
+              applyUrl: closed.applyUrl,
+              capturedAt: new Date().toISOString(),
+              stage: "expired" as const,
+              reason: "Vacancy is closed",
+            },
+          ],
+        };
+      },
+      async assess(
+        _workspace: JobSearchWorkspace,
+        opportunities: JobOpportunity[],
+      ) {
+        return opportunities.map((job) => ({
+          ...job,
+          requirementMatches:
+            job.requirementMatches.length > 0
+              ? job.requirementMatches
+              : [
+                  {
+                    id: `${job.id}-platform`,
+                    kind: "required" as const,
+                    requirement: "Platform experience",
+                    status: "matched" as const,
+                    explanation: "Verified candidate evidence supports it.",
+                    evidence: [],
+                  },
+                ],
+        }));
+      },
+      async inspectApplications(
+        workspace: JobSearchWorkspace,
+        opportunities: JobOpportunity[],
+      ) {
+        return {
+          applications: opportunities.map(
+            (job): ApplicationDraft => ({
+              id: `app-${job.id}`,
+              jobId: job.id,
+              status: "ready_to_send",
+              coverLetter: "",
+              coverLetterChat: [],
+              formFields: [
+                {
+                  id: "name",
+                  canonicalKey: "name",
+                  externalName: "name",
+                  label: "Full name",
+                  type: "text",
+                  value: workspace.profile.name,
+                  required: true,
+                  source: "profile",
+                  confidence: 100,
+                },
+              ],
+              missingQuestions: [],
+              adapter: "generic",
+              liveFormValidated: true,
+              formSchema: {
+                observedQuestionCount: 1,
+                mappedQuestionCount: 1,
+                fingerprint: `schema-${job.id}`,
+                issues: [],
+                verifiedByAgent: true,
+              },
+              updatedAt: workspace.updatedAt,
+            }),
+          ),
+          failures: [] as JobResearchFailure[],
+        };
+      },
+    };
+    const service = new JobSearchService(
+      root,
+      undefined,
+      research,
+      deterministicCoverLetterWriter,
+    );
+    await service.initialize();
+    await service.addSource({ kind: "cv", name: "cv.txt", content: "Candidate" });
+    await service.updateProfile({
+      name: "Candidate",
+      email: "candidate@example.test",
+    });
+    for (const id of ["locations", "employment", "start", "languages"])
+      await service.answer(id, "Confirmed");
+    await service.finishIntake();
+
+    const first = await service.prepareApplications();
+    expect(first.applications.filter((item) => item.addedBy === "agent")).toHaveLength(5);
+
+    const next = await service.findMoreApplications();
+
+    expect(revalidationCalls).toBe(1);
+    expect(researchCalls).toBe(1);
+    expect(next.applications.filter((item) => item.addedBy === "agent")).toHaveLength(10);
+    expect(next.applications.some((item) => item.jobId === closedJobId)).toBe(false);
+    expect(next.opportunities.some((item) => item.id === closedJobId)).toBe(false);
   });
 
   it("uses the verified bench before discovering unseen replacement jobs", async () => {

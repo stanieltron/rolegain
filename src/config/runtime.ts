@@ -10,6 +10,9 @@ export interface RuntimeConfiguration {
   supabasePublishableKey?: string;
   supabaseServiceRoleKey?: string;
   supabaseStorageBucket: string;
+  adminUsername?: string;
+  adminPassword?: string;
+  adminSessionSecret?: string;
 }
 
 export function runtimeConfiguration(
@@ -47,6 +50,9 @@ export function runtimeConfiguration(
     supabaseServiceRoleKey,
     supabaseStorageBucket:
       clean(environment.SUPABASE_STORAGE_BUCKET) || "rolegain-private",
+    adminUsername: clean(environment.ROLEGAIN_ADMIN_USERNAME),
+    adminPassword: clean(environment.ROLEGAIN_ADMIN_PASSWORD),
+    adminSessionSecret: clean(environment.ROLEGAIN_ADMIN_SESSION_SECRET),
   };
 }
 

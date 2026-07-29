@@ -58,8 +58,15 @@ describe("Tier 2 requirement matching", () => {
     } satisfies JobOpportunity;
     const researcher = new LiveOpportunityResearcher(codex, dataRoot, dataRoot);
 
-    await expect(researcher.assess(workspace, [job])).rejects.toThrow(
-      "A canonical evidence run is required before requirement matching",
-    );
+    await expect(researcher.assess(workspace, [job])).resolves.toMatchObject({
+      opportunities: [],
+      failures: [
+        {
+          stage: "requirements",
+          reason:
+            "A canonical evidence run is required before requirement matching",
+        },
+      ],
+    });
   });
 });

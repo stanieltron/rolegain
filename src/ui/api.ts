@@ -1,5 +1,4 @@
 import type { JobOpportunity, JobSearchWorkspace } from "../contracts/job-search.js";
-import type { CodexRuntimeInfo } from "../codex-runtime/protocol.js";
 import type {
   CandidateUnknown,
   Capability,
@@ -15,12 +14,45 @@ export interface CanonicalEvidenceModel {
   unknowns: CandidateUnknown[];
 }
 
+export interface BetaStatus {
+  applicationsUsed: number;
+  applicationLimit: number;
+  batchesStarted: number;
+  batchLimit: number;
+  remainingApplications: number;
+  remainingBatches: number;
+  canStartBatch: boolean;
+  releaseUpdates: boolean;
+}
+
+export interface ServiceStatus {
+  codexEnabled: boolean;
+  maintenanceMessage?: string;
+}
+
 export const getWorkspace = () =>
   get<JobSearchWorkspace>("/api/job-search").then(normalizeWorkspace);
 export const getCanonicalEvidence = (candidateId: string) =>
   get<CanonicalEvidenceModel>(
     `/api/job-search/candidates/${encodeURIComponent(candidateId)}/evidence`,
   );
+export const getBetaStatus = () => get<BetaStatus>("/api/beta");
+export const getServiceStatus = () =>
+  get<ServiceStatus>("/api/service-status");
+export const enableReleaseUpdates = () =>
+  post<BetaStatus>("/api/beta/release-updates", {});
+export const trackAnalyticsEvent = (
+  name:
+    | "view_profile"
+    | "view_discovery"
+    | "view_applications"
+    | "job_source_opened"
+    | "application_opened"
+    | "employer_form_opened",
+  metadata: Record<string, string | number | boolean | null> = {},
+) =>
+  post<{ recorded: boolean }>("/api/analytics/events", { name, metadata })
+    .catch(() => undefined);
 export const updateCandidateProfile = (body: {
   name: string;
   email: string;
@@ -32,7 +64,6 @@ export const updateCandidateProfile = (body: {
   workAuthorization: string;
   deferEvidenceAnalysis?: boolean;
 }) => workspacePost("/api/job-search/profile", body);
-export const getRuntime = () => get<CodexRuntimeInfo>("/api/runtime");
 export const stopBackgroundWork = () =>
   workspacePost("/api/job-search/background/stop", {});
 export const continueBackgroundWork = () =>

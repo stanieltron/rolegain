@@ -144,42 +144,6 @@ button {
   font-size: 9px;
   margin-top: 1px;
 }
-.runtime-card {
-  margin-left: 4px;
-  border-left: 1px solid #30353a;
-  padding: 0 8px 0 14px;
-  order: 4;
-}
-.runtime-card > div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-.online-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #6b7176;
-  display: inline-block;
-}
-.online-dot.on {
-  background: #66d38e;
-  box-shadow: 0 0 0 3px #66d38e20;
-}
-.runtime-card dl {
-  display: none;
-}
-.runtime-card dt {
-  color: #737c84;
-}
-.runtime-card dd {
-  margin: 0;
-  text-align: right;
-  color: #bbc1c6;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .settings-menu {
   position: relative;
   flex: 0 0 auto;
@@ -2821,8 +2785,7 @@ main {
   }
 }
 @media (max-width: 1050px) {
-  .brand small,
-  .runtime-card strong {
+  .brand small {
     display: none;
   }
   .brand {
@@ -2835,9 +2798,6 @@ main {
     width: 36px;
     padding: 0;
     font-size: 0;
-  }
-  .runtime-card {
-    padding-inline: 10px 4px;
   }
   .applications-layout {
     grid-template-columns: 230px 1fr;
@@ -2896,7 +2856,6 @@ main {
     gap: 4px;
   }
   .brand,
-  .runtime-card,
   .nav-label {
     display: none;
   }
@@ -3493,4 +3452,92 @@ main {
   color: #365a80;
   font-size: 12px;
   font-weight: 700;
+}
+
+.maintenance-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(25, 92, 170, .12), transparent 32rem),
+    #f5f8fb;
+}
+
+.maintenance-card {
+  width: min(540px, 100%);
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 42px;
+  border: 1px solid #d9e2ea;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 72px rgba(23, 45, 68, .1);
+  text-align: center;
+}
+
+.maintenance-card h1,
+.beta-limit-card h2 {
+  margin: 0;
+}
+
+.maintenance-card p,
+.beta-limit-card p {
+  margin: 0;
+  color: #68737b;
+  line-height: 1.55;
+}
+
+.maintenance-icon,
+.beta-limit-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: #eaf2fb;
+  color: #195caa;
+}
+
+.maintenance-card button,
+.beta-limit-card button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.beta-limit-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid #c9dbef;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f6faff, #eef5fc);
+}
+
+.beta-limit-card div {
+  display: grid;
+  gap: 5px;
+}
+
+.beta-limit-card h2 {
+  font-size: 1rem;
+}
+
+.beta-limit-card p {
+  font-size: .86rem;
+}
+
+@media (max-width: 760px) {
+  .beta-limit-card {
+    grid-template-columns: auto 1fr;
+  }
+
+  .beta-limit-card button {
+    grid-column: 1 / -1;
+  }
 }

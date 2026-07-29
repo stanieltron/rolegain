@@ -25,6 +25,7 @@ type RouteDependencies = Pick<
   | "tokenCounter"
   | "workflows"
   | "artifacts"
+  | "platform"
 > & {
   root: string;
   actor?: AuthenticatedActor;
@@ -74,6 +75,61 @@ export async function routeRequest(
     sendJson(response, 200, await dependencies.tokenCounter.get(userId));
     return;
   }
+  if (request.method === "GET" && pathname === "/api/service-status") {
+    sendJson(response, 200, await dependencies.platform.serviceStatus());
+    return;
+  }
+  if (request.method === "GET" && pathname === "/api/beta") {
+    sendJson(response, 200, await dependencies.platform.betaStatus(userId));
+    return;
+  }
+  if (
+    request.method === "POST" &&
+    pathname === "/api/beta/release-updates"
+  ) {
+    sendJson(
+      response,
+      200,
+      await dependencies.platform.enableReleaseUpdates(userId),
+    );
+    return;
+  }
+  if (
+    request.method === "POST" &&
+    pathname === "/api/analytics/events"
+  ) {
+    const body = await readJson(request);
+    if (typeof body.name !== "string")
+      throw new Error("Analytics event name is required");
+    await dependencies.platform.recordEvent(userId, {
+      name: body.name as never,
+      metadata:
+        body.metadata &&
+        typeof body.metadata === "object" &&
+        !Array.isArray(body.metadata)
+          ? body.metadata as never
+          : undefined,
+    });
+    sendJson(response, 202, { recorded: true });
+    return;
+  }
+  if (
+    request.method === "POST" &&
+    codexRequiredPath(pathname)
+  ) {
+    await dependencies.platform.assertCodexEnabled();
+    if (dependencies.configuration.authMode === "supabase")
+      await dependencies.platform.assertLlmAllowance(userId);
+  }
+  if (
+    request.method === "POST" &&
+    dependencies.configuration.authMode === "supabase" &&
+    (
+      pathname === "/api/job-search/reset-user" ||
+      pathname === "/api/job-search/reset-jobs"
+    )
+  )
+    await dependencies.platform.assertLlmAllowance(userId);
   if (request.method === "GET" && pathname === "/api/workflows/latest") {
     sendJson(response, 200, (await dependencies.workflows?.latest(userId)) ?? null);
     return;
@@ -103,6 +159,12 @@ export async function routeRequest(
         { deferEvidenceAnalysis: true },
         userId,
       );
+    await dependencies.platform.recordApplications(
+      userId,
+      workspace.applications
+        .filter((application) => Boolean(application.addedBy))
+        .map((application) => application.id),
+    );
     sendJson(response, 200, workspace);
     return;
   }
@@ -139,6 +201,7 @@ export async function routeRequest(
           control.resumeSearch === "prepare_search_ready"
             ? "prepare-search-ready"
             : "prepare",
+          { reserveBetaBatch: false },
         );
       sendJson(response, 202, workspace);
     } else
@@ -317,15 +380,23 @@ export async function routeRequest(
       await dependencies.workflows.enqueue(userId, "prepare");
       sendJson(response, 202, workspace);
     } else
-      sendJson(
-        response,
-        200,
-        await dependencies.jobSearch.startPrepareApplications(
-          undefined,
-          false,
-          userId,
-        ),
-      );
+      {
+        const beta =
+          dependencies.configuration.authMode === "supabase"
+            ? await dependencies.platform.reserveBatch(userId)
+            : await dependencies.platform.betaStatus(userId);
+        sendJson(
+          response,
+          200,
+          await dependencies.jobSearch.startPrepareApplications(
+            dependencies.configuration.authMode === "supabase"
+              ? Math.min(5, beta.remainingApplications)
+              : 5,
+            false,
+            userId,
+          ),
+        );
+      }
     return;
   }
   if (
@@ -340,11 +411,22 @@ export async function routeRequest(
       await dependencies.workflows.enqueue(userId, "prepare-search-ready");
       sendJson(response, 202, workspace);
     } else
-      sendJson(
-        response,
-        202,
-        await dependencies.jobSearch.startPrepareSearchReadyApplications(userId),
-      );
+      {
+        const beta =
+          dependencies.configuration.authMode === "supabase"
+            ? await dependencies.platform.reserveBatch(userId)
+            : await dependencies.platform.betaStatus(userId);
+        sendJson(
+          response,
+          202,
+          await dependencies.jobSearch.startPrepareSearchReadyApplications(
+            userId,
+            dependencies.configuration.authMode === "supabase"
+              ? Math.min(5, beta.remainingApplications)
+              : 5,
+          ),
+        );
+      }
     return;
   }
   if (
@@ -376,11 +458,23 @@ export async function routeRequest(
       await dependencies.workflows.enqueue(userId, "find-more");
       sendJson(response, 202, workspace);
     } else
-      sendJson(
-        response,
-        202,
-        await dependencies.jobSearch.startFindMoreApplications(userId),
-      );
+      {
+        const beta =
+          dependencies.configuration.authMode === "supabase"
+            ? await dependencies.platform.reserveBatch(userId)
+            : await dependencies.platform.betaStatus(userId);
+        sendJson(
+          response,
+          202,
+          await dependencies.jobSearch.startPrepareApplications(
+            dependencies.configuration.authMode === "supabase"
+              ? Math.min(5, beta.remainingApplications)
+              : 5,
+            true,
+            userId,
+          ),
+        );
+      }
     return;
   }
   if (
@@ -393,7 +487,10 @@ export async function routeRequest(
       200,
       await dependencies.jobSearch.updateSearchConfig({
         discoveryTarget: body.discoveryTarget,
-        applicationTarget: body.applicationTarget,
+        applicationTarget:
+          dependencies.configuration.authMode === "supabase"
+            ? 5
+            : body.applicationTarget,
       }, userId),
     );
     return;
@@ -402,11 +499,23 @@ export async function routeRequest(
     request.method === "POST" &&
     pathname === "/api/job-search/opportunities"
   ) {
+    if (dependencies.configuration.authMode === "supabase")
+      await dependencies.platform.assertApplicationAvailable(userId);
     const body = validate(opportunitySchema, await readJson(request));
+    const workspace = await dependencies.jobSearch.addOpportunity(
+      body as never,
+      userId,
+    );
+    await dependencies.platform.recordApplications(
+      userId,
+      workspace.applications
+        .filter((application) => Boolean(application.addedBy))
+        .map((application) => application.id),
+    );
     sendJson(
       response,
       201,
-      await dependencies.jobSearch.addOpportunity(body as never, userId),
+      workspace,
     );
     return;
   }
@@ -414,13 +523,22 @@ export async function routeRequest(
     /^\/api\/job-search\/opportunities\/([a-z0-9-]+)\/promote$/i,
   );
   if (request.method === "POST" && promoteOpportunityMatch) {
+    if (dependencies.configuration.authMode === "supabase")
+      await dependencies.platform.assertApplicationAvailable(userId);
+    const workspace = await dependencies.jobSearch.promoteOpportunity(
+      promoteOpportunityMatch[1],
+      userId,
+    );
+    await dependencies.platform.recordApplications(
+      userId,
+      workspace.applications
+        .filter((application) => Boolean(application.addedBy))
+        .map((application) => application.id),
+    );
     sendJson(
       response,
       200,
-      await dependencies.jobSearch.promoteOpportunity(
-        promoteOpportunityMatch[1],
-        userId,
-      ),
+      workspace,
     );
     return;
   }
@@ -444,6 +562,10 @@ export async function routeRequest(
     /^\/api\/job-search\/applications\/([a-z0-9-]+)\/tailored-cv$/i,
   );
   if (request.method === "POST" && tailoredCvMatch) {
+    await dependencies.platform.recordEvent(userId, {
+      name: "tailored_cv_requested",
+      metadata: { applicationId: tailoredCvMatch[1] },
+    });
     if (dependencies.workflows) {
       const workspace = await dependencies.jobSearch.markWorkflowQueued(
         "tailor-cv",
@@ -524,15 +646,17 @@ export async function routeRequest(
       body.outcome === "applied_waiting"
         ? body.outcome
         : undefined;
-    sendJson(
-      response,
-      200,
-      await dependencies.jobSearch.setApplicationOutcome(
-        outcomeMatch[1],
-        outcome,
-        userId,
-      ),
+    const workspace = await dependencies.jobSearch.setApplicationOutcome(
+      outcomeMatch[1],
+      outcome,
+      userId,
     );
+    if (outcome === "applied_waiting")
+      await dependencies.platform.recordEvent(userId, {
+        name: "application_marked_applied",
+        metadata: { applicationId: outcomeMatch[1] },
+      });
+    sendJson(response, 200, workspace);
     return;
   }
   if (
@@ -557,5 +681,22 @@ export async function routeRequest(
     pathname,
     response,
     path.join(dependencies.root, "dist", "client"),
+  );
+}
+
+function codexRequiredPath(pathname: string) {
+  return (
+    pathname === "/api/job-search/profile" ||
+    pathname === "/api/job-search/sources" ||
+    pathname === "/api/job-search/analyze" ||
+    pathname === "/api/job-search/prepare" ||
+    pathname === "/api/job-search/prepare-ready" ||
+    pathname === "/api/job-search/find-more" ||
+    pathname === "/api/job-search/background/continue" ||
+    pathname === "/api/job-search/opportunities" ||
+    /^\/api\/job-search\/opportunities\/[^/]+\/promote$/i.test(pathname) ||
+    /^\/api\/job-search\/applications\/[^/]+\/tailored-cv$/i.test(pathname) ||
+    /^\/api\/job-search\/applications\/[^/]+\/cover-letter-chat$/i.test(pathname) ||
+    /^\/api\/job-search\/applications\/[^/]+\/fields\/[^/]+\/refine$/i.test(pathname)
   );
 }

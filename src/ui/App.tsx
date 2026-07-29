@@ -38,7 +38,6 @@ import type {
   ApplicationDraft,
   JobSearchWorkspace,
 } from "../contracts/job-search.js";
-import type { CodexRuntimeInfo } from "../codex-runtime/protocol.js";
 import {
   addOpportunity,
   addSource,
@@ -48,9 +47,11 @@ import {
   downloadTailoredCv,
   finishIntake,
   findMoreApplications,
+  getBetaStatus,
   getCanonicalEvidence,
-  getRuntime,
+  getServiceStatus,
   getWorkspace,
+  enableReleaseUpdates,
   prepareApplications,
   prepareSearchReadyApplications,
   promoteOpportunity,
@@ -62,11 +63,16 @@ import {
   setApplicationOutcome,
   stopBackgroundWork,
   tailorApplicationCv,
+  trackAnalyticsEvent,
   updateApplication,
   updateCandidateProfile,
   updateSearchConfig,
 } from "./api.js";
-import type { CanonicalEvidenceModel } from "./api.js";
+import type {
+  BetaStatus,
+  CanonicalEvidenceModel,
+  ServiceStatus,
+} from "./api.js";
 
 type View = "profile" | "discovery" | "applications";
 type LongActivity =
@@ -253,7 +259,8 @@ type StagedEvidenceSource = {
 
 export function App() {
   const [workspace, setWorkspace] = useState<JobSearchWorkspace>();
-  const [runtime, setRuntime] = useState<CodexRuntimeInfo>();
+  const [beta, setBeta] = useState<BetaStatus>();
+  const [serviceStatus, setServiceStatus] = useState<ServiceStatus>();
   const [view, setView] = useState<View>("profile");
   const [selectedId, setSelectedId] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -296,17 +303,39 @@ export function App() {
   };
 
   useEffect(() => {
-    void Promise.all([
-      getWorkspace(),
-      getRuntime().catch(() => undefined),
-    ]).then(([w, r]) => {
-      setWorkspace(w);
-      setRuntime(r);
-      if (preparedVerifiedApplications(w).length > 0) setView("applications");
-      else if (candidateDiscoveryReady(w) && w.phase !== "intake")
-        setView("discovery");
-    });
+    void Promise.all([getWorkspace(), getBetaStatus(), getServiceStatus()])
+      .then(([w, betaStatus, currentServiceStatus]) => {
+        setWorkspace(w);
+        setBeta(betaStatus);
+        setServiceStatus(currentServiceStatus);
+        if (preparedVerifiedApplications(w).length > 0)
+          setView("applications");
+        else if (candidateDiscoveryReady(w) && w.phase !== "intake")
+          setView("discovery");
+      })
+      .catch((cause) =>
+        setError(cause instanceof Error ? cause.message : String(cause))
+      );
   }, []);
+  useEffect(() => {
+    const timer = window.setInterval(
+      () =>
+        void getServiceStatus()
+          .then(setServiceStatus)
+          .catch(() => undefined),
+      10_000,
+    );
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    void trackAnalyticsEvent(
+      view === "profile"
+        ? "view_profile"
+        : view === "discovery"
+          ? "view_discovery"
+          : "view_applications",
+    );
+  }, [view]);
   const executionStopped =
     workspace?.backgroundExecution?.state === "stopped";
   const monitoring =
@@ -324,7 +353,13 @@ export function App() {
   useEffect(() => {
     if (!monitoring) return;
     const timer = window.setInterval(
-      () => void getWorkspace().then(setWorkspace),
+      () =>
+        void Promise.all([getWorkspace(), getBetaStatus()]).then(
+          ([nextWorkspace, betaStatus]) => {
+            setWorkspace(nextWorkspace);
+            setBeta(betaStatus);
+          },
+        ),
       workspace?.intelligence.status === "analyzing" ? 750 : 2000,
     );
     return () => window.clearInterval(timer);
@@ -398,6 +433,8 @@ export function App() {
     try {
       const value = await operation();
       setWorkspace(value);
+      void getBetaStatus().then(setBeta).catch(() => undefined);
+      void getServiceStatus().then(setServiceStatus).catch(() => undefined);
       if (next) setView(next);
       return value;
     } catch (cause) {
@@ -407,12 +444,21 @@ export function App() {
     }
   };
 
-  if (!workspace)
+  if (!workspace || !beta || !serviceStatus)
     return (
       <div className="boot">
-        <LoaderCircle className="spin" />
-        <span>Opening job-search workspace</span>
+        {error ? <CircleHelp /> : <LoaderCircle className="spin" />}
+        <span>{error || "Opening job-search workspace"}</span>
       </div>
+    );
+  if (!serviceStatus.codexEnabled)
+    return (
+      <MaintenanceMode
+        message={serviceStatus.maintenanceMessage}
+        onRetry={() =>
+          void getServiceStatus().then(setServiceStatus).catch(() => undefined)
+        }
+      />
     );
   const readyCount = workspace.applications.filter(
     (a) => a.status === "ready_to_send" && !a.outcome,
@@ -468,20 +514,6 @@ export function App() {
             }}
           />
         )}
-        <div className="runtime-card">
-          <div>
-            <span className={`online-dot ${runtime?.available ? "on" : ""}`} />
-            <strong>Codex CLI</strong>
-          </div>
-          <dl>
-            <dt>Version</dt>
-            <dd>{runtime?.version ?? "Checking"}</dd>
-            <dt>Model</dt>
-            <dd>{runtime?.model ?? "-"}</dd>
-            <dt>Protocol</dt>
-            <dd>{runtime?.compatible ? "Compatible" : "Review"}</dd>
-          </dl>
-        </div>
         <div className="settings-menu">
           <button
             className="settings-trigger"
@@ -499,7 +531,12 @@ export function App() {
                 className="reset-user-action"
                 type="button"
                 role="menuitem"
-                disabled={busy}
+                disabled={busy || beta.remainingApplications <= 0}
+                title={
+                  beta.remainingApplications <= 0
+                    ? "The beta allowance is complete; resetting cannot create more LLM access."
+                    : undefined
+                }
                 onClick={() => {
                   const confirmed = window.confirm(
                     "Permanently reset this user? This deletes the profile, preferences, uploaded files, evidence and knowledge, jobs, applications, history, and numbering. This cannot be undone.",
@@ -566,11 +603,16 @@ export function App() {
         )}
         <div className="page">
           {view === "profile" && (
+            <BetaLimitCard beta={beta} onEnabled={setBeta} />
+          )}
+          {view === "profile" && (
             <ProfileView workspace={workspace} busy={busy} act={act} />
           )}
           {view === "discovery" && (
             <DiscoveryView
               workspace={workspace}
+              beta={beta}
+              onBetaChange={setBeta}
               busy={busy}
               act={act}
               onContinue={() => {
@@ -582,6 +624,8 @@ export function App() {
           {view === "applications" && (
             <ApplicationsView
               workspace={workspace}
+              beta={beta}
+              onBetaChange={setBeta}
               selectedId={selectedId}
               setSelectedId={setSelectedId}
               act={act}
@@ -609,6 +653,68 @@ export function App() {
         />
       )}
     </div>
+  );
+}
+
+function MaintenanceMode({
+  message,
+  onRetry,
+}: {
+  message?: string;
+  onRetry: () => void;
+}) {
+  return (
+    <main className="maintenance-shell">
+      <section className="maintenance-card">
+        <span className="maintenance-icon">
+          <Settings size={24} />
+        </span>
+        <span className="section-label">Closed beta maintenance</span>
+        <h1>Rolegain is temporarily paused</h1>
+        <p>
+          {message ||
+            "Your profile and prepared applications remain safe. Please try again shortly."}
+        </p>
+        <button className="primary" type="button" onClick={onRetry}>
+          <RefreshCw size={15} /> Check again
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function BetaLimitCard({
+  beta,
+  onEnabled,
+}: {
+  beta: BetaStatus;
+  onEnabled: (next: BetaStatus) => void;
+}) {
+  if (beta.canStartBatch) return null;
+  return (
+    <section className="beta-limit-card" role="status">
+      <span className="beta-limit-icon">
+        <Sparkles size={20} />
+      </span>
+      <div>
+        <span className="section-label">Closed beta allowance complete</span>
+        <h2>You have completed your two application batches</h2>
+        <p>
+          This beta includes up to ten prepared applications. Your profile and
+          existing applications remain available while we prepare the next
+          release.
+        </p>
+      </div>
+      <button
+        className={beta.releaseUpdates ? "secondary" : "primary"}
+        type="button"
+        disabled={beta.releaseUpdates}
+        onClick={() => void enableReleaseUpdates().then(onEnabled)}
+      >
+        <BellRing size={15} />
+        {beta.releaseUpdates ? "Release updates enabled" : "Keep me informed"}
+      </button>
+    </section>
   );
 }
 
@@ -1997,10 +2103,16 @@ function LanguageQuestion({ question, busy, save }: PreferenceQuestionProps) {
 
 function DiscoveryView({
   workspace,
+  beta,
   busy,
   act,
   onContinue,
-}: ViewProps & { onContinue: () => void }) {
+  onBetaChange,
+}: ViewProps & {
+  beta: BetaStatus;
+  onContinue: () => void;
+  onBetaChange: (next: BetaStatus) => void;
+}) {
   const progress = workspace.searchProgress;
   const running =
     progress?.stage === "looking" ||
@@ -2033,7 +2145,9 @@ function DiscoveryView({
   const bench = workspace.opportunities
     .filter((job) => !applicationJobIds.has(job.id))
     .sort((a, b) => b.fit - a.fit);
-  const readyForMatching = workspace.searchReadyOpportunities ?? [];
+  const readyForMatching = (workspace.searchReadyOpportunities ?? []).filter(
+    (job) => !applicationJobIds.has(job.id),
+  );
   const promote = (jobId: string) =>
     void act(
       () => promoteOpportunity(jobId),
@@ -2055,6 +2169,7 @@ function DiscoveryView({
     );
   return (
     <div className="discovery-view">
+      <BetaLimitCard beta={beta} onEnabled={onBetaChange} />
       <section className="application-overview-toolbar discovery-toolbar">
         <div>
           <strong>{progress ? "Discover another batch" : "Start job discovery"}</strong>
@@ -2085,7 +2200,7 @@ function DiscoveryView({
           </label>
           <button
             className="queue-find"
-            disabled={busy || running}
+            disabled={busy || running || !beta.canStartBatch}
             onClick={() =>
               void act(
                 progress ? findMoreApplications : prepareApplications,
@@ -2100,13 +2215,18 @@ function DiscoveryView({
               <Search size={14} />
             )}
             {progress
-              ? `Prepare next ${workspace.searchConfig.applicationTarget}`
+              ? "Prepare next 5"
               : "Start discovery"}
           </button>
           <button
             type="button"
             className="reset-discovery"
-            disabled={busy || running || !hasDiscoveryData}
+            disabled={
+              busy ||
+              running ||
+              !hasDiscoveryData ||
+              beta.remainingApplications <= 0
+            }
             title={
               running
                 ? "Stop the active discovery run before resetting it."
@@ -2169,6 +2289,7 @@ function DiscoveryView({
           </div>
           <button
             className="primary"
+            disabled={!beta.canStartBatch}
             onClick={() =>
               void act(
                 prepareSearchReadyApplications,
@@ -2177,7 +2298,7 @@ function DiscoveryView({
               )
             }
           >
-            Match and prepare {readyForMatching.length} <ChevronRight size={15} />
+            Match and prepare up to 5 <ChevronRight size={15} />
           </button>
         </section>
       )}
@@ -2192,17 +2313,17 @@ function DiscoveryView({
               : "Passing jobs ranked by evidence match and reconsidered on the next discovery run."}
             jobs={readyForMatching.length ? readyForMatching : bench}
             showFit={!readyForMatching.length}
-            busy={busy || running}
+            busy={busy || running || beta.remainingApplications <= 0}
             onPromote={promote}
           />
           <ValidationIssuePool
             failures={workspace.searchValidationIssues}
-            busy={busy || running}
+            busy={busy || running || beta.remainingApplications <= 0}
             onPromote={promote}
           />
           <RejectedPool
             failures={workspace.rejectedOpportunities}
-            busy={busy || running}
+            busy={busy || running || beta.remainingApplications <= 0}
             onPromote={promote}
           />
         </>
@@ -2391,7 +2512,19 @@ function PipelinePool({
           </div>
           {showFit && <b>{job.fit}%</b>}
           <div className="pipeline-pool-actions">
-            <a href={job.sourceUrl} target="_blank" rel="noreferrer">View job</a>
+            <a
+              href={job.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() =>
+                void trackAnalyticsEvent("job_source_opened", {
+                  jobId: job.id,
+                  stage: "verified_pool",
+                })
+              }
+            >
+              View job
+            </a>
             {onPromote && (
               <button
                 type="button"
@@ -2431,7 +2564,19 @@ function RejectedPool({
             <small>{failure.reason}</small>
           </div>
           <div className="pipeline-pool-actions">
-            <a href={failure.sourceUrl} target="_blank" rel="noreferrer">View source</a>
+            <a
+              href={failure.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() =>
+                void trackAnalyticsEvent("job_source_opened", {
+                  jobId: failure.id,
+                  stage: "rejected",
+                })
+              }
+            >
+              View source
+            </a>
             <button type="button" disabled={busy} onClick={() => onPromote(failure.id)}>
               <Plus size={12} /> Add manually
             </button>
@@ -2465,7 +2610,17 @@ function ValidationIssuePool({
             <small>{failure.reason}</small>
           </div>
           <div className="pipeline-pool-actions">
-            <a href={failure.sourceUrl} target="_blank" rel="noreferrer">
+            <a
+              href={failure.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() =>
+                void trackAnalyticsEvent("job_source_opened", {
+                  jobId: failure.id,
+                  stage: "review",
+                })
+              }
+            >
               {failure.disposition === "manual_review" ? "Check manually" : "View source"}
             </a>
             <button type="button" disabled={busy} onClick={() => onPromote(failure.id)}>
@@ -2667,7 +2822,17 @@ function PipelineColumn({
         <span className="pipeline-state-icon">
           {state === "running" ? <LoaderCircle className="spin" size={13} /> : state === "passed" ? <Check size={13} /> : state === "failed" ? <X size={13} /> : state === "bench" ? <Clock3 size={13} /> : state === "selected" ? <ChevronRight size={13} /> : <span />}
         </span>
-        <a href={item.sourceUrl || undefined} target="_blank" rel="noreferrer">
+        <a
+          href={item.sourceUrl || undefined}
+          target="_blank"
+          rel="noreferrer"
+          onClick={() =>
+            void trackAnalyticsEvent("job_source_opened", {
+              jobId: item.id,
+              stage: phase,
+            })
+          }
+        >
           <strong>
             <span className="inline-job-number">{jobNumberLabel(item.jobNumber)}</span>
             {item.title || "Vacancy"}
@@ -2949,15 +3114,19 @@ function formatCompensationAmount(value: string, suffix = "") {
 
 function ApplicationsView({
   workspace,
+  beta,
   selectedId,
   setSelectedId,
   act,
   busy,
   onPrepareNext,
+  onBetaChange,
 }: ViewProps & {
+  beta: BetaStatus;
   selectedId?: string;
   setSelectedId: (id?: string) => void;
   onPrepareNext: () => void;
+  onBetaChange: (next: BetaStatus) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const applications = preparedVerifiedApplications(workspace);
@@ -2991,6 +3160,7 @@ function ApplicationsView({
   ).length;
   const header = (
     <>
+      <BetaLimitCard beta={beta} onEnabled={onBetaChange} />
       <div className="results-bar">
         <div>
           <strong>{applications.length} applications</strong>
@@ -3002,7 +3172,7 @@ function ApplicationsView({
         <div className="results-actions">
           <button
             className="queue-find"
-            disabled={busy || findingMore}
+            disabled={busy || findingMore || !beta.canStartBatch}
             onClick={onPrepareNext}
           >
             {findingMore ? (
@@ -3010,10 +3180,11 @@ function ApplicationsView({
             ) : (
               <Search size={14} />
             )}
-            Prepare next {workspace.searchConfig.applicationTarget}
+            Prepare next 5
           </button>
           <button
             className="primary"
+            disabled={busy || beta.remainingApplications <= 0}
             onClick={() => setAdding((value) => !value)}
           >
             <Plus size={15} /> Add application
@@ -3039,7 +3210,7 @@ function ApplicationsView({
           icon={BriefcaseBusiness}
           title="No prepared applications yet"
           action="Return to discovery"
-          disabled={busy || findingMore}
+          disabled={busy || findingMore || !beta.canStartBatch}
           onAction={onPrepareNext}
         />
       </div>
@@ -3051,6 +3222,9 @@ function ApplicationsView({
         <ApplicationsOverview
           workspace={workspace}
           onOpen={(id) => {
+            void trackAnalyticsEvent("application_opened", {
+              applicationId: id,
+            });
             setSelectedId(id);
             window.requestAnimationFrame(() =>
               window.scrollTo({ top: 0, behavior: "smooth" }),
@@ -3066,7 +3240,12 @@ function ApplicationsView({
       <button
         key={app.id}
         className={`application-list-entry ${app.id === selected.id ? "active" : ""} ${app.outcome ? `outcome-${app.outcome}` : ""}`}
-        onClick={() => setSelectedId(app.id)}
+        onClick={() => {
+          void trackAnalyticsEvent("application_opened", {
+            applicationId: app.id,
+          });
+          setSelectedId(app.id);
+        }}
       >
         <span className="company-mark">{item.company.charAt(0)}</span>
         <div>
@@ -3103,7 +3282,7 @@ function ApplicationsView({
               <strong>{applications.length}</strong>
               <button
                 className="queue-find"
-                disabled={busy || findingMore}
+                disabled={busy || findingMore || !beta.canStartBatch}
                 onClick={onPrepareNext}
               >
                 {findingMore ? (
@@ -3111,7 +3290,7 @@ function ApplicationsView({
                 ) : (
                   <Search size={13} />
                 )}
-                Prepare next {workspace.searchConfig.applicationTarget}
+                Prepare next 5
               </button>
             </div>
           </div>
@@ -3128,6 +3307,7 @@ function ApplicationsView({
           app={selected}
           job={job}
           busy={busy}
+          llmBlocked={beta.remainingApplications <= 0}
           act={act}
         />
       </div>
@@ -3139,11 +3319,13 @@ function ApplicationEditor({
   app,
   job,
   busy,
+  llmBlocked,
   act,
 }: {
   app: ApplicationDraft;
   job: JobSearchWorkspace["opportunities"][number];
   busy: boolean;
+  llmBlocked: boolean;
   act: ViewProps["act"];
 }) {
   const [coverLetter, setCoverLetter] = useState(app.coverLetter);
@@ -3181,6 +3363,10 @@ function ApplicationEditor({
       );
       if (!result) return;
     }
+    void trackAnalyticsEvent("employer_form_opened", {
+      applicationId: app.id,
+      jobId: job.id,
+    });
     setEmployerFormOpened(true);
     setShowEmployerForm(true);
   };
@@ -3276,6 +3462,12 @@ function ApplicationEditor({
             href={job.sourceUrl}
             target="_blank"
             rel="noreferrer"
+            onClick={() =>
+              void trackAnalyticsEvent("job_source_opened", {
+                jobId: job.id,
+                stage: "application",
+              })
+            }
           >
             <Globe2 size={15} /> View job <ArrowUpRight size={14} />
           </a>
@@ -3538,6 +3730,7 @@ function ApplicationEditor({
             disabled={
               busy ||
               verified ||
+              llmBlocked ||
               tailoringCv ||
               app.tailoredCv?.status === "processing"
             }
@@ -3653,6 +3846,7 @@ function ApplicationEditor({
                     <CoverLetterFieldEditor
                       app={app}
                       busy={busy}
+                      llmBlocked={llmBlocked}
                       changed={changed}
                       coverLetter={coverLetter}
                       fieldId={field.id}
@@ -3701,7 +3895,7 @@ function ApplicationEditor({
                     />
                     <ApplicationAnswerAdjuster
                       busy={busy}
-                      disabled={verified}
+                      disabled={verified || llmBlocked}
                       label={field.label}
                       onRefine={(instruction) =>
                         refineField(field.id, instruction)
@@ -3836,6 +4030,7 @@ function ApplicationEditor({
 function CoverLetterFieldEditor({
   app,
   busy,
+  llmBlocked,
   changed,
   coverLetter,
   fieldId,
@@ -3848,6 +4043,7 @@ function CoverLetterFieldEditor({
 }: {
   app: ApplicationDraft;
   busy: boolean;
+  llmBlocked: boolean;
   changed: boolean;
   coverLetter: string;
   fieldId: string;
@@ -3867,7 +4063,7 @@ function CoverLetterFieldEditor({
         aria-label="Cover Letter"
         className="cover-editor"
         data-application-field={fieldId}
-        disabled={verified || refining}
+        disabled={verified || refining || llmBlocked}
         rows={26}
         value={coverLetter}
         onChange={(event) => onChange(event.target.value)}
@@ -3901,7 +4097,7 @@ function CoverLetterFieldEditor({
         <div className="cover-chat-input">
           <textarea
             aria-label="Cover letter adjustment"
-            disabled={verified || refining || busy}
+            disabled={verified || refining || busy || llmBlocked}
             value={message}
             placeholder="For example: Make it more formal and map the three most important requirements directly to my experience."
             onChange={(event) => onMessageChange(event.target.value)}
@@ -3912,7 +4108,14 @@ function CoverLetterFieldEditor({
           />
           <button
             className="secondary"
-            disabled={verified || refining || busy || changed || !message.trim()}
+            disabled={
+              verified ||
+              refining ||
+              busy ||
+              llmBlocked ||
+              changed ||
+              !message.trim()
+            }
             onClick={() => void onRefine()}
           >
             {refining ? (

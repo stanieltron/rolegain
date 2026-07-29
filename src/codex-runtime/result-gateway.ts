@@ -129,7 +129,6 @@ export function evaluateResultGateway(input: {
       input.callId === "match.repair"
     ) {
       sanitizeContainedExcerptGrounding(output, sources, adjustments);
-      sanitizeDuplicateAssessmentRequirements(output, adjustments);
       sanitizeMatchedAssessmentState(output, adjustments);
     }
     if (input.callId === "evidence.chunk-analysis")
@@ -309,38 +308,6 @@ function sanitizeContainedExcerptGrounding(
     });
     item.excerpt = replacement;
   });
-}
-
-function sanitizeDuplicateAssessmentRequirements(
-  output: unknown,
-  adjustments: ResultGatewayAdjustment[],
-) {
-  for (const [assessment, path] of assessmentObjects(output)) {
-    if (!Array.isArray(assessment.requirements)) continue;
-    const seen = new Set<string>();
-    const kept: unknown[] = [];
-    for (const [index, row] of assessment.requirements.entries()) {
-      if (!isObject(row) || typeof row.requirement !== "string") {
-        kept.push(row);
-        continue;
-      }
-      const key = row.requirement.trim().toLowerCase();
-      if (!key || !seen.has(key)) {
-        if (key) seen.add(key);
-        kept.push(row);
-        continue;
-      }
-      adjustments.push({
-        code: "DUPLICATE_REQUIREMENT_DROPPED",
-        path: `${path}.requirements[${index}]`,
-        message:
-          "Dropped a repeated match requirement row after preserving the first occurrence",
-        before: row,
-        after: undefined,
-      });
-    }
-    assessment.requirements = kept;
-  }
 }
 
 function sanitizeMatchedAssessmentState(

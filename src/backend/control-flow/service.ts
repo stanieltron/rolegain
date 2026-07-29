@@ -846,6 +846,7 @@ export class JobSearchService {
       workspace.searchProgress?.baselineApplicationJobIds ??
         preparedVerifiedJobIds(workspace),
     );
+    const hadApplicationAttemptsBeforeRun = workspace.applications.length > 0;
     const preparedThisRun = () =>
       [...preparedVerifiedJobIds(workspace)].filter(
         (jobId) => !preparedBeforeRun.has(jobId),
@@ -899,8 +900,15 @@ export class JobSearchService {
       const reusableBench = revalidated.opportunities.filter(
         hasReusableAssessment,
       );
+      const discoveryLimit = discoveryLimitAfterBenchValidation({
+        remainingApplications: remaining,
+        reusableOpenJobs: reusableBench.length,
+        configuredDiscoveryTarget: workspace.searchConfig.discoveryTarget,
+        firstBatch: !hadApplicationAttemptsBeforeRun,
+        refillRound: roundsCompleted,
+      });
       const discovered =
-        reusableBench.length >= remaining * 4
+        discoveryLimit === 0
           ? {
               opportunities: [] as JobOpportunity[],
               applications: [] as ApplicationDraft[],
@@ -908,22 +916,16 @@ export class JobSearchService {
               seenUrls: [] as string[],
             }
           : this.opportunityResearch.researchAndAssess
-            ? await this.opportunityResearch.researchAndAssess(workspace, {
-                excludeApplyUrls: applicationUrls,
-                limit:
-                  roundsCompleted === 0 && completed === 0
-                    ? workspace.searchConfig.discoveryTarget
-                    : Math.max(1, remaining * 4),
-                onProgress: reportProgress,
-              })
-            : await this.opportunityResearch.research(workspace, {
-                excludeApplyUrls: applicationUrls,
-                limit:
-                  roundsCompleted === 0 && completed === 0
-                    ? workspace.searchConfig.discoveryTarget
-                    : Math.max(1, remaining * 4),
-                onProgress: reportProgress,
-              });
+              ? await this.opportunityResearch.researchAndAssess(workspace, {
+                  excludeApplyUrls: applicationUrls,
+                  limit: discoveryLimit,
+                  onProgress: reportProgress,
+                })
+              : await this.opportunityResearch.research(workspace, {
+                  excludeApplyUrls: applicationUrls,
+                  limit: discoveryLimit,
+                  onProgress: reportProgress,
+                });
       await pendingProgressWrite;
       const unseenDiscovered = discovered.opportunities.filter(
         (job) =>
@@ -994,17 +996,26 @@ export class JobSearchService {
 
   async startPrepareSearchReadyApplications(
     candidateId = CANDIDATE_ID,
+    applicationTargetOverride?: number,
   ): Promise<JobSearchWorkspace> {
     this.assertBackgroundExecutionRunning(candidateId);
     const workspace = await this.get(candidateId);
     if (this.activeFindMore.has(workspace.candidateId)) return workspace;
-    const ready = workspace.searchReadyOpportunities;
+    const applicationJobIds = new Set(
+      workspace.applications.map((application) => application.jobId),
+    );
+    const ready = workspace.searchReadyOpportunities.filter(
+      (job) => !applicationJobIds.has(job.id),
+    );
     if (ready.length === 0)
       throw new Error("There are no search-verified vacancies ready for matching");
     workspace.phase = "applications";
     workspace.searchProgress = {
       stage: "verifying",
-      target: ready.length,
+      target: Math.min(
+        applicationTargetOverride ?? workspace.searchConfig.applicationTarget,
+        ready.length,
+      ),
       found: ready.length,
       activity: `Passing ${ready.length} search-verified vacancies into evidence matching.`,
       updatedAt: new Date().toISOString(),
@@ -1025,7 +1036,10 @@ export class JobSearchService {
     this.trackSearchTask(
       workspace,
       "prepare_search_ready",
-      this.prepareSearchReadyApplications(workspace.candidateId),
+      this.prepareSearchReadyApplications(
+        workspace.candidateId,
+        applicationTargetOverride,
+      ),
       "Matching or application preparation stopped before completion.",
     );
     return workspace;
@@ -1033,6 +1047,7 @@ export class JobSearchService {
 
   async prepareSearchReadyApplications(
     candidateId?: string,
+    applicationTargetOverride?: number,
   ): Promise<JobSearchWorkspace> {
     this.assertBackgroundExecutionRunning(candidateId);
     const workspace = candidateId
@@ -1044,18 +1059,20 @@ export class JobSearchService {
       throw new Error("Live application-form inspection is not configured");
     if (!this.coverLetterWriter)
       throw new Error("Cover letter generation is not configured");
-    const candidates = [...workspace.searchReadyOpportunities];
+    const applicationJobIds = new Set(
+      workspace.applications.map((application) => application.jobId),
+    );
+    const candidates = workspace.searchReadyOpportunities.filter(
+      (job) => !applicationJobIds.has(job.id),
+    );
     if (candidates.length === 0)
       throw new Error("There are no search-verified vacancies ready for matching");
 
-    // The previous application set may have been produced before search-stage
-    // verification was corrected. Preserve it in job history, but do not keep
-    // stale drafts active beside this clean verified batch.
+    const applicationTarget = Math.min(
+      applicationTargetOverride ?? workspace.searchConfig.applicationTarget,
+      candidates.length,
+    );
     workspace.jobHistory = normalizeJobHistory(workspace);
-    workspace.opportunities = [];
-    workspace.applications = [];
-    workspace.searchReadyOpportunities = [];
-    workspace.searchConfig.applicationTarget = Math.min(10, candidates.length);
     let pendingProgressWrite = Promise.resolve();
     const reportProgress = async (update: OpportunityProgressUpdate) => {
       this.assertBackgroundExecutionRunning(workspace.candidateId);
@@ -1070,7 +1087,11 @@ export class JobSearchService {
     return this.continueAfterVacancyVerification({
       workspace,
       candidates,
-      existingApplicationJobs: [],
+      existingApplicationJobs: workspace.opportunities.filter((job) =>
+        workspace.applications.some(
+          (application) => application.jobId === job.id,
+        ),
+      ),
       fallbackApplications: [],
       nextSeenJobUrls: uniqueUrls([
         ...workspace.seenJobUrls,
@@ -1078,6 +1099,7 @@ export class JobSearchService {
       ]),
       reportProgress,
       waitForProgress: () => pendingProgressWrite,
+      selectionLimit: applicationTarget,
     });
   }
 
@@ -1515,13 +1537,16 @@ export class JobSearchService {
     );
   }
 
-  async findMoreApplications(candidateId?: string): Promise<JobSearchWorkspace> {
+  async findMoreApplications(
+    candidateId?: string,
+    applicationTargetOverride?: number,
+  ): Promise<JobSearchWorkspace> {
     const workspace = candidateId
       ? await this.getCandidate(candidateId)
       : await this.get();
     return this.prepareApplications(
       workspace.candidateId,
-      workspace.searchConfig.applicationTarget,
+      applicationTargetOverride ?? workspace.searchConfig.applicationTarget,
     );
   }
 
@@ -2778,6 +2803,25 @@ function mergeUniqueJobs(...groups: JobOpportunity[][]) {
 
 function hasReusableAssessment(job: JobOpportunity) {
   return Number.isFinite(job.fit) && job.requirementMatches.length > 0;
+}
+
+export function discoveryLimitAfterBenchValidation(input: {
+  remainingApplications: number;
+  reusableOpenJobs: number;
+  configuredDiscoveryTarget: number;
+  firstBatch: boolean;
+  refillRound: number;
+}) {
+  const remainingApplications = Math.max(
+    0,
+    Math.floor(input.remainingApplications),
+  );
+  const reusableOpenJobs = Math.max(0, Math.floor(input.reusableOpenJobs));
+  const shortfall = Math.max(0, remainingApplications - reusableOpenJobs);
+  if (shortfall === 0) return 0;
+  if (input.firstBatch && input.refillRound === 0)
+    return Math.max(1, Math.floor(input.configuredDiscoveryTarget));
+  return Math.max(1, shortfall * 4);
 }
 
 export function selectPhase2ApplicationPortfolio(

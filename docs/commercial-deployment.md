@@ -11,6 +11,8 @@ Rolegain keeps its existing React UI and pipeline code. Commercial mode adds:
 - automatic sourced company research only for jobs that reach Applications;
 - user-triggered per-application CV tailoring with downloadable DOCX output;
 - separate web and worker processes.
+- closed-beta application limits, interaction analytics and a private admin
+  control room at `/admin`.
 
 ## Required services
 
@@ -24,8 +26,9 @@ Rolegain keeps its existing React UI and pipeline code. Commercial mode adds:
 5. Configure custom SMTP in Supabase for confirmation and password-reset email.
 6. Create or allow Rolegain to create a private Storage bucket named
    `rolegain-private`.
-7. Configure the LLM provider API key, base URL, model and provider-specific web
-   search request body.
+7. Configure the Gemini API key, OpenAI-compatible base URL and model. Live
+   discovery and company research reuse that key through Gemini's native Google
+   Search endpoint.
 
 Google login does not require Gmail permissions. Do not request Gmail scopes;
 Rolegain only needs identity, email and profile.
@@ -45,6 +48,10 @@ SUPABASE_PUBLISHABLE_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
 SUPABASE_STORAGE_BUCKET=rolegain-private
 
+ROLEGAIN_ADMIN_USERNAME=...
+ROLEGAIN_ADMIN_PASSWORD=...
+ROLEGAIN_ADMIN_SESSION_SECRET=... # at least 32 random characters
+
 VITE_ROLEGAIN_AUTH_MODE=supabase
 VITE_SUPABASE_URL=https://....supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=...
@@ -53,7 +60,9 @@ ROLEGAIN_LLM_TRANSPORT=api
 ROLEGAIN_API_KEY=...
 ROLEGAIN_API_BASE_URL=...
 ROLEGAIN_API_MODEL=...
-ROLEGAIN_API_WEB_SEARCH_BODY=...
+ROLEGAIN_GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+# Optional; defaults to ROLEGAIN_API_MODEL
+ROLEGAIN_GEMINI_SEARCH_MODEL=...
 ```
 
 `VITE_*` values must be present while building the frontend. The Supabase
@@ -116,3 +125,46 @@ completion callback from incrementing the same user twice.
 
 Users can read their current total from `GET /api/usage`; the authenticated UI
 shows the counter in its header.
+
+## Closed-beta controls
+
+Every user starts with a total allowance of ten prepared applications split
+across two batches of up to five. The allowance is stored separately from the
+workspace, so resetting or deleting workspace data never restores LLM access.
+When no allowance remains, all routes that can start LLM work and both reset
+routes are blocked server-side.
+
+Open `/admin` directly and sign in with the deployment-only administrator
+credentials. The dashboard shows registered users, flow progress, job-link and
+application interactions, workflow state and total tokens. An administrator
+can set a higher total application limit for one user. Five more applications
+unlock one additional batch.
+
+The Disconnect Codex control persists a global maintenance switch in
+PostgreSQL. The user UI changes to maintenance mode, new workflows are refused,
+and the worker checks the switch before every new model turn.
+
+## Railway Codex pilot worker
+
+For a private pilot, the supplied image includes the pinned Codex CLI version.
+Deploy the web and worker as separate Railway services from the same repository:
+
+- web command: `node dist/server/src/server/index.js`;
+- web variable: `ROLEGAIN_PROCESS_JOBS=false`;
+- worker command: `node dist/server/scripts/start-worker.js`;
+- worker variables: `ROLEGAIN_LLM_TRANSPORT=codex`,
+  `ROLEGAIN_CODEX_HOME=/data/codex`;
+- mount a private persistent volume at `/data` on the worker;
+- do not generate a public domain for the worker.
+
+Both services use the same database and Supabase variables. Authenticate the
+worker once from a Railway shell:
+
+```text
+node dist/server/scripts/login-codex.js --device-auth
+```
+
+Complete the displayed device-code flow in the browser. The resulting Codex
+credentials remain in the private worker volume. This pilot mode is intended
+for a small controlled beta; switch the worker to the API transport before
+scaling it as a general public service.

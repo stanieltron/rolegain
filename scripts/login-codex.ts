@@ -8,7 +8,11 @@ const codexHome = resolveCodexHome();
 await mkdir(codexHome, { recursive: true, mode: 0o700 });
 
 const binary = await discoverCodexBinary();
-const login = spawn(binary, ["login"], {
+const loginArguments = [
+  "login",
+  ...(process.argv.includes("--device-auth") ? ["--device-auth"] : []),
+];
+const login = spawn(binary, loginArguments, {
   cwd: projectRoot,
   env: { ...process.env, CODEX_HOME: codexHome },
   stdio: "inherit",

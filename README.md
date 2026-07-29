@@ -101,9 +101,11 @@ unchanged.
 
 Providers differ around optional extensions. Set
 `ROLEGAIN_API_OMIT_REASONING_EFFORT=true` if the endpoint rejects that field.
-The discovery call fails closed unless `ROLEGAIN_API_WEB_SEARCH_BODY` contains
-the provider-specific JSON fields that enable grounded web search. All other
-calls use supplied context and need no provider tools.
+Calls requiring current public-web data use Gemini's native Google Search
+endpoint and the same `ROLEGAIN_API_KEY`, then run a schema-bound synthesis
+pass. `ROLEGAIN_GEMINI_BASE_URL` defaults to the public Gemini API and
+`ROLEGAIN_GEMINI_SEARCH_MODEL` defaults to `ROLEGAIN_API_MODEL`. All other calls
+use supplied context and need no provider tools.
 
 ## Run individual stages
 

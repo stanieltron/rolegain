@@ -133,6 +133,8 @@ export class CodexExecClient {
     decision: "decline",
   });
   onStderr: (line: string) => void = () => undefined;
+  /** Deployment-wide gate checked immediately before every model turn. */
+  beforeTurn: () => void | Promise<void> = () => undefined;
 
   async start(): Promise<CodexRuntimeInfo> {
     if (this.runtimeInfo) return this.runtimeInfo;
@@ -209,6 +211,7 @@ export class CodexExecClient {
   }
 
   async runTurn(options: StartTurnOptions): Promise<CodexTurnResult> {
+    await this.beforeTurn();
     this.assertExecutionAllowed();
     const executionGeneration = this.executionGeneration;
     const runtime = await this.start();

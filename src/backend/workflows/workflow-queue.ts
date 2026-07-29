@@ -5,6 +5,10 @@ import type { CodexExecClient } from "../../codex-runtime/client.js";
 import type { JobSearchService } from "../control-flow/service.js";
 import type { ArtifactArchive } from "../persistence/artifact-archive.js";
 import { withUserLock } from "../../infrastructure/database.js";
+import {
+  BETA_BATCH_SIZE,
+  type PlatformControl,
+} from "../admin/platform-control.js";
 
 const QUEUE = "rolegain-workflows";
 
@@ -37,7 +41,7 @@ export interface WorkflowQueue {
   enqueue(
     userId: string,
     type: WorkflowType,
-    options?: { resourceId?: string },
+    options?: { resourceId?: string; reserveBetaBatch?: boolean },
   ): Promise<WorkflowRun>;
   latest(userId: string): Promise<WorkflowRun | undefined>;
   cancel(userId: string): Promise<void>;
@@ -53,6 +57,7 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
     private readonly service: JobSearchService,
     private readonly codex: CodexExecClient,
     private readonly artifacts: ArtifactArchive,
+    private readonly platform: PlatformControl,
   ) {
     this.boss = new PgBoss(connectionString);
     this.boss.on("error", (error) =>
@@ -86,7 +91,7 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
   async enqueue(
     userId: string,
     type: WorkflowType,
-    options: { resourceId?: string } = {},
+    options: { resourceId?: string; reserveBetaBatch?: boolean } = {},
   ) {
     const existing = await this.pool.query<WorkflowRunRow>(
       `select id, type, status, error, created_at, started_at, completed_at
@@ -100,36 +105,53 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
       [userId, type, options.resourceId],
     );
     if (existing.rows[0]) return asWorkflowRun(existing.rows[0]);
+    const reservesBetaBatch =
+      isApplicationBatch(type) && options.reserveBetaBatch !== false;
+    if (reservesBetaBatch) await this.platform.reserveBatch(userId);
+    else {
+      await this.platform.assertCodexEnabled();
+      await this.platform.assertLlmAllowance(userId);
+    }
     const runId = randomUUID();
-    await this.pool.query(
-      `insert into rolegain_workflow_runs
-         (id, user_id, type, resource_key, status)
-       values ($1, $2, $3, $4, 'queued')`,
-      [runId, userId, type, options.resourceId],
-    );
-    const queueJobId = await this.boss.send(
-      QUEUE,
-      {
-        runId,
-        userId,
-        type,
-        resourceId: options.resourceId,
-      } satisfies WorkflowPayload,
-      {
-        singletonKey: userId,
-        retryLimit: 2,
-        retryDelay: 15,
-        retryBackoff: true,
-        expireInSeconds: 60 * 60,
-      },
-    );
-    if (!queueJobId)
-      throw new Error("The workflow could not be added to the queue");
-    await this.pool.query(
-      "update rolegain_workflow_runs set queue_job_id = $2 where id = $1",
-      [runId, queueJobId],
-    );
-    return (await this.byId(runId))!;
+    try {
+      await this.pool.query(
+        `insert into rolegain_workflow_runs
+           (id, user_id, type, resource_key, status)
+         values ($1, $2, $3, $4, 'queued')`,
+        [runId, userId, type, options.resourceId],
+      );
+      const queueJobId = await this.boss.send(
+        QUEUE,
+        {
+          runId,
+          userId,
+          type,
+          resourceId: options.resourceId,
+        } satisfies WorkflowPayload,
+        {
+          singletonKey: userId,
+          retryLimit: 2,
+          retryDelay: 15,
+          retryBackoff: true,
+          expireInSeconds: 60 * 60,
+        },
+      );
+      if (!queueJobId)
+        throw new Error("The workflow could not be added to the queue");
+      await this.pool.query(
+        "update rolegain_workflow_runs set queue_job_id = $2 where id = $1",
+        [runId, queueJobId],
+      );
+      await this.platform.recordEvent(userId, {
+        name: "workflow_started",
+        metadata: { type },
+      });
+      return (await this.byId(runId))!;
+    } catch (error) {
+      if (reservesBetaBatch)
+        await this.platform.releaseBatch(userId).catch(() => undefined);
+      throw error;
+    }
   }
 
   async latest(userId: string) {
@@ -178,10 +200,19 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
       );
       if (!state.rows[0] || state.rows[0].cancellation_requested_at) return;
       try {
+        await this.platform.assertCodexEnabled();
+        await this.platform.assertLlmAllowance(payload.userId);
         await this.artifacts.restore(payload.userId);
         await this.codex.runWithExecutionContext(
           { userId: payload.userId, workflowRunId: payload.runId },
           () => this.execute(payload),
+        );
+        const workspace = await this.service.get(payload.userId);
+        await this.platform.recordApplications(
+          payload.userId,
+          workspace.applications
+            .filter((application) => Boolean(application.addedBy))
+            .map((application) => application.id),
         );
         await this.artifacts.snapshot(payload.userId);
         await this.pool.query(
@@ -190,6 +221,10 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
            where id = $1`,
           [payload.runId],
         );
+        await this.platform.recordEvent(payload.userId, {
+          name: "workflow_completed",
+          metadata: { type: payload.type },
+        });
       } catch (error) {
         const message =
           error instanceof Error ? error.message : String(error);
@@ -219,24 +254,45 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
             message,
           ],
         );
+        await this.platform.recordEvent(payload.userId, {
+          name: "workflow_failed",
+          metadata: { type: payload.type },
+        }).catch(() => undefined);
         throw error;
       }
     });
   }
 
   private async execute(payload: WorkflowPayload) {
+    const beta = await this.platform.betaStatus(payload.userId);
+    const applicationTarget = Math.min(
+      BETA_BATCH_SIZE,
+      beta.remainingApplications,
+    );
     switch (payload.type) {
       case "analyze":
         await this.service.analyzeCandidate(payload.userId);
         return;
       case "prepare":
-        await this.service.prepareApplications(payload.userId);
+        if (applicationTarget <= 0) throw betaApplicationsExhausted();
+        await this.service.prepareApplications(
+          payload.userId,
+          applicationTarget,
+        );
         return;
       case "prepare-search-ready":
-        await this.service.prepareSearchReadyApplications(payload.userId);
+        if (applicationTarget <= 0) throw betaApplicationsExhausted();
+        await this.service.prepareSearchReadyApplications(
+          payload.userId,
+          applicationTarget,
+        );
         return;
       case "find-more":
-        await this.service.findMoreApplications(payload.userId);
+        if (applicationTarget <= 0) throw betaApplicationsExhausted();
+        await this.service.findMoreApplications(
+          payload.userId,
+          applicationTarget,
+        );
         return;
       case "tailor-cv":
         if (!payload.resourceId)
@@ -256,6 +312,18 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
     );
     return result.rows[0] ? asWorkflowRun(result.rows[0]) : undefined;
   }
+}
+
+function isApplicationBatch(type: WorkflowType) {
+  return (
+    type === "prepare" ||
+    type === "prepare-search-ready" ||
+    type === "find-more"
+  );
+}
+
+function betaApplicationsExhausted() {
+  return new Error("The beta application allowance has been completed");
 }
 
 interface WorkflowRunRow {

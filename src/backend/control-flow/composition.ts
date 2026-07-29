@@ -29,6 +29,7 @@ import {
   type WorkflowQueue,
 } from "../workflows/workflow-queue.js";
 import type { Pool } from "pg";
+import { PlatformControl } from "../admin/platform-control.js";
 
 const defaultProjectRoot = process.cwd();
 
@@ -44,6 +45,7 @@ export interface RolegainDependencies {
   tokenCounter: TokenCounter;
   artifacts: ArtifactArchive;
   workflows?: WorkflowQueue;
+  platform: PlatformControl;
   close: () => Promise<void>;
 }
 
@@ -66,6 +68,7 @@ export async function createRolegainDependencies(
   const tokenCounter = database
     ? new PostgresTokenCounter(database)
     : new MemoryTokenCounter();
+  const platform = new PlatformControl(database);
   const artifacts =
     configuration.objectStorageEnabled
       ? new SupabaseArtifactArchive(
@@ -77,6 +80,7 @@ export async function createRolegainDependencies(
       : new LocalArtifactArchive();
   await artifacts.initialize();
   const codex = createLlmClient(root);
+  codex.beforeTurn = () => platform.assertCodexEnabled();
   const researcher = new LiveOpportunityResearcher(codex, root, dataRoot);
   const writer = new CodexCoverLetterWriter(codex, root, dataRoot);
   const jobSearch = new JobSearchService(
@@ -103,6 +107,7 @@ export async function createRolegainDependencies(
           jobSearch,
           codex,
           artifacts,
+          platform,
         )
       : undefined;
   if (workflows) await workflows.start(configuration.processJobs);
@@ -118,6 +123,7 @@ export async function createRolegainDependencies(
     tokenCounter,
     artifacts,
     workflows,
+    platform,
     close: async () => {
       await workflows?.close();
       await researcher.cancelAll();

@@ -110,11 +110,81 @@ describe("OpenAI-compatible LLM transport", () => {
     });
   });
 
-  it("fails closed when a call needs unconfigured provider web search", async () => {
+  it("uses native Gemini Google Search before schema-bound synthesis", async () => {
     const root = await temporaryProjectWithAnswerSkill();
+    const requests: Array<{
+      url: string;
+      headers: Record<string, string>;
+      body: Record<string, unknown>;
+    }> = [];
     vi.stubEnv("ROLEGAIN_API_KEY", "test-api-key");
-    vi.stubEnv("ROLEGAIN_API_WEB_SEARCH_BODY", "");
-    const fetchMock = vi.fn();
+    vi.stubEnv("ROLEGAIN_API_BASE_URL", "https://gemini.example/v1beta/openai");
+    vi.stubEnv("ROLEGAIN_GEMINI_BASE_URL", "https://gemini.example/v1beta");
+    vi.stubEnv("ROLEGAIN_API_MODEL", "gemini-2.5-flash");
+    const fetchMock = vi.fn(
+      async (url: string | URL | Request, init?: RequestInit) => {
+        requests.push({
+          url: String(url),
+          headers: Object.fromEntries(new Headers(init?.headers).entries()),
+          body: JSON.parse(String(init?.body)),
+        });
+        if (String(url).includes(":generateContent"))
+          return new Response(
+            JSON.stringify({
+              responseId: "search-response-1",
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      {
+                        text: "Acme builds verified infrastructure. Source: https://acme.example/about",
+                      },
+                    ],
+                  },
+                  groundingMetadata: {
+                    webSearchQueries: ["Acme infrastructure company"],
+                    groundingChunks: [
+                      {
+                        web: {
+                          title: "About Acme",
+                          uri: "https://acme.example/about",
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+              usageMetadata: {
+                promptTokenCount: 40,
+                candidatesTokenCount: 15,
+                totalTokenCount: 55,
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        return new Response(
+          JSON.stringify({
+            id: "synthesis-response-1",
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    value: "Grounded answer",
+                    evidenceBasis: "https://acme.example/about",
+                  }),
+                },
+              },
+            ],
+            usage: {
+              prompt_tokens: 80,
+              completion_tokens: 20,
+              total_tokens: 100,
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
     const client = new OpenAiCompatibleClient(root);
     const thread = await client.startThread({
@@ -126,16 +196,52 @@ describe("OpenAI-compatible LLM transport", () => {
       webSearch: { mode: "live" },
     });
 
-    await expect(
-      client.runTurn({
-        threadId: thread.id,
-        prompt: "TASK DATA",
-        cwd: root,
-        sandbox: "readOnly",
-        outputSchema: { type: "object" },
-      }),
-    ).rejects.toThrow("ROLEGAIN_API_WEB_SEARCH_BODY");
-    expect(fetchMock).not.toHaveBeenCalled();
+    const result = await client.runTurn({
+      threadId: thread.id,
+      prompt: "Research Acme",
+      cwd: root,
+      sandbox: "readOnly",
+      outputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["value", "evidenceBasis"],
+        properties: {
+          value: { type: "string" },
+          evidenceBasis: { type: "string" },
+        },
+      },
+    });
+
+    expect(JSON.parse(result.finalText)).toEqual({
+      value: "Grounded answer",
+      evidenceBasis: "https://acme.example/about",
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({
+      url: "https://gemini.example/v1beta/models/gemini-2.5-flash:generateContent",
+      headers: { "x-goog-api-key": "test-api-key" },
+      body: { tools: [{ googleSearch: {} }] },
+    });
+    expect(requests[1].url).toBe(
+      "https://gemini.example/v1beta/openai/chat/completions",
+    );
+    expect(
+      (
+        requests[1].body.messages as Array<{
+          role: string;
+          content: string;
+        }>
+      )[1].content,
+    ).toContain("https://acme.example/about");
+
+    const runFiles = await findRunFiles(root, "run.json");
+    const run = JSON.parse(await readFile(runFiles[0], "utf8"));
+    expect(run).toMatchObject({
+      provider: "gemini-google-search+openai-compatible-api",
+      status: "completed",
+      providerResponseId: "synthesis-response-1",
+      usage: { total_tokens: 155 },
+    });
   });
 
   it("selects only the configured transport", () => {

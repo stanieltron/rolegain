@@ -20,7 +20,20 @@ export async function migrateDatabase(pool: Pool) {
     path.resolve(process.cwd(), "migrations", "001_saas.sql"),
     "utf8",
   );
-  await pool.query(migration);
+  const client = await pool.connect();
+  try {
+    await client.query(
+      "select pg_advisory_lock(hashtext('rolegain:schema-migrations'))",
+    );
+    await client.query(migration);
+  } finally {
+    await client
+      .query(
+        "select pg_advisory_unlock(hashtext('rolegain:schema-migrations'))",
+      )
+      .catch(() => undefined);
+    client.release();
+  }
 }
 
 export async function withUserLock<T>(
