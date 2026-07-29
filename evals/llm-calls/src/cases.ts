@@ -15,11 +15,13 @@ import { outputSchema as matchRepairSchema } from "../../../src/03-match/01-requ
 import { outputSchema as applicationNavigationSchema } from "../../../src/03-match/02-application-inspection/llm-calls/01-application-navigation/index.js";
 import { outputSchema as applicationFieldMapSchema } from "../../../src/03-match/02-application-inspection/llm-calls/02-application-field-mapping/index.js";
 import { outputSchema as applicationSchemaVerifySchema } from "../../../src/03-match/02-application-inspection/llm-calls/03-application-schema-verification/index.js";
+import { outputSchema as companyResearchSchema } from "../../../src/04-application-preparation/00-company-research/llm-calls/01-company-research/index.js";
 import { outputSchema as applicationDraftSchema } from "../../../src/04-application-preparation/02-draft/llm-calls/01-draft/index.js";
 import { outputSchema as applicationVerifySchema } from "../../../src/04-application-preparation/03-verification/llm-calls/01-verification/index.js";
 import { outputSchema as applicationRepairSchema } from "../../../src/04-application-preparation/04-repair/llm-calls/01-repair/index.js";
 import { outputSchema as coverLetterRefineSchema } from "../../../src/04-application-preparation/05-refinement/llm-calls/01-cover-letter-refinement/index.js";
 import { outputSchema as answerRefineSchema } from "../../../src/04-application-preparation/05-refinement/llm-calls/02-answer-refinement/index.js";
+import { outputSchema as cvTailoringSchema } from "../../../src/04-application-preparation/06-cv-tailoring/llm-calls/01-cv-tailoring/index.js";
 
 export type LlmEvalSuite =
   | "evidence.components"
@@ -410,6 +412,32 @@ export const LLM_EVAL_CASES: LlmEvalCase[] = [
     live: "opt-in",
   },
   {
+    id: "application.company-research",
+    suite: "application-preparation.components",
+    prompt:
+      "Research Acme Cloud for one Platform Engineer application and return sourced company context.",
+    expected: {
+      company: "Acme Cloud",
+      overview: "Acme Cloud provides deployment automation for engineering teams.",
+      productsAndServices: ["Deployment orchestration platform"],
+      customersAndMarkets: ["Software engineering organizations"],
+      businessModel: "Subscription software",
+      cultureAndValues: ["Operational reliability"],
+      recentSignals: ["Expanded its deployment observability product"],
+      tailoringAngles: ["Connect verified deployment reliability work to the product mission"],
+      sources: [
+        {
+          title: "Acme Cloud product",
+          url: "https://acme.example/product",
+          evidence: "The official product page describes deployment orchestration.",
+        },
+      ],
+    },
+    schema: companyResearchSchema,
+    semanticChecks: ["uses public sources", "returns role-specific tailoring angles"],
+    live: "opt-in",
+  },
+  {
     id: "application.draft",
     suite: "application-preparation.components",
     prompt: "Draft one grounded answer and a concise cover letter for application app-1.",
@@ -476,6 +504,23 @@ export const LLM_EVAL_CASES: LlmEvalCase[] = [
     },
     schema: answerRefineSchema,
     semanticChecks: ["returns full answer", "keeps evidence basis"],
+    live: "opt-in",
+  },
+  {
+    id: "application.cv-tailor",
+    suite: "application-preparation.components",
+    prompt:
+      "Tailor a complete existing CV to one Platform Engineer application without adding facts.",
+    expected: {
+      content:
+        "# Alex Rivera\n\n## Summary\nPlatform engineer focused on reliable TypeScript services.\n\n## Experience\n- Reduced failed deployments by 35% through automated validation.\n- Operated TypeScript services used by engineering teams.",
+      changeSummary: [
+        "Moved deployment reliability evidence earlier",
+        "Emphasized verified TypeScript service operations",
+      ],
+    },
+    schema: cvTailoringSchema,
+    semanticChecks: ["returns a complete CV", "does not add unsupported candidate facts"],
     live: "opt-in",
   },
 ];

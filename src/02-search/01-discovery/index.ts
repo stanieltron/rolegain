@@ -76,7 +76,7 @@ export async function searchAndValidateOpportunities(input: {
 }) {
   const { codex, cwd, dataRoot, browsers, workspace } = input;
   const options = input.options ?? {};
-    const executionGeneration = browsers.currentGeneration;
+    const executionGeneration = browsers.currentGeneration(workspace.candidateId);
     const limit = Math.max(1, Math.min(options.limit ?? 20, 50));
     const maxSearchWaves = Math.max(
       1,
@@ -148,7 +148,10 @@ export async function searchAndValidateOpportunities(input: {
       initialCandidates,
       savedSources,
     );
-    const browser = await browsers.launch.bind(browsers)(executionGeneration);
+    const browser = await browsers.launch.bind(browsers)(
+      workspace.candidateId,
+      executionGeneration,
+    );
     const opportunities: JobOpportunity[] = [];
     const inspectionErrors: string[] = [];
     const failures: JobResearchFailure[] = [];

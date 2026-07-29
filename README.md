@@ -79,6 +79,10 @@ npm start
 
 Open `http://127.0.0.1:4317`.
 
+For authenticated commercial deployment, PostgreSQL-backed workflows, private
+artifact storage and per-user token tracking, see
+[Commercial deployment](./docs/commercial-deployment.md).
+
 For development, run `npm run dev`. This starts the API on port 4317 and the UI
 on port 5173 using Codex CLI.
 

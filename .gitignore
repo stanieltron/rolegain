@@ -25,6 +25,7 @@ evals/**/output/
 
 # Logs
 *.log
+.local-run/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

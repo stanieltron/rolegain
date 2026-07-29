@@ -4,6 +4,7 @@ import {
   ArrowUpRight,
   BellRing,
   BriefcaseBusiness,
+  Building2,
   Check,
   CheckCircle2,
   ChevronLeft,
@@ -14,6 +15,7 @@ import {
   FileCheck2,
   FileText,
   Globe2,
+  Download,
   Inbox,
   LoaderCircle,
   MapPin,
@@ -43,6 +45,7 @@ import {
   analyzeCandidate,
   answerQuestion,
   continueBackgroundWork,
+  downloadTailoredCv,
   finishIntake,
   findMoreApplications,
   getCanonicalEvidence,
@@ -58,6 +61,7 @@ import {
   refineCoverLetter,
   setApplicationOutcome,
   stopBackgroundWork,
+  tailorApplicationCv,
   updateApplication,
   updateCandidateProfile,
   updateSearchConfig,
@@ -312,7 +316,11 @@ export function App() {
         false) ||
       workspace?.searchProgress?.stage === "looking" ||
       workspace?.searchProgress?.stage === "verifying" ||
-      workspace?.searchProgress?.stage === "filling");
+      workspace?.searchProgress?.stage === "filling" ||
+      (workspace?.applications.some(
+        (application) => application.tailoredCv?.status === "processing",
+      ) ??
+        false));
   useEffect(() => {
     if (!monitoring) return;
     const timer = window.setInterval(
@@ -3141,6 +3149,8 @@ function ApplicationEditor({
   const [coverLetter, setCoverLetter] = useState(app.coverLetter);
   const [coverLetterMessage, setCoverLetterMessage] = useState("");
   const [refiningCoverLetter, setRefiningCoverLetter] = useState(false);
+  const [cvDownloadError, setCvDownloadError] = useState("");
+  const [tailoringCv, setTailoringCv] = useState(false);
   const [showEmployerForm, setShowEmployerForm] = useState(false);
   const [employerFormOpened, setEmployerFormOpened] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>(() =>
@@ -3205,6 +3215,14 @@ function ApplicationEditor({
       ),
     );
     setCoverLetter(updated.coverLetter);
+  };
+  const requestTailoredCv = async () => {
+    setTailoringCv(true);
+    try {
+      await act(() => tailorApplicationCv(app.id));
+    } finally {
+      setTailoringCv(false);
+    }
   };
   if (showEmployerForm)
     return (
@@ -3355,6 +3373,188 @@ function ApplicationEditor({
             ? applicationStatusLabel(app)
             : `${app.formFields.filter((f) => f.value).length}/${app.formFields.length} fields mapped`}
         </span>
+      </div>
+      <div className="application-intelligence">
+        <section className="company-research-card">
+          <div className="application-feature-heading">
+            <span className="application-feature-icon">
+              <Building2 size={17} />
+            </span>
+            <span>
+              <strong>Company context</strong>
+              <small>Researched automatically for this application</small>
+            </span>
+          </div>
+          {app.companyResearch?.status === "ready" ? (
+            <>
+              <p>{app.companyResearch.overview}</p>
+              {app.companyResearch.productsAndServices.length > 0 && (
+                <div className="company-research-block">
+                  <strong>What it does</strong>
+                  <ul>
+                    {app.companyResearch.productsAndServices.map(
+                      (item, index) => (
+                        <li key={`${item}-${index}`}>{item}</li>
+                      ),
+                    )}
+                  </ul>
+                </div>
+              )}
+              {app.companyResearch.tailoringAngles.length > 0 && (
+                <div className="company-research-block">
+                  <strong>Useful application angles</strong>
+                  <ul>
+                    {app.companyResearch.tailoringAngles.map((item, index) => (
+                      <li key={`${item}-${index}`}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {(app.companyResearch.customersAndMarkets.length > 0 ||
+                app.companyResearch.businessModel ||
+                app.companyResearch.cultureAndValues.length > 0 ||
+                app.companyResearch.recentSignals.length > 0) && (
+                <details className="company-research-more">
+                  <summary>More company details</summary>
+                  {app.companyResearch.customersAndMarkets.length > 0 && (
+                    <div className="company-research-block">
+                      <strong>Customers and markets</strong>
+                      <ul>
+                        {app.companyResearch.customersAndMarkets.map(
+                          (item, index) => (
+                            <li key={`${item}-${index}`}>{item}</li>
+                          ),
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                  {app.companyResearch.businessModel && (
+                    <div className="company-research-block">
+                      <strong>Business model</strong>
+                      <p>{app.companyResearch.businessModel}</p>
+                    </div>
+                  )}
+                  {app.companyResearch.cultureAndValues.length > 0 && (
+                    <div className="company-research-block">
+                      <strong>Culture and values</strong>
+                      <ul>
+                        {app.companyResearch.cultureAndValues.map(
+                          (item, index) => (
+                            <li key={`${item}-${index}`}>{item}</li>
+                          ),
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                  {app.companyResearch.recentSignals.length > 0 && (
+                    <div className="company-research-block">
+                      <strong>Recent signals</strong>
+                      <ul>
+                        {app.companyResearch.recentSignals.map(
+                          (item, index) => (
+                            <li key={`${item}-${index}`}>{item}</li>
+                          ),
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                </details>
+              )}
+              <div className="company-research-sources">
+                {app.companyResearch.sources.map((source) => (
+                  <a
+                    href={source.url}
+                    key={source.url}
+                    rel="noreferrer"
+                    target="_blank"
+                    title={source.evidence}
+                  >
+                    {source.title} <ArrowUpRight size={12} />
+                  </a>
+                ))}
+              </div>
+            </>
+          ) : app.companyResearch?.status === "failed" ? (
+            <p className="application-feature-error">
+              Company research was unavailable. The application remains based
+              on the verified vacancy and candidate evidence.
+            </p>
+          ) : (
+            <p>Company research will run when this application is prepared.</p>
+          )}
+        </section>
+        <section className="tailored-cv-card">
+          <div className="application-feature-heading">
+            <span className="application-feature-icon">
+              <FileText size={17} />
+            </span>
+            <span>
+              <strong>Tailored CV</strong>
+              <small>Generated only when you request it</small>
+            </span>
+          </div>
+          <p>
+            Reorders and rewrites your existing CV for this role without adding
+            unsupported experience.
+          </p>
+          {app.tailoredCv?.status === "ready" && (
+            <>
+              {app.tailoredCv.changeSummary.length > 0 && (
+                <ul className="tailored-cv-changes">
+                  {app.tailoredCv.changeSummary.map((item, index) => (
+                    <li key={`${item}-${index}`}>{item}</li>
+                  ))}
+                </ul>
+              )}
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() => {
+                  setCvDownloadError("");
+                  void downloadTailoredCv(
+                    app.id,
+                    app.tailoredCv!.fileName,
+                  ).catch((cause) =>
+                    setCvDownloadError(
+                      cause instanceof Error ? cause.message : String(cause),
+                    ),
+                  );
+                }}
+              >
+                <Download size={15} /> Download DOCX
+              </button>
+            </>
+          )}
+          {app.tailoredCv?.status === "failed" && (
+            <p className="application-feature-error">
+              {app.tailoredCv.error || "CV tailoring failed. You can retry it."}
+            </p>
+          )}
+          {cvDownloadError && (
+            <p className="application-feature-error">{cvDownloadError}</p>
+          )}
+          <button
+            className="secondary tailored-cv-generate"
+            disabled={
+              busy ||
+              verified ||
+              tailoringCv ||
+              app.tailoredCv?.status === "processing"
+            }
+            onClick={() => void requestTailoredCv()}
+          >
+            {tailoringCv || app.tailoredCv?.status === "processing" ? (
+              <LoaderCircle className="spin" size={15} />
+            ) : (
+              <Sparkles size={15} />
+            )}
+            {tailoringCv || app.tailoredCv?.status === "processing"
+              ? "Tailoring CV"
+              : app.tailoredCv?.status === "ready"
+                ? "Regenerate tailored CV"
+                : "Generate tailored CV"}
+          </button>
+        </section>
       </div>
       <div className="application-section-summary">
         {coverLetterField ? (

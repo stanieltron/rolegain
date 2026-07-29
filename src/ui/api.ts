@@ -6,6 +6,7 @@ import type {
   EvidenceClaim,
   RoleFamily,
 } from "../contracts/evidence.js";
+import { authorizationHeader } from "./auth.js";
 
 export interface CanonicalEvidenceModel {
   claims: EvidenceClaim[];
@@ -84,6 +85,23 @@ export const refineCoverLetter = (id: string, message: string) =>
   workspacePost(`/api/job-search/applications/${id}/cover-letter-chat`, {
     message,
   });
+export const tailorApplicationCv = (id: string) =>
+  workspacePost(`/api/job-search/applications/${id}/tailored-cv`, {});
+export async function downloadTailoredCv(id: string, fileName: string) {
+  const response = await fetch(
+    `/api/job-search/applications/${encodeURIComponent(id)}/tailored-cv`,
+    { headers: await authorizationHeader() },
+  );
+  if (!response.ok) throw new Error(await error(response));
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
 export const refineApplicationField = (
   id: string,
   fieldId: string,
@@ -101,21 +119,29 @@ export const setApplicationOutcome = (
     outcome: outcome ?? null,
   });
 async function get<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: await authorizationHeader(),
+  });
   if (!response.ok) throw new Error(await error(response));
   return response.json() as Promise<T>;
 }
 async function post<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authorizationHeader()),
+    },
     body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error(await error(response));
   return response.json() as Promise<T>;
 }
 async function del<T>(url: string): Promise<T> {
-  const response = await fetch(url, { method: "DELETE" });
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: await authorizationHeader(),
+  });
   if (!response.ok) throw new Error(await error(response));
   return response.json() as Promise<T>;
 }

@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   createRolegainDependencies,
   type RolegainDependencies,
@@ -10,9 +9,14 @@ import { proxyEmployerRequest } from "./employer-proxy.js";
 import { sendJson } from "./http.js";
 import { routeRequest } from "./job-search-routes.js";
 import { CvValidationError } from "../01-evidence-ingestion/01-evidence-acquisition/cv/upload-cv.js";
+import {
+  createRequestAuthenticator,
+  HttpError,
+} from "./auth.js";
+import { ApiRateLimiter } from "./rate-limit.js";
+import { withUserLock } from "../infrastructure/database.js";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(here, "..", "..");
+const projectRoot = process.cwd();
 
 export interface RolegainApp {
   codex: RolegainDependencies["codex"];
@@ -26,7 +30,10 @@ export async function createRolegainApp(
   options: { rootDir?: string; dataRoot?: string } = {},
 ): Promise<RolegainApp> {
   const dependencies = await createRolegainDependencies(options);
-  const { root, codex, jobSearch } = dependencies;
+  const { root, codex, jobSearch, configuration } = dependencies;
+  const authenticator = createRequestAuthenticator(configuration);
+  const rateLimiter = new ApiRateLimiter();
+  const restoredUsers = new Set<string>();
   const applicationFormAutofillScript = await readFile(
     path.join(
       projectRoot,
@@ -40,18 +47,75 @@ export async function createRolegainApp(
 
   const server = createServer(async (request, response) => {
     try {
+      response.setHeader("X-Content-Type-Options", "nosniff");
+      response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+      response.setHeader("X-Frame-Options", "DENY");
+      response.setHeader(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=()",
+      );
+      if (configuration.authMode === "supabase") {
+        const supabaseOrigin = new URL(configuration.supabaseUrl!).origin;
+        response.setHeader(
+          "Content-Security-Policy",
+          `default-src 'self'; connect-src 'self' ${supabaseOrigin} ${supabaseOrigin.replace("https:", "wss:")}; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
+        );
+        response.setHeader(
+          "Strict-Transport-Security",
+          "max-age=31536000; includeSubDomains",
+        );
+      }
       if (
+        configuration.authMode === "local" &&
         await proxyEmployerRequest(request, response, {
           applicationFormAutofillScript,
           isAllowedHost: (hostname) => jobSearch.isAllowedEmployerHost(hostname),
         })
       )
         return;
-      await routeRequest(request, response, { codex, jobSearch, root });
+      const pathname = new URL(
+        request.url ?? "/",
+        "http://127.0.0.1",
+      ).pathname;
+      const actor =
+        pathname === "/api/health" ||
+        request.method === "OPTIONS" ||
+        !pathname.startsWith("/api/")
+          ? undefined
+          : await authenticator.authenticate(request);
+      if (actor && !restoredUsers.has(actor.userId)) {
+        await dependencies.artifacts.restore(actor.userId);
+        restoredUsers.add(actor.userId);
+      }
+      if (actor) rateLimiter.enforce(request, actor);
+      const route = () =>
+        routeRequest(request, response, {
+          ...dependencies,
+          actor,
+          root,
+        });
+      if (actor) {
+        const runAuthenticatedRoute = () =>
+          codex.runWithExecutionContext({ userId: actor.userId }, route);
+        if (
+          dependencies.database &&
+          request.method !== "GET" &&
+          request.method !== "HEAD" &&
+          pathname !== "/api/job-search/background/stop"
+        )
+          await withUserLock(
+            dependencies.database,
+            actor.userId,
+            () => runAuthenticatedRoute(),
+          );
+        else await runAuthenticatedRoute();
+      } else await route();
     } catch (error) {
       const invalidCv = error instanceof CvValidationError;
-      sendJson(response, invalidCv ? 422 : 500, {
+      const httpError = error instanceof HttpError ? error : undefined;
+      sendJson(response, httpError?.status ?? (invalidCv ? 422 : 500), {
         error: error instanceof Error ? error.message : String(error),
+        ...(httpError?.code ? { code: httpError.code } : {}),
         ...(invalidCv ? { code: error.code } : {}),
       });
     }
@@ -64,10 +128,15 @@ export async function createRolegainApp(
     start: (port = Number(process.env.PORT || 4317)) =>
       new Promise((resolve, reject) => {
         server.once("error", reject);
-        server.listen(port, "127.0.0.1", () => {
+        server.listen(
+          port,
+          process.env.HOST ||
+            (configuration.authMode === "supabase" ? "0.0.0.0" : "127.0.0.1"),
+          () => {
           const address = server.address();
           resolve(typeof address === "object" && address ? address.port : port);
-        });
+          },
+        );
       }),
     close: async () => {
       await dependencies.close();

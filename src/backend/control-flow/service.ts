@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   buildCandidateEvidence,
@@ -46,6 +46,7 @@ import type {
 } from "../../search-match-shared/types.js";
 import { VacancySourceInventory } from "../../02-search/02-vacancy-source-expansion/inventory/index.js";
 import type { CoverLetterWriter } from "../../04-application-preparation/types.js";
+import { renderTailoredCvDocx } from "../../04-application-preparation/06-cv-tailoring/document.js";
 import {
   compatibleCandidateValue,
   REUSABLE_CANDIDATE_KEYS,
@@ -61,6 +62,10 @@ import {
   readCurrentEvidenceModel,
 } from "../../01-evidence-ingestion/04-verification/evidence-model.js";
 import { normalizeSearchValidationFailure } from "../../02-search/03-vacancy-validation/failure-classification.js";
+import {
+  FileWorkspaceStore,
+  type WorkspaceStore,
+} from "../persistence/workspace-store.js";
 
 const CANDIDATE_ID = "candidate-1";
 
@@ -92,7 +97,7 @@ export class JobSearchService {
   private readonly profileSourceAbort = new Map<string, AbortController>();
   private readonly activeSearchMode = new Map<string, BackgroundSearchOperation>();
   private readonly stoppedSnapshots = new Map<string, JobSearchWorkspace>();
-  private executionStopped = false;
+  private readonly stoppedCandidates = new Set<string>();
   private readonly requestedProfileSourceSync = new Set<string>();
   private readonly candidateWrites = new Map<string, Promise<void>>();
   private readonly candidateCache = new Map<string, JobSearchWorkspace>();
@@ -104,6 +109,9 @@ export class JobSearchService {
     private readonly opportunityResearch?: OpportunityResearchProvider,
     private readonly coverLetterWriter?: CoverLetterWriter,
     private readonly profileSourceIngestor: typeof readSupplementalEvidence = readSupplementalEvidence,
+    private readonly workspaceStore: WorkspaceStore = new FileWorkspaceStore(
+      path.join(root, "job-search", "candidates"),
+    ),
   ) {
     this.directory = path.join(root, "job-search", "candidates");
     this.jobNumbersFile = path.join(root, "job-search", "job-numbers.json");
@@ -121,19 +129,29 @@ export class JobSearchService {
     );
   }
 
-  async initialize(): Promise<void> {
+  async initialize(
+    options: { defaultCandidateId?: string | false } = {},
+  ): Promise<void> {
     await Promise.all([
       mkdir(this.directory, { recursive: true }),
       mkdir(this.filesDirectory, { recursive: true }),
       mkdir(this.runsDirectory, { recursive: true }),
       mkdir(this.sourceSnapshotsDirectory, { recursive: true }),
       mkdir(this.analysisCheckpointsDirectory, { recursive: true }),
+      this.workspaceStore.initialize(),
     ]);
     await this.ensureJobNumberRegistry();
-    if (await exists(this.candidateFile(CANDIDATE_ID))) {
-      const workspace = await this.getCandidate(CANDIDATE_ID);
+    const defaultCandidateId =
+      options.defaultCandidateId === false
+        ? undefined
+        : options.defaultCandidateId ?? CANDIDATE_ID;
+    if (!defaultCandidateId) return;
+    const stored = await this.workspaceStore.load(defaultCandidateId);
+    if (stored) {
+      const workspace = normalizeWorkspace(stored, defaultCandidateId);
+      this.candidateCache.set(defaultCandidateId, structuredClone(workspace));
       if (workspace.backgroundExecution?.state === "stopped")
-        this.executionStopped = true;
+        this.stoppedCandidates.add(defaultCandidateId);
       await this.assignJobNumbers([
         ...workspace.opportunities,
         ...workspace.rejectedOpportunities,
@@ -159,10 +177,13 @@ export class JobSearchService {
         PROFILE_EVIDENCE_FIELDS,
       );
       await this.saveCandidate(workspace);
-      if (profileSources.needsFetch && !this.executionStopped)
-        this.queueProfileSourceSync(CANDIDATE_ID);
       if (
-        !this.executionStopped &&
+        profileSources.needsFetch &&
+        !this.isExecutionStopped(defaultCandidateId)
+      )
+        this.queueProfileSourceSync(defaultCandidateId);
+      if (
+        !this.isExecutionStopped(defaultCandidateId) &&
         !workspace.sources.some(
           (source) => source.profileField && source.status === "processing",
         ) &&
@@ -172,10 +193,10 @@ export class JobSearchService {
             (source) => source.status === "ready" && !source.knowledgePath,
           ))
       )
-        this.queueCandidateAnalysis(CANDIDATE_ID);
+        this.queueCandidateAnalysis(defaultCandidateId);
       return;
     }
-    const workspace = emptyWorkspace(CANDIDATE_ID, {
+    const workspace = emptyWorkspace(defaultCandidateId, {
       name: "",
       email: "",
       location: "",
@@ -189,13 +210,12 @@ export class JobSearchService {
     await this.saveCandidate(workspace);
   }
 
-  async get(): Promise<JobSearchWorkspace> {
-    return this.getCandidate(CANDIDATE_ID);
+  async get(candidateId = CANDIDATE_ID): Promise<JobSearchWorkspace> {
+    return this.getCandidate(candidateId);
   }
 
   async canonicalEvidence(candidateId?: string) {
     const id = candidateId || CANDIDATE_ID;
-    if (id !== CANDIDATE_ID) throw new Error("Unknown candidate");
     return readCurrentEvidenceModel(this.root, id);
   }
 
@@ -215,8 +235,9 @@ export class JobSearchService {
       >
     >,
     options: { deferEvidenceAnalysis?: boolean } = {},
+    candidateId = CANDIDATE_ID,
   ): Promise<JobSearchWorkspace> {
-    const workspace = await this.get();
+    const workspace = await this.get(candidateId);
     const changedEvidenceFields = new Set<ProfileEvidenceField>();
     let profileChanged = false;
     for (const field of [
@@ -264,8 +285,11 @@ export class JobSearchService {
   }
 
 
-  async addSource(input: EvidenceInput): Promise<JobSearchWorkspace> {
-    const workspace = await this.get();
+  async addSource(
+    input: EvidenceInput,
+    candidateId = CANDIDATE_ID,
+  ): Promise<JobSearchWorkspace> {
+    const workspace = await this.get(candidateId);
     const replacedCvs =
       input.kind === "cv"
         ? workspace.sources.filter((source) => source.kind === "cv")
@@ -276,6 +300,9 @@ export class JobSearchService {
       source: input,
       analyzeWithLlm: Boolean(this.analyzer),
     });
+    if (input.kind === "cv")
+      for (const application of workspace.applications)
+        delete application.tailoredCv;
     recalculate(workspace);
     const installedCv =
       input.kind === "cv"
@@ -306,8 +333,9 @@ export class JobSearchService {
     return this.analyzer ? workspace : this.applyLocalAnalysis(workspace);
   }
 
-  async analyzeCandidate(): Promise<JobSearchWorkspace> {
-    const candidateId = CANDIDATE_ID;
+  async analyzeCandidate(
+    candidateId = CANDIDATE_ID,
+  ): Promise<JobSearchWorkspace> {
     await this.activeProfileSourceSync.get(candidateId);
     let workspace = await this.getCandidate(candidateId);
     if (
@@ -336,8 +364,11 @@ export class JobSearchService {
     return analyzed;
   }
 
-  async removeSource(sourceId: string): Promise<JobSearchWorkspace> {
-    const workspace = await this.get();
+  async removeSource(
+    sourceId: string,
+    candidateId = CANDIDATE_ID,
+  ): Promise<JobSearchWorkspace> {
+    const workspace = await this.get(candidateId);
     const index = workspace.sources.findIndex((source) => source.id === sourceId);
     if (index < 0) throw new Error("Unknown candidate evidence source");
     const [removed] = workspace.sources.splice(index, 1);
@@ -364,8 +395,11 @@ export class JobSearchService {
     return workspace;
   }
 
-  async markSourceReadingStopped(sourceId: string): Promise<JobSearchWorkspace> {
-    const workspace = await this.get();
+  async markSourceReadingStopped(
+    sourceId: string,
+    candidateId = CANDIDATE_ID,
+  ): Promise<JobSearchWorkspace> {
+    const workspace = await this.get(candidateId);
     const source = workspace.sources.find((item) => item.id === sourceId);
     if (!source) throw new Error("Unknown candidate evidence source");
     source.status = "needs_review";
@@ -385,7 +419,7 @@ export class JobSearchService {
   queueCandidateAnalysis(candidateId: string): void {
     if (!this.analyzer) return;
     this.requestedAnalyses.add(candidateId);
-    if (this.executionStopped) return;
+    if (this.isExecutionStopped(candidateId)) return;
     if (this.activeAnalyses.has(candidateId)) return;
     const run = this.drainCandidateAnalysis(candidateId).finally(() =>
       this.activeAnalyses.delete(candidateId),
@@ -395,7 +429,7 @@ export class JobSearchService {
 
   private queueProfileSourceSync(candidateId: string): void {
     this.requestedProfileSourceSync.add(candidateId);
-    if (this.executionStopped) return;
+    if (this.isExecutionStopped(candidateId)) return;
     if (this.activeProfileSourceSync.has(candidateId)) return;
     const run = this.drainProfileSourceSync(candidateId).finally(() =>
       this.activeProfileSourceSync.delete(candidateId),
@@ -405,7 +439,7 @@ export class JobSearchService {
 
   private async drainProfileSourceSync(candidateId: string): Promise<void> {
     while (
-      !this.executionStopped &&
+      !this.isExecutionStopped(candidateId) &&
       this.requestedProfileSourceSync.delete(candidateId)
     )
       await this.synchronizeProfileSources(candidateId);
@@ -415,7 +449,7 @@ export class JobSearchService {
     candidateId: string,
     queueAnalysis = true,
   ): Promise<void> {
-    this.assertBackgroundExecutionRunning();
+    this.assertBackgroundExecutionRunning(candidateId);
     const abortController = new AbortController();
     this.profileSourceAbort.set(candidateId, abortController);
     const result = await synchronizeProfileEvidenceSources({
@@ -427,7 +461,7 @@ export class JobSearchService {
     });
     if (this.profileSourceAbort.get(candidateId) === abortController)
       this.profileSourceAbort.delete(candidateId);
-    if (this.executionStopped) return;
+    if (this.isExecutionStopped(candidateId)) return;
     const { workspace: current, successes, pendingAnalysis } = result;
     recalculate(current);
     await this.saveCandidate(current);
@@ -441,7 +475,6 @@ export class JobSearchService {
     candidateId: string,
     sourceId: string,
   ): Promise<{ file: string; name: string; mimeType: string; size: number }> {
-    if (candidateId !== CANDIDATE_ID) throw new Error("Unknown candidate");
     const workspace = await this.getCandidate(candidateId);
     const source = workspace.sources.find((item) => item.id === sourceId);
     if (!source?.originalFile)
@@ -465,8 +498,9 @@ export class JobSearchService {
   async answer(
     questionId: string,
     answer: string,
+    candidateId = CANDIDATE_ID,
   ): Promise<JobSearchWorkspace> {
-    const workspace = await this.get();
+    const workspace = await this.get(candidateId);
     const question = workspace.questions.find((item) => item.id === questionId);
     if (!question) throw new Error("Unknown intake question");
     const nextAnswer = answer.trim();
@@ -478,8 +512,8 @@ export class JobSearchService {
     return workspace;
   }
 
-  async finishIntake(): Promise<JobSearchWorkspace> {
-    const workspace = await this.get();
+  async finishIntake(candidateId = CANDIDATE_ID): Promise<JobSearchWorkspace> {
+    const workspace = await this.get(candidateId);
     if (
       workspace.questions.some((q) => q.required && !q.answer.trim()) ||
       !workspace.sources.some((s) => s.kind === "cv") ||
@@ -497,28 +531,144 @@ export class JobSearchService {
     return workspace;
   }
 
-  async stopBackgroundWork(): Promise<JobSearchWorkspace> {
+  async markWorkflowQueued(
+    type:
+      | "analyze"
+      | "prepare"
+      | "prepare-search-ready"
+      | "find-more"
+      | "tailor-cv",
+    candidateId = CANDIDATE_ID,
+    resourceId?: string,
+  ) {
+    const workspace = await this.get(candidateId);
+    if (type === "tailor-cv") {
+      const application = requireApplication(workspace, resourceId || "");
+      if (!workspace.finalCv.trim())
+        throw new Error("Upload a readable CV before generating a tailored version");
+      if (application.outcome === "applied_waiting")
+        throw new Error("Restore the applied application before tailoring its CV");
+      application.tailoredCv = {
+        status: "processing",
+        content: application.tailoredCv?.content ?? "",
+        changeSummary: application.tailoredCv?.changeSummary ?? [],
+        fileName:
+          application.tailoredCv?.fileName ||
+          tailoredCvFileName(workspace, application),
+      };
+      application.updatedAt = new Date().toISOString();
+    } else if (type === "analyze") {
+      workspace.intelligence.status = "analyzing";
+      workspace.intelligence.error = undefined;
+      for (const source of workspace.sources)
+        if (
+          source.analysisRequired ||
+          (source.status === "ready" && !source.knowledgePath)
+        )
+          source.status = "processing";
+    } else {
+      const target =
+        type === "prepare-search-ready"
+          ? workspace.searchReadyOpportunities.length
+          : workspace.searchConfig.applicationTarget;
+      workspace.discoveryNeedsRun = false;
+      workspace.phase = "applications";
+      workspace.searchProgress = {
+        stage: type === "prepare-search-ready" ? "verifying" : "looking",
+        target,
+        found: 0,
+        activity:
+          type === "find-more"
+            ? "Queued to find and prepare more applications."
+            : type === "prepare-search-ready"
+              ? "Queued to match verified vacancies and prepare applications."
+              : "Queued to search and prepare verified applications.",
+        updatedAt: new Date().toISOString(),
+        items: workspace.searchProgress?.items ?? [],
+        events: [
+          ...(workspace.searchProgress?.events ?? []),
+          progressEvent("Workflow queued."),
+        ].slice(-10),
+      };
+    }
+    await this.saveCandidate(workspace);
+    return workspace;
+  }
+
+  async markWorkflowFailed(
+    type:
+      | "analyze"
+      | "prepare"
+      | "prepare-search-ready"
+      | "find-more"
+      | "tailor-cv",
+    error: string,
+    candidateId = CANDIDATE_ID,
+    resourceId?: string,
+  ) {
+    const workspace = await this.get(candidateId);
+    if (type === "tailor-cv") {
+      const application = requireApplication(workspace, resourceId || "");
+      application.tailoredCv = {
+        status: "failed",
+        content: application.tailoredCv?.content ?? "",
+        changeSummary: application.tailoredCv?.changeSummary ?? [],
+        fileName:
+          application.tailoredCv?.fileName ||
+          tailoredCvFileName(workspace, application),
+        error,
+      };
+      application.updatedAt = new Date().toISOString();
+    } else if (type === "analyze") {
+      workspace.intelligence.status = "failed";
+      workspace.intelligence.error = error;
+      workspace.intelligence.progress = undefined;
+      for (const source of workspace.sources)
+        if (source.status === "processing") {
+          source.status = "analysis_failed";
+          source.error = error;
+        }
+    } else {
+      workspace.searchProgress = {
+        ...(workspace.searchProgress ?? {
+          target: workspace.searchConfig.applicationTarget,
+          found: 0,
+          items: [],
+        }),
+        stage: "failed",
+        error,
+        activity: "The queued workflow failed.",
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    await this.saveCandidate(workspace);
+    return workspace;
+  }
+
+  async stopBackgroundWork(
+    candidateId = CANDIDATE_ID,
+  ): Promise<JobSearchWorkspace> {
     // Set the in-memory gate before the first await so concurrent callbacks
     // cannot schedule another batch while the stop request is being saved.
-    this.executionStopped = true;
-    this.requestedAnalyses.clear();
-    this.requestedProfileSourceSync.clear();
-    const cachedAtStop = this.candidateCache.values().next().value as
-      | JobSearchWorkspace
-      | undefined;
-    for (const controller of this.profileSourceAbort.values()) controller.abort();
-    this.profileSourceAbort.clear();
+    this.stoppedCandidates.add(candidateId);
+    this.requestedAnalyses.delete(candidateId);
+    this.requestedProfileSourceSync.delete(candidateId);
+    const cachedAtStop = this.candidateCache.get(candidateId);
+    this.profileSourceAbort.get(candidateId)?.abort();
+    this.profileSourceAbort.delete(candidateId);
     const cancelResearch =
-      this.opportunityResearch?.cancelAll?.() ?? Promise.resolve();
+      this.opportunityResearch?.cancel?.(candidateId) ??
+      this.opportunityResearch?.cancelAll?.() ??
+      Promise.resolve();
     const activeWork = [
       cancelResearch,
-      ...this.activeFindMore.values(),
-      ...this.activeAnalyses.values(),
-      ...this.activeProfileSourceSync.values(),
-    ];
+      this.activeFindMore.get(candidateId),
+      this.activeAnalyses.get(candidateId),
+      this.activeProfileSourceSync.get(candidateId),
+    ].filter((work): work is Promise<void> => Boolean(work));
     const workspace = cachedAtStop
       ? structuredClone(cachedAtStop)
-      : await this.get();
+      : await this.get(candidateId);
     const searchRunning = isSearchProgressRunning(workspace.searchProgress);
     const resumeCandidateAnalysis =
       this.activeAnalyses.has(workspace.candidateId) ||
@@ -571,11 +721,14 @@ export class JobSearchService {
     return this.getCandidate(workspace.candidateId);
   }
 
-  async continueBackgroundWork(): Promise<JobSearchWorkspace> {
-    const workspace = await this.get();
+  async continueBackgroundWork(
+    candidateId = CANDIDATE_ID,
+    scheduleWork = true,
+  ): Promise<JobSearchWorkspace> {
+    const workspace = await this.get(candidateId);
     const control = workspace.backgroundExecution;
     if (control?.state !== "stopped") return workspace;
-    this.executionStopped = false;
+    this.stoppedCandidates.delete(workspace.candidateId);
     this.stoppedSnapshots.delete(workspace.candidateId);
     workspace.backgroundExecution = { state: "running" };
 
@@ -600,6 +753,8 @@ export class JobSearchService {
     }
     await this.saveCandidate(workspace);
 
+    if (!scheduleWork) return workspace;
+
     if (control.resumeProfileSourceSync)
       this.queueProfileSourceSync(workspace.candidateId);
     else if (control.resumeCandidateAnalysis)
@@ -617,7 +772,7 @@ export class JobSearchService {
           "Search stopped before the pipeline completed.",
         );
       else if (control.resumeSearch === "prepare_search_ready")
-        return this.startPrepareSearchReadyApplications();
+        return this.startPrepareSearchReadyApplications(candidateId);
     }
     return this.getCandidate(workspace.candidateId);
   }
@@ -625,9 +780,10 @@ export class JobSearchService {
   async startPrepareApplications(
     applicationTargetOverride?: number,
     append = false,
+    candidateId = CANDIDATE_ID,
   ): Promise<JobSearchWorkspace> {
-    this.assertBackgroundExecutionRunning();
-    const workspace = await this.get();
+    this.assertBackgroundExecutionRunning(candidateId);
+    const workspace = await this.get(candidateId);
     if (this.activeFindMore.has(workspace.candidateId)) return workspace;
     const applicationTarget =
       applicationTargetOverride ?? workspace.searchConfig.applicationTarget;
@@ -665,7 +821,7 @@ export class JobSearchService {
     candidateId?: string,
     applicationTargetOverride?: number,
   ): Promise<JobSearchWorkspace> {
-    this.assertBackgroundExecutionRunning();
+    this.assertBackgroundExecutionRunning(candidateId);
     const workspace = candidateId
       ? await this.getCandidate(candidateId)
       : await this.get();
@@ -676,7 +832,7 @@ export class JobSearchService {
       throw new Error("Cover letter generation is not configured");
     let pendingProgressWrite = Promise.resolve();
     const reportProgress = async (update: OpportunityProgressUpdate) => {
-      this.assertBackgroundExecutionRunning();
+      this.assertBackgroundExecutionRunning(workspace.candidateId);
       if (update.item) await this.assignJobNumbers([update.item]);
       applyProgressUpdate(workspace, update);
       pendingProgressWrite = pendingProgressWrite.then(() =>
@@ -836,9 +992,11 @@ export class JobSearchService {
     return workspace;
   }
 
-  async startPrepareSearchReadyApplications(): Promise<JobSearchWorkspace> {
-    this.assertBackgroundExecutionRunning();
-    const workspace = await this.get();
+  async startPrepareSearchReadyApplications(
+    candidateId = CANDIDATE_ID,
+  ): Promise<JobSearchWorkspace> {
+    this.assertBackgroundExecutionRunning(candidateId);
+    const workspace = await this.get(candidateId);
     if (this.activeFindMore.has(workspace.candidateId)) return workspace;
     const ready = workspace.searchReadyOpportunities;
     if (ready.length === 0)
@@ -876,7 +1034,7 @@ export class JobSearchService {
   async prepareSearchReadyApplications(
     candidateId?: string,
   ): Promise<JobSearchWorkspace> {
-    this.assertBackgroundExecutionRunning();
+    this.assertBackgroundExecutionRunning(candidateId);
     const workspace = candidateId
       ? await this.getCandidate(candidateId)
       : await this.get();
@@ -900,7 +1058,7 @@ export class JobSearchService {
     workspace.searchConfig.applicationTarget = Math.min(10, candidates.length);
     let pendingProgressWrite = Promise.resolve();
     const reportProgress = async (update: OpportunityProgressUpdate) => {
-      this.assertBackgroundExecutionRunning();
+      this.assertBackgroundExecutionRunning(workspace.candidateId);
       if (update.item) await this.assignJobNumbers([update.item]);
       applyProgressUpdate(workspace, update);
       pendingProgressWrite = pendingProgressWrite.then(() =>
@@ -1245,8 +1403,8 @@ export class JobSearchService {
     return workspace;
   }
 
-  async resetJobList(): Promise<JobSearchWorkspace> {
-    const workspace = await this.get();
+  async resetJobList(candidateId = CANDIDATE_ID): Promise<JobSearchWorkspace> {
+    const workspace = await this.get(candidateId);
     if (this.activeFindMore.has(workspace.candidateId))
       throw new Error("Wait for the active job search to finish before resetting the list");
     workspace.opportunities = [];
@@ -1268,26 +1426,56 @@ export class JobSearchService {
     return workspace;
   }
 
-  async resetUserCompletely(): Promise<JobSearchWorkspace> {
+  async resetUserCompletely(
+    candidateId = CANDIDATE_ID,
+  ): Promise<JobSearchWorkspace> {
     if (
-      this.activeFindMore.size > 0 ||
-      this.activeAnalyses.size > 0 ||
-      this.activeProfileSourceSync.size > 0
+      this.activeFindMore.has(candidateId) ||
+      this.activeAnalyses.has(candidateId) ||
+      this.activeProfileSourceSync.has(candidateId)
     )
       throw new Error(
         "Wait for the active profile or job-search work to finish before resetting the user",
       );
 
-    await Promise.all([...this.candidateWrites.values()]);
-    const current = await this.get();
-    const candidateId = current.candidateId;
+    await this.candidateWrites.get(candidateId);
+    await this.get(candidateId);
 
+    const localFullReset =
+      candidateId === CANDIDATE_ID &&
+      this.workspaceStore instanceof FileWorkspaceStore;
     await Promise.all([
-      rm(this.directory, { recursive: true, force: true }),
-      rm(this.filesDirectory, { recursive: true, force: true }),
-      rm(this.runsDirectory, { recursive: true, force: true }),
-      rm(this.sourceSnapshotsDirectory, { recursive: true, force: true }),
-      rm(this.analysisCheckpointsDirectory, { recursive: true, force: true }),
+      rm(
+        localFullReset
+          ? this.directory
+          : path.join(this.directory, candidateId),
+        { recursive: true, force: true },
+      ),
+      rm(
+        localFullReset
+          ? this.filesDirectory
+          : path.join(this.filesDirectory, candidateId),
+        { recursive: true, force: true },
+      ),
+      rm(
+        localFullReset
+          ? this.runsDirectory
+          : path.join(this.runsDirectory, candidateId),
+        { recursive: true, force: true },
+      ),
+      rm(
+        localFullReset
+          ? this.sourceSnapshotsDirectory
+          : path.join(this.sourceSnapshotsDirectory, candidateId),
+        { recursive: true, force: true },
+      ),
+      rm(
+        localFullReset
+          ? this.analysisCheckpointsDirectory
+          : path.join(this.analysisCheckpointsDirectory, candidateId),
+        { recursive: true, force: true },
+      ),
+      this.workspaceStore.delete(candidateId),
     ]);
     await Promise.all([
       mkdir(this.directory, { recursive: true }),
@@ -1297,17 +1485,17 @@ export class JobSearchService {
       mkdir(this.analysisCheckpointsDirectory, { recursive: true }),
     ]);
 
-    this.candidateCache.clear();
-    this.requestedAnalyses.clear();
-    this.requestedProfileSourceSync.clear();
-    await this.resetJobNumberRegistry();
+    this.candidateCache.delete(candidateId);
+    this.requestedAnalyses.delete(candidateId);
+    this.requestedProfileSourceSync.delete(candidateId);
+    if (candidateId === CANDIDATE_ID) await this.resetJobNumberRegistry();
 
     const workspace = emptyWorkspace(candidateId, {
       name: "",
       email: "",
       location: "",
     });
-    if (this.executionStopped)
+    if (this.isExecutionStopped(candidateId))
       workspace.backgroundExecution = {
         state: "stopped",
         stoppedAt: new Date().toISOString(),
@@ -1316,11 +1504,14 @@ export class JobSearchService {
     return workspace;
   }
 
-  async startFindMoreApplications(): Promise<JobSearchWorkspace> {
-    const workspace = await this.get();
+  async startFindMoreApplications(
+    candidateId = CANDIDATE_ID,
+  ): Promise<JobSearchWorkspace> {
+    const workspace = await this.get(candidateId);
     return this.startPrepareApplications(
       workspace.searchConfig.applicationTarget,
       true,
+      candidateId,
     );
   }
 
@@ -1337,8 +1528,8 @@ export class JobSearchService {
   async updateSearchConfig(input: {
     discoveryTarget?: number;
     applicationTarget?: number;
-  }): Promise<JobSearchWorkspace> {
-    const workspace = await this.get();
+  }, candidateId = CANDIDATE_ID): Promise<JobSearchWorkspace> {
+    const workspace = await this.get(candidateId);
     workspace.searchConfig = {
       discoveryTarget: Math.max(
         5,
@@ -1356,6 +1547,7 @@ export class JobSearchService {
   async addOpportunity(
     input: Partial<JobOpportunity> &
       Pick<JobOpportunity, "company" | "title" | "applyUrl">,
+    candidateId = CANDIDATE_ID,
   ): Promise<JobSearchWorkspace> {
     if (
       !input.company?.trim() ||
@@ -1365,7 +1557,7 @@ export class JobSearchService {
       throw new Error(
         "Company, title and a valid application URL are required",
       );
-    const workspace = await this.get();
+    const workspace = await this.get(candidateId);
     const id = `custom-${randomUUID().slice(0, 8)}`;
     const opportunity: JobOpportunity = {
       id,
@@ -1406,8 +1598,11 @@ export class JobSearchService {
     return workspace;
   }
 
-  async promoteOpportunity(jobId: string): Promise<JobSearchWorkspace> {
-    const workspace = await this.get();
+  async promoteOpportunity(
+    jobId: string,
+    candidateId = CANDIDATE_ID,
+  ): Promise<JobSearchWorkspace> {
+    const workspace = await this.get(candidateId);
     const existingApplication = workspace.applications.find(
       (application) => application.jobId === jobId,
     );
@@ -1508,8 +1703,9 @@ export class JobSearchService {
   async updateApplication(
     id: string,
     body: { coverLetter?: string; fields?: Record<string, string> },
+    candidateId = CANDIDATE_ID,
   ): Promise<JobSearchWorkspace> {
-    const workspace = await this.get();
+    const workspace = await this.get(candidateId);
     const application = requireApplication(workspace, id);
     if (typeof body.coverLetter === "string")
       setApplicationCoverLetter(application, body.coverLetter, "user");
@@ -1547,12 +1743,13 @@ export class JobSearchService {
   async refineCoverLetter(
     id: string,
     message: string,
+    candidateId = CANDIDATE_ID,
   ): Promise<JobSearchWorkspace> {
     const request = message.trim();
     if (!request) throw new Error("Enter a cover letter adjustment");
     if (!this.coverLetterWriter)
       throw new Error("Cover letter refinement is not configured");
-    const workspace = await this.get();
+    const workspace = await this.get(candidateId);
     const application = requireApplication(workspace, id);
     if (application.outcome === "applied_waiting")
       throw new Error("Restore the applied application before editing it");
@@ -1589,12 +1786,13 @@ export class JobSearchService {
     id: string,
     fieldId: string,
     message: string,
+    candidateId = CANDIDATE_ID,
   ): Promise<JobSearchWorkspace> {
     const request = message.trim();
     if (!request) throw new Error("Enter an answer adjustment");
     if (!this.coverLetterWriter?.refineAnswer)
       throw new Error("Application answer refinement is not configured");
-    const workspace = await this.get();
+    const workspace = await this.get(candidateId);
     const application = requireApplication(workspace, id);
     if (application.outcome === "applied_waiting")
       throw new Error("Restore the applied application before editing it");
@@ -1626,9 +1824,77 @@ export class JobSearchService {
     return workspace;
   }
 
+  async tailorApplicationCv(
+    id: string,
+    candidateId = CANDIDATE_ID,
+  ): Promise<JobSearchWorkspace> {
+    if (!this.coverLetterWriter?.tailorCv)
+      throw new Error("CV tailoring is not configured");
+    const workspace = await this.get(candidateId);
+    const application = requireApplication(workspace, id);
+    if (application.outcome === "applied_waiting")
+      throw new Error("Restore the applied application before tailoring its CV");
+    if (!workspace.finalCv.trim())
+      throw new Error("Upload a readable CV before generating a tailored version");
+    const result = await this.coverLetterWriter.tailorCv(
+      workspace,
+      application,
+    );
+    const content = result.content.trim();
+    if (!content)
+      throw new Error("The CV tailoring step returned an empty document");
+    const fileName = tailoredCvFileName(workspace, application);
+    const directory = path.join(
+      this.filesDirectory,
+      workspace.candidateId,
+      "tailored",
+    );
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      tailoredCvPath(this.filesDirectory, workspace.candidateId, application.id),
+      await renderTailoredCvDocx(content),
+    );
+    application.tailoredCv = {
+      status: "ready",
+      content,
+      changeSummary: result.changeSummary
+        .map((item) => item.trim())
+        .filter(Boolean),
+      fileName,
+      generatedAt: new Date().toISOString(),
+    };
+    application.updatedAt = new Date().toISOString();
+    await this.saveCandidate(workspace);
+    return workspace;
+  }
+
+  async tailoredCvFile(
+    candidateId: string,
+    applicationId: string,
+  ): Promise<{ file: string; name: string; mimeType: string; size: number }> {
+    const workspace = await this.getCandidate(candidateId);
+    const application = requireApplication(workspace, applicationId);
+    if (application.tailoredCv?.status !== "ready")
+      throw new Error("A tailored CV has not been generated for this application");
+    const file = tailoredCvPath(
+      this.filesDirectory,
+      candidateId,
+      application.id,
+    );
+    const info = await stat(file);
+    return {
+      file,
+      name: application.tailoredCv.fileName,
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      size: info.size,
+    };
+  }
+
   async setApplicationOutcome(
     id: string,
     outcome: ApplicationDraft["outcome"],
+    candidateId = CANDIDATE_ID,
   ): Promise<JobSearchWorkspace> {
     if (
       outcome !== undefined &&
@@ -1637,7 +1903,7 @@ export class JobSearchService {
       outcome !== "applied_waiting"
     )
       throw new Error("Unknown application outcome");
-    const workspace = await this.get();
+    const workspace = await this.get(candidateId);
     const application = requireApplication(workspace, id);
     if (outcome) application.outcome = outcome;
     else delete application.outcome;
@@ -1648,9 +1914,9 @@ export class JobSearchService {
 
   async resolveApplicationByUrl(
     url: string,
+    candidateId = CANDIDATE_ID,
   ): Promise<{ candidateId: string; applicationId: string } | null> {
     const normalized = normalizeUrl(url);
-    const candidateId = CANDIDATE_ID;
     const workspace = await this.getCandidate(candidateId);
     const app = workspace.applications.find(
       (item) =>
@@ -1663,23 +1929,35 @@ export class JobSearchService {
     return null;
   }
 
-  async autofillByUrl(url: string): Promise<{
+  async autofillByUrl(url: string, candidateId = CANDIDATE_ID): Promise<{
     candidateId: string;
     applicationId: string;
     fields: JobSearchWorkspace["applications"][number]["formFields"];
     cv?: { name: string; url: string };
   } | null> {
-    const resolved = await this.resolveApplicationByUrl(url);
+    const resolved = await this.resolveApplicationByUrl(url, candidateId);
     if (!resolved) return null;
     const workspace = await this.getCandidate(resolved.candidateId);
     const application = requireApplication(workspace, resolved.applicationId);
     const source = workspace.sources.find(
       (item) => item.kind === "cv" && item.originalFile,
     );
+    const tailoredCv =
+      application.tailoredCv?.status === "ready"
+        ? await this.tailoredCvFile(
+            workspace.candidateId,
+            application.id,
+          ).catch(() => undefined)
+        : undefined;
     return {
       ...resolved,
       fields: application.formFields,
-      cv: source
+      cv: tailoredCv
+        ? {
+            name: tailoredCv.name,
+            url: `/api/job-search/applications/${application.id}/tailored-cv`,
+          }
+        : source
         ? {
             name: source.name,
             url: `/api/job-search/candidates/${workspace.candidateId}/sources/${source.id}/file`,
@@ -1688,10 +1966,13 @@ export class JobSearchService {
     };
   }
 
-  async isAllowedEmployerHost(hostname: string) {
+  async isAllowedEmployerHost(
+    hostname: string,
+    candidateId = CANDIDATE_ID,
+  ) {
     const expected = hostname.trim().toLowerCase();
     if (!expected) return false;
-    const workspace = await this.get();
+    const workspace = await this.get(candidateId);
     return workspace.opportunities.some((job) => {
       try {
         return new URL(job.applyUrl).hostname.toLowerCase() === expected;
@@ -1701,9 +1982,6 @@ export class JobSearchService {
     });
   }
 
-  private candidateFile(id: string) {
-    return path.join(this.directory, `${id}.json`);
-  }
   private async ensureJobNumberRegistry(): Promise<JobNumberRegistry> {
     if (this.jobNumberRegistry) return this.jobNumberRegistry;
     const stored = await readFile(this.jobNumbersFile, "utf8")
@@ -1804,10 +2082,23 @@ export class JobSearchService {
     }
     const cached = this.candidateCache.get(id);
     if (cached) return normalizeWorkspace(structuredClone(cached), id);
-    const workspace = normalizeWorkspace(
-      JSON.parse(await readFile(this.candidateFile(id), "utf8")) as JobSearchWorkspace,
-      id,
-    );
+    const stored = await this.workspaceStore.load(id);
+    if (!stored) {
+      const created = emptyWorkspace(id, {
+        name: "",
+        email: "",
+        location: "",
+      });
+      await this.assignJobNumbers([
+        ...created.opportunities,
+        ...created.rejectedOpportunities,
+        ...created.searchValidationIssues,
+        ...(created.searchProgress?.items ?? []),
+      ]);
+      await this.saveCandidate(created);
+      return created;
+    }
+    const workspace = normalizeWorkspace(stored, id);
     this.candidateCache.set(id, structuredClone(workspace));
     return workspace;
   }
@@ -1816,21 +2107,12 @@ export class JobSearchService {
     if (stoppedSnapshot) value = structuredClone(stoppedSnapshot);
     repairWorkspaceJobText(value);
     value.updatedAt = new Date().toISOString();
-    const target = this.candidateFile(value.candidateId);
     const snapshot = structuredClone(value);
-    const payload = `${JSON.stringify(snapshot, null, 2)}\n`;
     const previous = this.candidateWrites.get(value.candidateId);
     const write = (previous ?? Promise.resolve())
       .catch(() => undefined)
       .then(async () => {
-        const temporary = `${target}.tmp-${process.pid}-${randomUUID()}`;
-        try {
-          await writeFile(temporary, payload, "utf8");
-          await rename(temporary, target);
-        } catch (error) {
-          await rm(temporary, { force: true }).catch(() => undefined);
-          throw error;
-        }
+        await this.workspaceStore.save(snapshot);
         this.candidateCache.set(value.candidateId, snapshot);
       });
     this.candidateWrites.set(value.candidateId, write);
@@ -1855,7 +2137,7 @@ export class JobSearchService {
       .catch(async (error) => {
         const current = await this.getCandidate(candidateId);
         if (
-          this.executionStopped ||
+          this.isExecutionStopped(candidateId) ||
           current.backgroundExecution?.state === "stopped"
         )
           return;
@@ -1875,14 +2157,19 @@ export class JobSearchService {
     this.activeFindMore.set(candidateId, task);
   }
 
-  private assertBackgroundExecutionRunning(): void {
-    if (this.executionStopped) throw new Error("Background execution is stopped");
+  private assertBackgroundExecutionRunning(candidateId = CANDIDATE_ID): void {
+    if (this.isExecutionStopped(candidateId))
+      throw new Error("Background execution is stopped");
+  }
+
+  private isExecutionStopped(candidateId: string) {
+    return this.stoppedCandidates.has(candidateId);
   }
 
   private async runCandidateAnalysis(
     workspace: JobSearchWorkspace,
   ): Promise<JobSearchWorkspace> {
-    this.assertBackgroundExecutionRunning();
+    this.assertBackgroundExecutionRunning(workspace.candidateId);
     if (!this.analyzer) return this.applyLocalAnalysis(workspace);
     const sourceIdsToAnalyze = new Set(
       workspace.sources
@@ -1908,19 +2195,22 @@ export class JobSearchService {
         workspace,
         sourceIdsToAnalyze,
         onProgress: async (progress) => {
-          if (this.executionStopped) return;
+          if (this.isExecutionStopped(workspace.candidateId)) return;
           const current = await this.getCandidate(workspace.candidateId);
           current.intelligence.status = "analyzing";
           current.intelligence.progress = progress;
           await this.saveCandidate(current);
         },
         reloadWorkspace: () => this.getCandidate(workspace.candidateId),
-        beforeVerification: () => this.assertBackgroundExecutionRunning(),
+        beforeVerification: () =>
+          this.assertBackgroundExecutionRunning(workspace.candidateId),
       });
-      if (this.executionStopped) return this.getCandidate(workspace.candidateId);
+      if (this.isExecutionStopped(workspace.candidateId))
+        return this.getCandidate(workspace.candidateId);
       workspace = built.workspace;
     } catch (error) {
-      if (this.executionStopped) return this.getCandidate(workspace.candidateId);
+      if (this.isExecutionStopped(workspace.candidateId))
+        return this.getCandidate(workspace.candidateId);
       const detail = error instanceof Error ? error.message : String(error);
       const needsReview = error instanceof EvidenceNeedsReviewError;
       workspace = await this.getCandidate(workspace.candidateId);
@@ -1939,7 +2229,10 @@ export class JobSearchService {
   }
 
   private async drainCandidateAnalysis(candidateId: string): Promise<void> {
-    while (!this.executionStopped && this.requestedAnalyses.delete(candidateId))
+    while (
+      !this.isExecutionStopped(candidateId) &&
+      this.requestedAnalyses.delete(candidateId)
+    )
       await this.runCandidateAnalysis(await this.getCandidate(candidateId));
   }
 
@@ -2211,6 +2504,45 @@ function repairWorkspaceJobText(workspace: JobSearchWorkspace): void {
       ...message,
       content: repairMojibake(message.content),
     })),
+    companyResearch: application.companyResearch
+      ? {
+          ...application.companyResearch,
+          company: repairMojibake(application.companyResearch.company),
+          overview: repairMojibake(application.companyResearch.overview),
+          productsAndServices:
+            application.companyResearch.productsAndServices.map(repairMojibake),
+          customersAndMarkets:
+            application.companyResearch.customersAndMarkets.map(repairMojibake),
+          businessModel: repairMojibake(
+            application.companyResearch.businessModel,
+          ),
+          cultureAndValues:
+            application.companyResearch.cultureAndValues.map(repairMojibake),
+          recentSignals:
+            application.companyResearch.recentSignals.map(repairMojibake),
+          tailoringAngles:
+            application.companyResearch.tailoringAngles.map(repairMojibake),
+          sources: application.companyResearch.sources.map((source) => ({
+            ...source,
+            title: repairMojibake(source.title),
+            evidence: repairMojibake(source.evidence),
+          })),
+          error: application.companyResearch.error
+            ? repairMojibake(application.companyResearch.error)
+            : undefined,
+        }
+      : undefined,
+    tailoredCv: application.tailoredCv
+      ? {
+          ...application.tailoredCv,
+          content: repairMojibake(application.tailoredCv.content),
+          changeSummary:
+            application.tailoredCv.changeSummary.map(repairMojibake),
+          error: application.tailoredCv.error
+            ? repairMojibake(application.tailoredCv.error)
+            : undefined,
+        }
+      : undefined,
     missingQuestions: (application.missingQuestions ?? []).map(repairMojibake),
     formFields: (application.formFields ?? []).map((field) => ({
       ...field,
@@ -2619,10 +2951,40 @@ function validHttpUrl(value: string) {
     return false;
   }
 }
-async function exists(file: string) {
-  return readFile(file)
-    .then(() => true)
-    .catch(() => false);
+
+function tailoredCvPath(
+  filesDirectory: string,
+  candidateId: string,
+  applicationId: string,
+) {
+  const safeApplicationId = applicationId.replace(/[^a-z0-9-]/gi, "_");
+  return path.join(
+    filesDirectory,
+    candidateId,
+    "tailored",
+    `${safeApplicationId}.docx`,
+  );
+}
+
+function tailoredCvFileName(
+  workspace: JobSearchWorkspace,
+  application: ApplicationDraft,
+) {
+  const job = workspace.opportunities.find(
+    (candidate) => candidate.id === application.jobId,
+  );
+  const base = [
+    workspace.profile.name || "Candidate",
+    job?.company || "Company",
+    job?.title || "Role",
+    "CV",
+  ]
+    .join("-")
+    .normalize("NFKD")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+  return `${base || "Tailored-CV"}.docx`;
 }
 
 function applicationFor(
@@ -2677,6 +3039,11 @@ function applicationFor(
 function normalizeApplications(applications: ApplicationDraft[]) {
   for (const application of applications) {
     application.coverLetterChat = application.coverLetterChat ?? [];
+    if (application.tailoredCv) {
+      application.tailoredCv.content = application.tailoredCv.content ?? "";
+      application.tailoredCv.changeSummary =
+        application.tailoredCv.changeSummary ?? [];
+    }
   }
 }
 

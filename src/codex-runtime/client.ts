@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { discoverCodexBinary, getCodexVersion } from "./discover.js";
 import {
   SUPPORTED_CODEX_VERSION,
@@ -60,6 +61,7 @@ export interface StartThreadOptions {
   webSearch?: {
     mode: "disabled" | "cached" | "live";
   };
+  executionContext?: LlmExecutionContext;
 }
 
 export interface StartTurnOptions {
@@ -84,14 +86,21 @@ export interface CodexRunObservation {
   runDirectory: string;
   durationMs: number;
   usage: Record<string, unknown>;
+  executionContext?: LlmExecutionContext;
   finalText?: string;
   error?: string;
+}
+
+export interface LlmExecutionContext {
+  userId: string;
+  workflowRunId?: string;
 }
 
 interface ActiveExec {
   child: ChildProcessWithoutNullStreams;
   threadId: string;
   turnId: string;
+  executionContext?: LlmExecutionContext;
 }
 
 /**
@@ -104,6 +113,8 @@ export class CodexExecClient {
   private codexHome: string | null = null;
   private readonly threads = new Map<string, StartThreadOptions>();
   private readonly active = new Map<string, ActiveExec>();
+  private readonly executionContexts =
+    new AsyncLocalStorage<LlmExecutionContext>();
   private executionPaused = false;
   private executionGeneration = 0;
 
@@ -175,7 +186,11 @@ export class CodexExecClient {
   async startThread(options: StartThreadOptions): Promise<CodexThread> {
     this.assertExecutionAllowed();
     const id = randomUUID();
-    this.threads.set(id, options);
+    this.threads.set(id, {
+      ...options,
+      executionContext:
+        options.executionContext ?? this.currentExecutionContext(),
+    });
     await this.onNotification({
       method: "thread/started",
       params: { thread: { id, modelProvider: "openai" } },
@@ -344,7 +359,12 @@ export class CodexExecClient {
         NO_COLOR: "1",
       },
     });
-    this.active.set(turnId, { child, threadId: options.threadId, turnId });
+    this.active.set(turnId, {
+      child,
+      threadId: options.threadId,
+      turnId,
+      executionContext: context.executionContext,
+    });
     this.onTurnStarted(options.threadId, turnId);
     await this.onNotification({
       method: "turn/started",
@@ -437,6 +457,7 @@ export class CodexExecClient {
         durationMs,
         codexThreadId,
         usage,
+        executionContext: context.executionContext,
         artifacts: {
           promptSha256: await fileSha256(promptPath),
           schemaSha256: resolvedConfig.outputSchema
@@ -461,6 +482,7 @@ export class CodexExecClient {
         runDirectory: runRoot,
         durationMs,
         usage,
+        executionContext: context.executionContext,
         finalText: acceptedText,
       });
       return {
@@ -523,12 +545,31 @@ export class CodexExecClient {
     );
   }
 
+  async pauseTurnsForUser(userId: string): Promise<void> {
+    await Promise.all(
+      [...this.active.values()]
+        .filter((active) => active.executionContext?.userId === userId)
+        .map((active) => terminateProcessTree(active.child)),
+    );
+  }
+
   resumeTurns(): void {
     this.executionPaused = false;
   }
 
   activeTurnCount(): number {
     return this.active.size;
+  }
+
+  runWithExecutionContext<T>(
+    context: LlmExecutionContext,
+    work: () => Promise<T>,
+  ) {
+    return this.executionContexts.run(context, work);
+  }
+
+  protected currentExecutionContext() {
+    return this.executionContexts.getStore();
   }
 
   async compactThread(_threadId: string): Promise<void> {

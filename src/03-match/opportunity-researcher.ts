@@ -44,6 +44,10 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
     return this.browsers.cancelAll();
   }
 
+  cancel(candidateId: string) {
+    return this.browsers.cancel(candidateId);
+  }
+
   /** Run search, requirement matching, and form inspection. */
   async run(
     workspace: JobSearchWorkspace,

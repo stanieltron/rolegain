@@ -36,17 +36,21 @@ export function sendJson(
 export function setCors(
   request: IncomingMessage,
   response: ServerResponse,
+  configuredOrigin?: string,
 ): void {
   const origin = request.headers.origin;
-  let allowedOrigin = "http://127.0.0.1:5173";
+  let allowedOrigin =
+    configuredOrigin?.replace(/\/+$/, "") || "http://127.0.0.1:5173";
   if (origin) {
     try {
       const url = new URL(origin);
       if (
-        url.protocol === "http:" &&
-        (url.hostname === "127.0.0.1" ||
-          url.hostname === "localhost" ||
-          url.hostname.endsWith(".localhost"))
+        (!configuredOrigin &&
+          url.protocol === "http:" &&
+          (url.hostname === "127.0.0.1" ||
+            url.hostname === "localhost" ||
+            url.hostname.endsWith(".localhost"))) ||
+        origin.replace(/\/+$/, "") === allowedOrigin
       )
         allowedOrigin = origin;
     } catch {
@@ -54,7 +58,10 @@ export function setCors(
     }
   }
   response.setHeader("Access-Control-Allow-Origin", allowedOrigin);
-  response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  response.setHeader(
+    "Access-Control-Allow-Headers",
+    "Authorization, Content-Type",
+  );
   response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   response.setHeader("Access-Control-Allow-Private-Network", "true");
   response.setHeader("Vary", "Origin");

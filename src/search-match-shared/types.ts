@@ -73,6 +73,7 @@ export type OpportunityProgressReporter = (
 
 export interface OpportunityResearchProvider {
   cancelAll?(): Promise<void>;
+  cancel?(candidateId: string): Promise<void>;
   research(
     workspace: JobSearchWorkspace,
     options?: {

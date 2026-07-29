@@ -24,6 +24,7 @@ export async function buildApplicationContext(
       languages: workspace.profile.languages,
     },
     job,
+    companyResearch: application.companyResearch,
     sourceEvidence: workspace.sources.flatMap((source) =>
       source.insights.map((insight) => ({
         source: source.name,

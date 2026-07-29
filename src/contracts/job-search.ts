@@ -319,6 +319,36 @@ export interface FormField {
   evidence?: string;
 }
 
+export interface CompanyResearchSource {
+  title: string;
+  url: string;
+  evidence: string;
+}
+
+export interface CompanyResearch {
+  status: "ready" | "failed";
+  company: string;
+  overview: string;
+  productsAndServices: string[];
+  customersAndMarkets: string[];
+  businessModel: string;
+  cultureAndValues: string[];
+  recentSignals: string[];
+  tailoringAngles: string[];
+  sources: CompanyResearchSource[];
+  researchedAt: string;
+  error?: string;
+}
+
+export interface TailoredCv {
+  status: "processing" | "ready" | "failed";
+  content: string;
+  changeSummary: string[];
+  fileName: string;
+  generatedAt?: string;
+  error?: string;
+}
+
 export interface ApplicationDraft {
   id: string;
   jobId: string;
@@ -328,6 +358,10 @@ export interface ApplicationDraft {
   coverLetter: string;
   coverLetterThreadId?: string;
   coverLetterChat: CoverLetterChatMessage[];
+  /** Public-web employer context collected only after this job reaches Applications. */
+  companyResearch?: CompanyResearch;
+  /** Candidate-requested, job-specific CV generated only from the Applications UI. */
+  tailoredCv?: TailoredCv;
   formFields: FormField[];
   missingQuestions: string[];
   adapter: "openai-careers" | "greenhouse" | "lever" | "ashby" | "generic";

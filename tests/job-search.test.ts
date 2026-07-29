@@ -144,6 +144,31 @@ const deterministicCoverLetterWriter: CoverLetterWriter = {
       evidenceBasis: field.evidence || "candidate evidence",
     };
   },
+  async tailorCv(workspace, application) {
+    const job = workspace.opportunities.find(
+      (candidate) => candidate.id === application.jobId,
+    )!;
+    return {
+      content: `# ${workspace.profile.name}
+
+## Summary
+Platform engineer applying for ${job.title} using only verified experience.
+
+## Experience
+- Built and operated reliable TypeScript services for production teams.
+- Improved deployment safety through validation, observability, and rollback controls.
+- Worked with PostgreSQL, Docker, and developer tooling across delivery workflows.
+
+## Skills
+- TypeScript
+- PostgreSQL
+- Docker`,
+      changeSummary: [
+        `Emphasized verified experience relevant to ${job.title}`,
+        "Moved deployment reliability evidence earlier",
+      ],
+    };
+  },
 };
 
 const incrementalResearch = {
@@ -710,6 +735,45 @@ describe("job-search lifecycle", () => {
         content: "Updated the letter using the requested emphasis.",
       },
     ]);
+  });
+
+  it("generates and serves an on-demand tailored CV only for a prepared application", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-tailored-cv-"));
+    const service = serviceFor(root);
+    await service.initialize();
+    await service.updateProfile({
+      name: "Taylor Reed",
+      email: "taylor@example.test",
+    });
+    await service.addSource({
+      kind: "cv",
+      name: "taylor-cv.txt",
+      content:
+        "Taylor Reed\nPlatform engineer\nBuilt reliable TypeScript services and safer deployments.",
+    });
+    for (const id of ["locations", "employment", "start", "languages"])
+      await service.answer(id, "Confirmed answer");
+    await service.finishIntake();
+    const staged = await service.prepareApplications();
+    const applicationId = staged.applications[0].id;
+
+    const tailored = await service.tailorApplicationCv(applicationId);
+    expect(tailored.applications[0].tailoredCv).toMatchObject({
+      status: "ready",
+      fileName: expect.stringMatching(/\.docx$/),
+      changeSummary: expect.arrayContaining([
+        expect.stringContaining("Emphasized verified experience"),
+      ]),
+    });
+
+    const document = await service.tailoredCvFile(
+      tailored.candidateId,
+      applicationId,
+    );
+    expect(document.mimeType).toBe(
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+    expect(document.size).toBeGreaterThan(500);
   });
 
   it("fills grounded narrative answers but rejects generated sensitive facts", async () => {

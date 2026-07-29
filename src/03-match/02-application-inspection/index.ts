@@ -54,8 +54,11 @@ export async function inspectOpportunityApplications(input: {
   onProgress?: OpportunityProgressReporter;
 }) {
   const { codex, cwd, browsers, workspace, opportunities, onProgress } = input;
-  const executionGeneration = browsers.currentGeneration;
-    const browser = await browsers.launch.bind(browsers)(executionGeneration);
+  const executionGeneration = browsers.currentGeneration(workspace.candidateId);
+    const browser = await browsers.launch.bind(browsers)(
+      workspace.candidateId,
+      executionGeneration,
+    );
     try {
       const results = await Promise.all(
         opportunities.map(async (opportunity) => {

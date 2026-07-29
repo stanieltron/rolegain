@@ -28,6 +28,7 @@ type JsonObject = Record<string, unknown>;
 interface ActiveApiTurn {
   controller: AbortController;
   threadId: string;
+  userId?: string;
 }
 
 /**
@@ -73,7 +74,11 @@ export class OpenAiCompatibleClient extends CodexExecClient {
   override async startThread(options: StartThreadOptions): Promise<CodexThread> {
     this.assertApiExecutionAllowed();
     const id = randomUUID();
-    this.apiThreads.set(id, options);
+    this.apiThreads.set(id, {
+      ...options,
+      executionContext:
+        options.executionContext ?? this.currentExecutionContext(),
+    });
     await this.onNotification({
       method: "thread/started",
       params: { thread: { id, modelProvider: "openai-compatible-api" } },
@@ -212,6 +217,7 @@ export class OpenAiCompatibleClient extends CodexExecClient {
     this.apiActive.set(turnId, {
       controller,
       threadId: options.threadId,
+      userId: context.executionContext?.userId,
     });
     this.onTurnStarted(options.threadId, turnId);
     await this.onNotification({
@@ -295,6 +301,7 @@ export class OpenAiCompatibleClient extends CodexExecClient {
         providerResponseId:
           typeof responseJson.id === "string" ? responseJson.id : undefined,
         usage,
+        executionContext: context.executionContext,
         artifacts: {
           promptSha256: await fileSha256(promptPath),
           schemaSha256: resolvedConfig.outputSchema
@@ -323,6 +330,7 @@ export class OpenAiCompatibleClient extends CodexExecClient {
         runDirectory: runRoot,
         durationMs,
         usage,
+        executionContext: context.executionContext,
         finalText: acceptedText,
       });
       return {
@@ -393,6 +401,11 @@ export class OpenAiCompatibleClient extends CodexExecClient {
     this.apiExecutionPaused = true;
     this.apiExecutionGeneration += 1;
     for (const active of this.apiActive.values()) active.controller.abort();
+  }
+
+  override async pauseTurnsForUser(userId: string): Promise<void> {
+    for (const active of this.apiActive.values())
+      if (active.userId === userId) active.controller.abort();
   }
 
   override resumeTurns(): void {

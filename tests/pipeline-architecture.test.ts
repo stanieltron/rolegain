@@ -74,11 +74,13 @@ describe("inspectable pipeline architecture", () => {
       "application.navigate",
       "application.field-map",
       "application.schema-verify",
+      "application.company-research",
       "application.draft",
       "application.verify",
       "application.repair",
       "application.cover-letter-refine",
       "application.answer-refine",
+      "application.cv-tailor",
     ]);
   });
 
@@ -137,9 +139,12 @@ describe("inspectable pipeline architecture", () => {
     }
   });
 
-  it("allows live web search only in discovery", () => {
+  it("allows live web search only in vacancy discovery and application-stage company research", () => {
     for (const call of llmCallCatalog) {
-      if (call.id === "search.web-discovery") {
+      if (
+        call.id === "search.web-discovery" ||
+        call.id === "application.company-research"
+      ) {
         expect(call.tools.allowed).toEqual(["web_search"]);
         expect(call.command.webSearch).toBe("live");
       } else {

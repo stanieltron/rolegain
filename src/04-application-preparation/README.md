@@ -6,6 +6,8 @@
 
 Application preparation converts selected, matched jobs and independently
 mapped employer forms into evidence-grounded cover letters and field answers.
+Only after a job reaches this stage, it also collects sourced company context.
+The candidate can then request a job-specific CV without changing the original.
 Every automatic draft receives a fresh independent verification. Only failed
 drafts enter one bounded repair, and repaired drafts must pass verification
 again before they are returned for user review.

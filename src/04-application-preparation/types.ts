@@ -1,4 +1,9 @@
-import type { ApplicationDraft, FormField, JobSearchWorkspace } from "../contracts/job-search.js";
+import type {
+  ApplicationDraft,
+  CompanyResearch,
+  FormField,
+  JobSearchWorkspace,
+} from "../contracts/job-search.js";
 
 export interface GroundedApplicationAnswer {
   fieldId: string;
@@ -21,6 +26,11 @@ export interface CoverLetterRefinement {
 export interface ApplicationAnswerRefinement {
   value: string;
   evidenceBasis: string;
+}
+
+export interface TailoredCvContent {
+  content: string;
+  changeSummary: string[];
 }
 
 export interface ApplicationDraftVerification {
@@ -56,4 +66,13 @@ export interface CoverLetterWriter {
     field: FormField,
     message: string,
   ): Promise<ApplicationAnswerRefinement>;
+  tailorCv?(
+    workspace: JobSearchWorkspace,
+    application: ApplicationDraft,
+  ): Promise<TailoredCvContent>;
 }
+
+export type CompanyResearchResult = Omit<
+  CompanyResearch,
+  "status" | "researchedAt" | "error"
+>;

@@ -79,11 +79,13 @@ export const FLOW_EVAL_CASES: FlowEvalCase[] = [
     pipeline: "04-application-preparation",
     stages: ["01-context", "02-draft", "03-verification", "04-repair", "05-refinement"],
     callIds: [
+      "application.company-research",
       "application.draft",
       "application.verify",
       "application.repair",
       "application.cover-letter-refine",
       "application.answer-refine",
+      "application.cv-tailor",
     ],
     handoff: {
       input: "matched opportunities, mapped forms, and exact evidence-run id",

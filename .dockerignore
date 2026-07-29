@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.env
+.env.*
+data
+tmp
+.agent-runtime
+.test-artifacts
+coverage
+test-results
+playwright-report

@@ -13,11 +13,13 @@ import { manifest as matchRepair } from "../../03-match/01-requirement-matching/
 import { manifest as applicationNavigation } from "../../03-match/02-application-inspection/llm-calls/01-application-navigation/index.js";
 import { manifest as applicationFieldMapping } from "../../03-match/02-application-inspection/llm-calls/02-application-field-mapping/index.js";
 import { manifest as applicationSchemaVerification } from "../../03-match/02-application-inspection/llm-calls/03-application-schema-verification/index.js";
+import { manifest as companyResearch } from "../../04-application-preparation/00-company-research/llm-calls/01-company-research/index.js";
 import { manifest as applicationDraft } from "../../04-application-preparation/02-draft/llm-calls/01-draft/index.js";
 import { manifest as applicationVerification } from "../../04-application-preparation/03-verification/llm-calls/01-verification/index.js";
 import { manifest as applicationRepair } from "../../04-application-preparation/04-repair/llm-calls/01-repair/index.js";
 import { manifest as coverLetterRefinement } from "../../04-application-preparation/05-refinement/llm-calls/01-cover-letter-refinement/index.js";
 import { manifest as answerRefinement } from "../../04-application-preparation/05-refinement/llm-calls/02-answer-refinement/index.js";
+import { manifest as cvTailoring } from "../../04-application-preparation/06-cv-tailoring/llm-calls/01-cv-tailoring/index.js";
 
 export const llmCallCatalog = [
   chunkAnalysis,
@@ -35,9 +37,11 @@ export const llmCallCatalog = [
   applicationNavigation,
   applicationFieldMapping,
   applicationSchemaVerification,
+  companyResearch,
   applicationDraft,
   applicationVerification,
   applicationRepair,
   coverLetterRefinement,
   answerRefinement,
+  cvTailoring,
 ] as const;

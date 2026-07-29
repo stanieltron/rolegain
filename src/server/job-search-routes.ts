@@ -4,9 +4,30 @@ import path from "node:path";
 import type { RolegainDependencies } from "../backend/control-flow/composition.js";
 import { readJson, sendJson, setCors } from "./http.js";
 import { serveStatic } from "./static-files.js";
+import type { AuthenticatedActor } from "./auth.js";
+import {
+  answerSchema,
+  applicationUpdateSchema,
+  messageSchema,
+  opportunitySchema,
+  outcomeSchema,
+  profileSchema,
+  searchConfigSchema,
+  sourceSchema,
+  validate,
+} from "./validation.js";
 
-type RouteDependencies = Pick<RolegainDependencies, "codex" | "jobSearch"> & {
+type RouteDependencies = Pick<
+  RolegainDependencies,
+  | "codex"
+  | "jobSearch"
+  | "configuration"
+  | "tokenCounter"
+  | "workflows"
+  | "artifacts"
+> & {
   root: string;
+  actor?: AuthenticatedActor;
 };
 
 export async function routeRequest(
@@ -14,7 +35,11 @@ export async function routeRequest(
   response: ServerResponse,
   dependencies: RouteDependencies,
 ): Promise<void> {
-  setCors(request, response);
+  setCors(
+    request,
+    response,
+    dependencies.configuration.publicOrigin,
+  );
   if (request.method === "OPTIONS") {
     response.writeHead(204).end();
     return;
@@ -24,6 +49,33 @@ export async function routeRequest(
   const pathname = decodeURIComponent(url.pathname);
   if (request.method === "GET" && pathname === "/api/health") {
     sendJson(response, 200, { ok: true, service: "rolegain" });
+    return;
+  }
+  if (!dependencies.actor) {
+    if (pathname.startsWith("/api/"))
+      throw new Error("Authenticated route has no actor");
+    await serveStatic(
+      pathname,
+      response,
+      path.join(dependencies.root, "dist", "client"),
+    );
+    return;
+  }
+  const userId = dependencies.actor.userId;
+  if (request.method === "GET" && pathname === "/api/me") {
+    sendJson(response, 200, {
+      id: userId,
+      email: dependencies.actor.email,
+      name: dependencies.actor.name,
+    });
+    return;
+  }
+  if (request.method === "GET" && pathname === "/api/usage") {
+    sendJson(response, 200, await dependencies.tokenCounter.get(userId));
+    return;
+  }
+  if (request.method === "GET" && pathname === "/api/workflows/latest") {
+    sendJson(response, 200, (await dependencies.workflows?.latest(userId)) ?? null);
     return;
   }
   if (request.method === "GET" && pathname === "/api/runtime") {
@@ -38,16 +90,33 @@ export async function routeRequest(
     return;
   }
   if (request.method === "GET" && pathname === "/api/job-search") {
-    sendJson(response, 200, await dependencies.jobSearch.get());
+    let workspace = await dependencies.jobSearch.get(userId);
+    if (
+      (!workspace.profile.email && dependencies.actor.email) ||
+      (!workspace.profile.name && dependencies.actor.name)
+    )
+      workspace = await dependencies.jobSearch.updateProfile(
+        {
+          email: workspace.profile.email || dependencies.actor.email,
+          name: workspace.profile.name || dependencies.actor.name,
+        },
+        { deferEvidenceAnalysis: true },
+        userId,
+      );
+    sendJson(response, 200, workspace);
     return;
   }
   if (
     request.method === "POST" &&
     pathname === "/api/job-search/background/stop"
   ) {
-    const stopping = dependencies.jobSearch.stopBackgroundWork();
-    await dependencies.codex.pauseAllTurns();
-    sendJson(response, 200, await stopping);
+    if (dependencies.workflows) await dependencies.workflows.cancel(userId);
+    else {
+      const stopping = dependencies.jobSearch.stopBackgroundWork(userId);
+      await dependencies.codex.pauseTurnsForUser(userId);
+      await stopping;
+    }
+    sendJson(response, 200, await dependencies.jobSearch.get(userId));
     return;
   }
   if (
@@ -55,17 +124,37 @@ export async function routeRequest(
     pathname === "/api/job-search/background/continue"
   ) {
     dependencies.codex.resumeTurns();
-    sendJson(
-      response,
-      202,
-      await dependencies.jobSearch.continueBackgroundWork(),
-    );
+    if (dependencies.workflows) {
+      const before = await dependencies.jobSearch.get(userId);
+      const control = before.backgroundExecution;
+      const workspace = await dependencies.jobSearch.continueBackgroundWork(
+        userId,
+        false,
+      );
+      if (control?.resumeCandidateAnalysis || control?.resumeProfileSourceSync)
+        await dependencies.workflows.enqueue(userId, "analyze");
+      if (control?.resumeSearch)
+        await dependencies.workflows.enqueue(
+          userId,
+          control.resumeSearch === "prepare_search_ready"
+            ? "prepare-search-ready"
+            : "prepare",
+        );
+      sendJson(response, 202, workspace);
+    } else
+      sendJson(
+        response,
+        202,
+        await dependencies.jobSearch.continueBackgroundWork(userId),
+      );
     return;
   }
   const candidateEvidenceMatch = pathname.match(
     /^\/api\/job-search\/candidates\/([a-z0-9-]+)\/evidence$/i,
   );
   if (request.method === "GET" && candidateEvidenceMatch) {
+    if (candidateEvidenceMatch[1] !== userId)
+      throw new Error("Unknown candidate");
     sendJson(
       response,
       200,
@@ -77,6 +166,7 @@ export async function routeRequest(
     /^\/api\/job-search\/candidates\/([a-z0-9-]+)\/sources\/([a-f0-9-]+)\/file$/i,
   );
   if (request.method === "GET" && sourceFileMatch) {
+    if (sourceFileMatch[1] !== userId) throw new Error("Unknown candidate");
     const original = await dependencies.jobSearch.sourceFile(
       sourceFileMatch[1],
       sourceFileMatch[2],
@@ -92,11 +182,8 @@ export async function routeRequest(
     return;
   }
   if (request.method === "POST" && pathname === "/api/job-search/profile") {
-    const body = await readJson(request);
-    sendJson(
-      response,
-      200,
-      await dependencies.jobSearch.updateProfile(
+    const body = validate(profileSchema, await readJson(request));
+    let workspace = await dependencies.jobSearch.updateProfile(
         {
           name: typeof body.name === "string" ? body.name : undefined,
           email: typeof body.email === "string" ? body.email : undefined,
@@ -113,29 +200,55 @@ export async function routeRequest(
               : undefined,
         },
         {
-          deferEvidenceAnalysis: body.deferEvidenceAnalysis === true,
+          deferEvidenceAnalysis:
+            dependencies.workflows ? true : body.deferEvidenceAnalysis === true,
         },
-      ),
-    );
+        userId,
+      );
+    if (
+      dependencies.workflows &&
+      workspace.sources.some(
+        (source) => source.profileField && source.status === "processing",
+      )
+    ) {
+      workspace = await dependencies.jobSearch.markWorkflowQueued(
+        "analyze",
+        userId,
+      );
+      await dependencies.workflows.enqueue(userId, "analyze");
+    }
+    sendJson(response, 200, workspace);
     return;
   }
   if (request.method === "POST" && pathname === "/api/job-search/sources") {
-    const body = await readJson(request);
-    const workspace = await dependencies.jobSearch.addSource(body as never);
-    sendJson(response, 202, workspace);
-    if (body.deferAnalysis !== true)
-      dependencies.jobSearch.queueCandidateAnalysis(workspace.candidateId);
+    const body = validate(sourceSchema, await readJson(request));
+    const workspace = await dependencies.jobSearch.addSource(
+      {
+        ...body,
+        deferAnalysis: dependencies.workflows ? true : body.deferAnalysis,
+      } as never,
+      userId,
+    );
+    await dependencies.artifacts.snapshot(userId);
+    if (body.deferAnalysis !== true) {
+      if (dependencies.workflows) {
+        await dependencies.jobSearch.markWorkflowQueued("analyze", userId);
+        await dependencies.workflows.enqueue(userId, "analyze");
+      } else dependencies.jobSearch.queueCandidateAnalysis(workspace.candidateId);
+    }
+    sendJson(response, 202, await dependencies.jobSearch.get(userId));
     return;
   }
   const removeSourceMatch = pathname.match(
     /^\/api\/job-search\/sources\/([a-f0-9-]+)$/i,
   );
   if (request.method === "DELETE" && removeSourceMatch) {
-    sendJson(
-      response,
-      200,
-      await dependencies.jobSearch.removeSource(removeSourceMatch[1]),
+    const workspace = await dependencies.jobSearch.removeSource(
+      removeSourceMatch[1],
+      userId,
     );
+    await dependencies.artifacts.snapshot(userId);
+    sendJson(response, 200, workspace);
     return;
   }
   const stopSourceMatch = pathname.match(
@@ -145,25 +258,41 @@ export async function routeRequest(
     sendJson(
       response,
       200,
-      await dependencies.jobSearch.markSourceReadingStopped(stopSourceMatch[1]),
+      await dependencies.jobSearch.markSourceReadingStopped(
+        stopSourceMatch[1],
+        userId,
+      ),
     );
     return;
   }
   if (request.method === "POST" && pathname === "/api/job-search/analyze") {
-    sendJson(response, 200, await dependencies.jobSearch.analyzeCandidate());
+    if (dependencies.workflows) {
+      const workspace = await dependencies.jobSearch.markWorkflowQueued(
+        "analyze",
+        userId,
+      );
+      await dependencies.workflows.enqueue(userId, "analyze");
+      sendJson(response, 202, workspace);
+    } else
+      sendJson(
+        response,
+        200,
+        await dependencies.jobSearch.analyzeCandidate(userId),
+      );
     return;
   }
   const questionMatch = pathname.match(
     /^\/api\/job-search\/questions\/([a-z0-9-]+)$/i,
   );
   if (request.method === "POST" && questionMatch) {
-    const body = await readJson(request);
+    const body = validate(answerSchema, await readJson(request));
     sendJson(
       response,
       200,
       await dependencies.jobSearch.answer(
         questionMatch[1],
-        String(body.answer ?? ""),
+        body.answer,
+        userId,
       ),
     );
     return;
@@ -172,62 +301,100 @@ export async function routeRequest(
     request.method === "POST" &&
     pathname === "/api/job-search/finish-intake"
   ) {
-    sendJson(response, 200, await dependencies.jobSearch.finishIntake());
-    return;
-  }
-  if (request.method === "POST" && pathname === "/api/job-search/prepare") {
     sendJson(
       response,
       200,
-      await dependencies.jobSearch.startPrepareApplications(),
+      await dependencies.jobSearch.finishIntake(userId),
     );
+    return;
+  }
+  if (request.method === "POST" && pathname === "/api/job-search/prepare") {
+    if (dependencies.workflows) {
+      const workspace = await dependencies.jobSearch.markWorkflowQueued(
+        "prepare",
+        userId,
+      );
+      await dependencies.workflows.enqueue(userId, "prepare");
+      sendJson(response, 202, workspace);
+    } else
+      sendJson(
+        response,
+        200,
+        await dependencies.jobSearch.startPrepareApplications(
+          undefined,
+          false,
+          userId,
+        ),
+      );
     return;
   }
   if (
     request.method === "POST" &&
     pathname === "/api/job-search/prepare-ready"
   ) {
-    sendJson(
-      response,
-      202,
-      await dependencies.jobSearch.startPrepareSearchReadyApplications(),
-    );
+    if (dependencies.workflows) {
+      const workspace = await dependencies.jobSearch.markWorkflowQueued(
+        "prepare-search-ready",
+        userId,
+      );
+      await dependencies.workflows.enqueue(userId, "prepare-search-ready");
+      sendJson(response, 202, workspace);
+    } else
+      sendJson(
+        response,
+        202,
+        await dependencies.jobSearch.startPrepareSearchReadyApplications(userId),
+      );
     return;
   }
   if (
     request.method === "POST" &&
     pathname === "/api/job-search/reset-jobs"
   ) {
-    sendJson(response, 200, await dependencies.jobSearch.resetJobList());
+    sendJson(
+      response,
+      200,
+      await dependencies.jobSearch.resetJobList(userId),
+    );
     return;
   }
   if (
     request.method === "POST" &&
     pathname === "/api/job-search/reset-user"
   ) {
-    sendJson(response, 200, await dependencies.jobSearch.resetUserCompletely());
+    const workspace = await dependencies.jobSearch.resetUserCompletely(userId);
+    await dependencies.artifacts.delete(userId);
+    sendJson(response, 200, workspace);
     return;
   }
   if (request.method === "POST" && pathname === "/api/job-search/find-more") {
-    sendJson(
-      response,
-      202,
-      await dependencies.jobSearch.startFindMoreApplications(),
-    );
+    if (dependencies.workflows) {
+      const workspace = await dependencies.jobSearch.markWorkflowQueued(
+        "find-more",
+        userId,
+      );
+      await dependencies.workflows.enqueue(userId, "find-more");
+      sendJson(response, 202, workspace);
+    } else
+      sendJson(
+        response,
+        202,
+        await dependencies.jobSearch.startFindMoreApplications(userId),
+      );
     return;
   }
   if (
     request.method === "POST" &&
     pathname === "/api/job-search/search-config"
   ) {
-    const body = await readJson(request);
+    const body = validate(searchConfigSchema, await readJson(request));
     sendJson(
       response,
       200,
       await dependencies.jobSearch.updateSearchConfig({
-        discoveryTarget: Number(body.discoveryTarget),
-        applicationTarget: Number(body.applicationTarget),
-      }),
+        discoveryTarget: body.discoveryTarget,
+        applicationTarget: body.applicationTarget,
+      }, userId),
     );
     return;
   }
@@ -235,11 +402,11 @@ export async function routeRequest(
     request.method === "POST" &&
     pathname === "/api/job-search/opportunities"
   ) {
-    const body = await readJson(request);
+    const body = validate(opportunitySchema, await readJson(request));
     sendJson(
       response,
       201,
-      await dependencies.jobSearch.addOpportunity(body as never),
+      await dependencies.jobSearch.addOpportunity(body as never, userId),
     );
     return;
   }
@@ -252,6 +419,7 @@ export async function routeRequest(
       200,
       await dependencies.jobSearch.promoteOpportunity(
         promoteOpportunityMatch[1],
+        userId,
       ),
     );
     return;
@@ -260,28 +428,70 @@ export async function routeRequest(
     /^\/api\/job-search\/applications\/([a-z0-9-]+)$/i,
   );
   if (request.method === "POST" && draftMatch) {
-    const body = await readJson(request);
+    const body = validate(applicationUpdateSchema, await readJson(request));
     sendJson(
       response,
       200,
       await dependencies.jobSearch.updateApplication(
         draftMatch[1],
         body as never,
+        userId,
       ),
     );
+    return;
+  }
+  const tailoredCvMatch = pathname.match(
+    /^\/api\/job-search\/applications\/([a-z0-9-]+)\/tailored-cv$/i,
+  );
+  if (request.method === "POST" && tailoredCvMatch) {
+    if (dependencies.workflows) {
+      const workspace = await dependencies.jobSearch.markWorkflowQueued(
+        "tailor-cv",
+        userId,
+        tailoredCvMatch[1],
+      );
+      await dependencies.workflows.enqueue(userId, "tailor-cv", {
+        resourceId: tailoredCvMatch[1],
+      });
+      sendJson(response, 202, workspace);
+    } else
+      sendJson(
+        response,
+        200,
+        await dependencies.jobSearch.tailorApplicationCv(
+          tailoredCvMatch[1],
+          userId,
+        ),
+      );
+    return;
+  }
+  if (request.method === "GET" && tailoredCvMatch) {
+    const document = await dependencies.jobSearch.tailoredCvFile(
+      userId,
+      tailoredCvMatch[1],
+    );
+    response.writeHead(200, {
+      "Content-Type": document.mimeType,
+      "Content-Length": document.size,
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(document.name)}`,
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+    });
+    createReadStream(document.file).pipe(response);
     return;
   }
   const coverLetterChatMatch = pathname.match(
     /^\/api\/job-search\/applications\/([a-z0-9-]+)\/cover-letter-chat$/i,
   );
   if (request.method === "POST" && coverLetterChatMatch) {
-    const body = await readJson(request);
+    const body = validate(messageSchema, await readJson(request));
     sendJson(
       response,
       200,
       await dependencies.jobSearch.refineCoverLetter(
         coverLetterChatMatch[1],
-        String(body.message ?? ""),
+        body.message,
+        userId,
       ),
     );
     return;
@@ -290,14 +500,15 @@ export async function routeRequest(
     /^\/api\/job-search\/applications\/([a-z0-9-]+)\/fields\/([^/]+)\/refine$/i,
   );
   if (request.method === "POST" && fieldRefinementMatch) {
-    const body = await readJson(request);
+    const body = validate(messageSchema, await readJson(request));
     sendJson(
       response,
       200,
       await dependencies.jobSearch.refineApplicationField(
         fieldRefinementMatch[1],
         decodeURIComponent(fieldRefinementMatch[2]),
-        String(body.message ?? ""),
+        body.message,
+        userId,
       ),
     );
     return;
@@ -306,7 +517,7 @@ export async function routeRequest(
     /^\/api\/job-search\/applications\/([a-z0-9-]+)\/outcome$/i,
   );
   if (request.method === "POST" && outcomeMatch) {
-    const body = await readJson(request);
+    const body = validate(outcomeSchema, await readJson(request));
     const outcome =
       body.outcome === "rejected_by_user" ||
       body.outcome === "unsuccessful" ||
@@ -319,6 +530,7 @@ export async function routeRequest(
       await dependencies.jobSearch.setApplicationOutcome(
         outcomeMatch[1],
         outcome,
+        userId,
       ),
     );
     return;
@@ -331,7 +543,7 @@ export async function routeRequest(
     sendJson(
       response,
       200,
-      await dependencies.jobSearch.autofillByUrl(target),
+      await dependencies.jobSearch.autofillByUrl(target, userId),
     );
     return;
   }

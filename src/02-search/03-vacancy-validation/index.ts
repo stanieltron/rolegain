@@ -48,8 +48,11 @@ export async function revalidateOpportunities(input: {
 }): Promise<{ opportunities: JobOpportunity[]; failures: JobResearchFailure[] }> {
   const { codex, cwd, browsers, workspace, opportunities, onProgress } = input;
   if (!codex) return { opportunities, failures: [] };
-    const executionGeneration = browsers.currentGeneration;
-    const browser = await browsers.launch.bind(browsers)(executionGeneration);
+    const executionGeneration = browsers.currentGeneration(workspace.candidateId);
+    const browser = await browsers.launch.bind(browsers)(
+      workspace.candidateId,
+      executionGeneration,
+    );
     try {
       const results = await mapParallelOrdered(
         opportunities,

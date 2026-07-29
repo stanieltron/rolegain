@@ -1,0 +1,286 @@
+import { randomUUID } from "node:crypto";
+import { PgBoss } from "pg-boss";
+import type { Pool } from "pg";
+import type { CodexExecClient } from "../../codex-runtime/client.js";
+import type { JobSearchService } from "../control-flow/service.js";
+import type { ArtifactArchive } from "../persistence/artifact-archive.js";
+import { withUserLock } from "../../infrastructure/database.js";
+
+const QUEUE = "rolegain-workflows";
+
+export type WorkflowType =
+  | "analyze"
+  | "prepare"
+  | "prepare-search-ready"
+  | "find-more"
+  | "tailor-cv";
+
+interface WorkflowPayload {
+  runId: string;
+  userId: string;
+  type: WorkflowType;
+  resourceId?: string;
+}
+
+export interface WorkflowRun {
+  id: string;
+  type: WorkflowType;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  error?: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface WorkflowQueue {
+  start(processJobs: boolean): Promise<void>;
+  enqueue(
+    userId: string,
+    type: WorkflowType,
+    options?: { resourceId?: string },
+  ): Promise<WorkflowRun>;
+  latest(userId: string): Promise<WorkflowRun | undefined>;
+  cancel(userId: string): Promise<void>;
+  close(): Promise<void>;
+}
+
+export class PostgresWorkflowQueue implements WorkflowQueue {
+  private readonly boss: PgBoss;
+
+  constructor(
+    connectionString: string,
+    private readonly pool: Pool,
+    private readonly service: JobSearchService,
+    private readonly codex: CodexExecClient,
+    private readonly artifacts: ArtifactArchive,
+  ) {
+    this.boss = new PgBoss(connectionString);
+    this.boss.on("error", (error) =>
+      console.error("Rolegain workflow queue error", error),
+    );
+  }
+
+  async start(processJobs: boolean) {
+    await this.boss.start();
+    await this.boss.createQueue(QUEUE, {
+      policy: "key_strict_fifo",
+      warningQueueSize: 100,
+    });
+    if (!processJobs) return;
+    await this.boss.work<WorkflowPayload>(
+      QUEUE,
+      {
+        batchSize: 1,
+        localConcurrency: positiveInteger(
+          process.env.ROLEGAIN_WORKER_CONCURRENCY,
+          2,
+        ),
+        pollingIntervalSeconds: 2,
+      },
+      async (jobs) => {
+        for (const job of jobs) await this.process(job.data);
+      },
+    );
+  }
+
+  async enqueue(
+    userId: string,
+    type: WorkflowType,
+    options: { resourceId?: string } = {},
+  ) {
+    const existing = await this.pool.query<WorkflowRunRow>(
+      `select id, type, status, error, created_at, started_at, completed_at
+       from rolegain_workflow_runs
+       where user_id = $1
+         and type = $2
+         and coalesce(resource_key, '') = coalesce($3, '')
+         and status in ('queued', 'running')
+       order by created_at desc
+       limit 1`,
+      [userId, type, options.resourceId],
+    );
+    if (existing.rows[0]) return asWorkflowRun(existing.rows[0]);
+    const runId = randomUUID();
+    await this.pool.query(
+      `insert into rolegain_workflow_runs
+         (id, user_id, type, resource_key, status)
+       values ($1, $2, $3, $4, 'queued')`,
+      [runId, userId, type, options.resourceId],
+    );
+    const queueJobId = await this.boss.send(
+      QUEUE,
+      {
+        runId,
+        userId,
+        type,
+        resourceId: options.resourceId,
+      } satisfies WorkflowPayload,
+      {
+        singletonKey: userId,
+        retryLimit: 2,
+        retryDelay: 15,
+        retryBackoff: true,
+        expireInSeconds: 60 * 60,
+      },
+    );
+    if (!queueJobId)
+      throw new Error("The workflow could not be added to the queue");
+    await this.pool.query(
+      "update rolegain_workflow_runs set queue_job_id = $2 where id = $1",
+      [runId, queueJobId],
+    );
+    return (await this.byId(runId))!;
+  }
+
+  async latest(userId: string) {
+    const result = await this.pool.query<WorkflowRunRow>(
+      `select id, type, status, error, created_at, started_at, completed_at
+       from rolegain_workflow_runs
+       where user_id = $1
+       order by created_at desc
+       limit 1`,
+      [userId],
+    );
+    return result.rows[0] ? asWorkflowRun(result.rows[0]) : undefined;
+  }
+
+  async cancel(userId: string) {
+    const result = await this.pool.query<{ id: string; queue_job_id: string | null }>(
+      `update rolegain_workflow_runs
+       set cancellation_requested_at = now(),
+           status = case when status = 'queued' then 'cancelled' else status end,
+           completed_at = case when status = 'queued' then now() else completed_at end
+       where user_id = $1 and status in ('queued', 'running')
+       returning id, queue_job_id`,
+      [userId],
+    );
+    for (const row of result.rows)
+      if (row.queue_job_id)
+        await this.boss.cancel(QUEUE, row.queue_job_id).catch(() => undefined);
+    await Promise.all([
+      this.service.stopBackgroundWork(userId),
+      this.codex.pauseTurnsForUser(userId),
+    ]);
+  }
+
+  close() {
+    return this.boss.stop({ graceful: true, timeout: 30_000 });
+  }
+
+  private async process(payload: WorkflowPayload) {
+    await withUserLock(this.pool, payload.userId, async () => {
+      const state = await this.pool.query<{ cancellation_requested_at: Date | null }>(
+        `update rolegain_workflow_runs
+         set status = 'running', started_at = coalesce(started_at, now()), error = null
+         where id = $1 and status <> 'cancelled'
+         returning cancellation_requested_at`,
+        [payload.runId],
+      );
+      if (!state.rows[0] || state.rows[0].cancellation_requested_at) return;
+      try {
+        await this.artifacts.restore(payload.userId);
+        await this.codex.runWithExecutionContext(
+          { userId: payload.userId, workflowRunId: payload.runId },
+          () => this.execute(payload),
+        );
+        await this.artifacts.snapshot(payload.userId);
+        await this.pool.query(
+          `update rolegain_workflow_runs
+           set status = 'completed', completed_at = now()
+           where id = $1`,
+          [payload.runId],
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error);
+        const cancellation = await this.pool.query<{
+          cancellation_requested_at: Date | null;
+        }>(
+          "select cancellation_requested_at from rolegain_workflow_runs where id = $1",
+          [payload.runId],
+        );
+        if (!cancellation.rows[0]?.cancellation_requested_at)
+          await this.service
+            .markWorkflowFailed(
+              payload.type,
+              message,
+              payload.userId,
+              payload.resourceId,
+            )
+            .catch(() => undefined);
+        await this.pool.query(
+          `update rolegain_workflow_runs
+           set status = case when cancellation_requested_at is null then 'failed' else 'cancelled' end,
+               error = $2,
+               completed_at = now()
+           where id = $1`,
+          [
+            payload.runId,
+            message,
+          ],
+        );
+        throw error;
+      }
+    });
+  }
+
+  private async execute(payload: WorkflowPayload) {
+    switch (payload.type) {
+      case "analyze":
+        await this.service.analyzeCandidate(payload.userId);
+        return;
+      case "prepare":
+        await this.service.prepareApplications(payload.userId);
+        return;
+      case "prepare-search-ready":
+        await this.service.prepareSearchReadyApplications(payload.userId);
+        return;
+      case "find-more":
+        await this.service.findMoreApplications(payload.userId);
+        return;
+      case "tailor-cv":
+        if (!payload.resourceId)
+          throw new Error("Tailored CV workflow is missing an application id");
+        await this.service.tailorApplicationCv(
+          payload.resourceId,
+          payload.userId,
+        );
+    }
+  }
+
+  private async byId(id: string) {
+    const result = await this.pool.query<WorkflowRunRow>(
+      `select id, type, status, error, created_at, started_at, completed_at
+       from rolegain_workflow_runs where id = $1`,
+      [id],
+    );
+    return result.rows[0] ? asWorkflowRun(result.rows[0]) : undefined;
+  }
+}
+
+interface WorkflowRunRow {
+  id: string;
+  type: WorkflowType;
+  status: WorkflowRun["status"];
+  error: string | null;
+  created_at: Date;
+  started_at: Date | null;
+  completed_at: Date | null;
+}
+
+function asWorkflowRun(row: WorkflowRunRow): WorkflowRun {
+  return {
+    id: row.id,
+    type: row.type,
+    status: row.status,
+    error: row.error || undefined,
+    createdAt: row.created_at.toISOString(),
+    startedAt: row.started_at?.toISOString(),
+    completedAt: row.completed_at?.toISOString(),
+  };
+}
+
+function positiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number.parseInt(value || "", 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}

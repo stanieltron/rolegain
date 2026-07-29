@@ -31,6 +31,29 @@ describe("cover-letter evidence loading", () => {
       start: async () => ({ authenticated: true, model: "test-model" }),
       startThread: async ({ role }: { role: string }) => ({ id: role }),
       runTurn: async ({ threadId, prompt }: { threadId: string; prompt: string }) => {
+        if (threadId === "application-company-researcher") {
+          return {
+            finalText: JSON.stringify({
+              company: "Dex Co",
+              overview: "Dex Co builds decentralized trading infrastructure.",
+              productsAndServices: ["Decentralized exchange infrastructure"],
+              customersAndMarkets: ["On-chain trading teams"],
+              businessModel: "Protocol services",
+              cultureAndValues: ["Protocol reliability"],
+              recentSignals: [],
+              tailoringAngles: [
+                "Connect verified routing work to reliable exchange infrastructure",
+              ],
+              sources: [
+                {
+                  title: "Dex Co",
+                  url: "https://example.test/company",
+                  evidence: "The company page describes exchange infrastructure.",
+                },
+              ],
+            }),
+          };
+        }
         if (threadId === "cover-letter-writer") {
           writerPrompt = prompt;
           return {
@@ -65,6 +88,9 @@ describe("cover-letter evidence loading", () => {
     await writer.draft(workspace, ["app-1"]);
 
     expect(writerPrompt).toContain("Implemented gas-aware Solidity order routing.");
+    expect(writerPrompt).toContain(
+      "Dex Co builds decentralized trading infrastructure.",
+    );
     expect(writerPrompt).not.toContain("IRRELEVANT_PRIVATE_DETAIL");
     expect(writerPrompt).not.toContain("RAW_SOURCE_SHOULD_NOT_BE_READ");
   });

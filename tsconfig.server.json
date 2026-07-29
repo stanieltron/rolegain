@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "./dist/server",
+    "rootDir": ".",
+    "sourceMap": true,
+    "declaration": false
+  },
+  "include": [
+    "src/**/*.ts",
+    "scripts/start-api-server.ts",
+    "scripts/start-worker.ts",
+    "scripts/migrate-database.ts"
+  ],
+  "exclude": [
+    "src/ui",
+    "src/eval-ui",
+    "src/eval-server"
+  ]
+}

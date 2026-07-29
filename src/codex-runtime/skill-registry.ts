@@ -14,11 +14,13 @@ export const LLM_CALL_SKILLS = {
   "application.navigate": "rolegain-navigate-application",
   "application.field-map": "rolegain-map-application-fields",
   "application.schema-verify": "rolegain-verify-application-schema",
+  "application.company-research": "rolegain-research-application-company",
   "application.draft": "rolegain-draft-application",
   "application.verify": "rolegain-verify-application",
   "application.repair": "rolegain-repair-application",
   "application.cover-letter-refine": "rolegain-refine-cover-letter",
   "application.answer-refine": "rolegain-refine-application-answer",
+  "application.cv-tailor": "rolegain-tailor-application-cv",
 } as const;
 
 export type LlmCallId = keyof typeof LLM_CALL_SKILLS;

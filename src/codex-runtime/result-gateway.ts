@@ -54,11 +54,13 @@ export const RESULT_GATEWAY_CALL_IDS = [
   "application.navigate",
   "application.field-map",
   "application.schema-verify",
+  "application.company-research",
   "application.draft",
   "application.verify",
   "application.repair",
   "application.cover-letter-refine",
   "application.answer-refine",
+  "application.cv-tailor",
 ] as const;
 
 const registeredCallIds = new Set<string>(RESULT_GATEWAY_CALL_IDS);
@@ -627,6 +629,10 @@ function validateCallSpecificInvariants(
       break;
     case "application.schema-verify":
       uniqueStrings(root.issues, "$.issues", defects);
+      break;
+    case "application.company-research":
+      uniqueValues(root.sources, "url", "$.sources", defects);
+      validateHttpUrls(root.sources, ["url"], "$.sources", defects);
       break;
     case "match.requirements":
     case "match.tier2-evidence":

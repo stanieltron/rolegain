@@ -1,0 +1,3 @@
+name: rolegain-tailor-application-cv
+allow_implicit_invocation: false
+description: Project-local Rolegain LLM call skill. Invoke only when the runtime explicitly names it.
