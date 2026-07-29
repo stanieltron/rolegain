@@ -11,6 +11,7 @@
     "src/**/*.ts",
     "scripts/start-api-server.ts",
     "scripts/start-worker.ts",
+    "scripts/login-codex.ts",
     "scripts/migrate-database.ts"
   ],
   "exclude": [
