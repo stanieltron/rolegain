@@ -142,6 +142,7 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
           retryLimit: 2,
           retryDelay: 15,
           retryBackoff: true,
+          heartbeatSeconds: 30,
           expireInSeconds: 60 * 60,
         },
       );
@@ -196,7 +197,7 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
   }
 
   close() {
-    return this.boss.stop({ graceful: true, timeout: 30_000 });
+    return this.boss.stop({ graceful: true, timeout: 5_000 });
   }
 
   private async process(payload: WorkflowPayload) {

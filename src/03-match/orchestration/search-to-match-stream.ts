@@ -23,6 +23,9 @@ export interface SearchToMatchStreamInput {
     excludeApplyUrls?: string[];
     limit?: number;
     onProgress?: OpportunityProgressReporter;
+    onMatchedOpportunity?: (
+      opportunity: JobOpportunity,
+    ) => void | Promise<void>;
   };
 }
 
@@ -89,6 +92,10 @@ export async function streamSearchToMatch(input: SearchToMatchStreamInput) {
           failures: [failureFromOpportunity(opportunity, "requirements", reason)],
         };
       }
+    },
+    onCompleted: async (_opportunity, result) => {
+      if (result.opportunity)
+        await input.options?.onMatchedOpportunity?.(result.opportunity);
     },
   });
 

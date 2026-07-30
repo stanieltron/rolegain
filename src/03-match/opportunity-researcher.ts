@@ -101,6 +101,9 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
       excludeApplyUrls?: string[];
       limit?: number;
       onProgress?: OpportunityProgressReporter;
+      onMatchedOpportunity?: (
+        opportunity: JobOpportunity,
+      ) => void | Promise<void>;
     } = {},
   ) {
     if (!this.codex) throw new Error("Codex live web search is not configured");

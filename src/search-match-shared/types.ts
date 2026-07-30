@@ -96,6 +96,9 @@ export interface OpportunityResearchProvider {
       excludeApplyUrls?: string[];
       limit?: number;
       onProgress?: OpportunityProgressReporter;
+      onMatchedOpportunity?: (
+        opportunity: JobOpportunity,
+      ) => void | Promise<void>;
     },
   ): Promise<{
     opportunities: JobOpportunity[];

@@ -62,6 +62,25 @@ describe("streaming search and match orchestration", () => {
     expect(run.results).toEqual(["a", "b", "c", "d"]);
   });
 
+  it("checkpoints each completed match before the full search finishes", async () => {
+    const checkpoints: string[] = [];
+    await runBoundedStreamingPipeline({
+      concurrency: 2,
+      key: (job: { id: string }) => job.id,
+      produce: async (emit) => {
+        emit({ id: "a" });
+        emit({ id: "b" });
+        return undefined;
+      },
+      consume: async (job) => `matched-${job.id}`,
+      onCompleted: async (_job, result) => {
+        checkpoints.push(result);
+      },
+    });
+
+    expect(checkpoints.sort()).toEqual(["matched-a", "matched-b"]);
+  });
+
   it("releases executor capacity when a task fails", async () => {
     const executor = new BoundedExecutor(1);
     const first = executor.run(async () => {

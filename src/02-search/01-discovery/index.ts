@@ -78,6 +78,10 @@ export async function searchAndValidateOpportunities(input: {
   const options = input.options ?? {};
     const executionGeneration = browsers.currentGeneration(workspace.candidateId);
     const limit = Math.max(1, Math.min(options.limit ?? 20, 50));
+    const validatedTarget = validatedDiscoveryTarget(
+      limit,
+      workspace.searchConfig.applicationTarget,
+    );
     const maxSearchWaves = Math.max(
       1,
       Math.min(6, Number(process.env.ROLEGAIN_MAX_SEARCH_WAVES || 6)),
@@ -107,7 +111,10 @@ export async function searchAndValidateOpportunities(input: {
     await options.onProgress?.({
       activity: searchActivity(workspace, limit, phase2Evidence),
     });
-    const discoverySize = Math.min(50, Math.max(limit + 8, limit * 2));
+    const discoverySize = Math.min(
+      50,
+      Math.max(validatedTarget + 8, validatedTarget * 2),
+    );
     const heartbeatMessages = [
       "The search agent is checking public job boards and employer career pages.",
       "Still searching; location constraints and jobs with existing applications remain excluded.",
@@ -180,7 +187,7 @@ export async function searchAndValidateOpportunities(input: {
       );
       for (
         let wave = 0;
-        wave < maxSearchWaves && opportunities.length < limit;
+        wave < maxSearchWaves && opportunities.length < validatedTarget;
         wave += 1
       ) {
         const opportunitiesBefore = opportunities.length;
@@ -199,8 +206,8 @@ export async function searchAndValidateOpportunities(input: {
         const sourceLeadCount = eligibleCandidates.length - directLeadCount;
         const sourceCandidateBudget = Math.max(
           5,
-          Math.ceil(limit * 0.5),
-          Math.max(0, limit - directLeadCount) * 3,
+          Math.ceil(validatedTarget * 0.5),
+          Math.max(0, validatedTarget - directLeadCount) * 3,
         );
         const candidatesPerSource = Math.max(
           1,
@@ -244,7 +251,8 @@ export async function searchAndValidateOpportunities(input: {
                         inventory: vacancySourceInventory,
                         source: candidate,
                         targetCandidates: candidatesPerSource,
-                        shouldContinue: () => opportunities.length < limit * 2,
+                        shouldContinue: () =>
+                          opportunities.length < validatedTarget * 2,
                         onProgress: options.onProgress,
                       });
                 if (lead.kind === "vacancy")
@@ -448,7 +456,7 @@ export async function searchAndValidateOpportunities(input: {
             ),
           ],
           nextDecision:
-            opportunities.length >= limit
+            opportunities.length >= validatedTarget
               ? "target_reached"
               : consecutiveLowYield >= 2
                 ? "saturated_after_repeated_low_yield"
@@ -457,7 +465,7 @@ export async function searchAndValidateOpportunities(input: {
                   : "continue_undercovered_cells",
         });
         if (
-          opportunities.length < limit &&
+          opportunities.length < validatedTarget &&
           consecutiveLowYield < 2 &&
           wave < maxSearchWaves - 1
         ) {
@@ -477,7 +485,10 @@ export async function searchAndValidateOpportunities(input: {
             cwd,
             workspace,
             retryExclusions,
-            Math.min(50, Math.max(5, (limit - opportunities.length) * 2)),
+            Math.min(
+              50,
+              Math.max(5, (validatedTarget - opportunities.length) * 2),
+            ),
             phase2Evidence,
             inspectionErrors,
             wave + 1,
@@ -520,6 +531,18 @@ export async function searchAndValidateOpportunities(input: {
       failures: deduplicateFailures(failures),
       seenUrls: [...seenUrls],
     };
+}
+
+export function validatedDiscoveryTarget(
+  requestedVacancies: number,
+  applicationTarget: number,
+) {
+  const requested = Math.max(1, Math.floor(requestedVacancies));
+  const applications = Math.max(1, Math.floor(applicationTarget));
+  return Math.min(
+    requested,
+    Math.max(applications * 2, applications + 3),
+  );
 }
 
 async function validateVacanciesWhileExpandingSource(input: {

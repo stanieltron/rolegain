@@ -935,6 +935,17 @@ export class JobSearchService {
                   excludeApplyUrls: applicationUrls,
                   limit: discoveryLimit,
                   onProgress: reportProgress,
+                  onMatchedOpportunity: async (job) => {
+                    await this.assignJobNumbers([job]);
+                    workspace.opportunities = mergeUniqueJobs(
+                      workspace.opportunities,
+                      [job],
+                    ).sort((left, right) => right.fit - left.fit);
+                    pendingProgressWrite = pendingProgressWrite.then(() =>
+                      this.saveCandidate(workspace),
+                    );
+                    await pendingProgressWrite;
+                  },
                 })
               : await this.opportunityResearch.research(workspace, {
                   excludeApplyUrls: applicationUrls,

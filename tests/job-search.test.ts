@@ -28,6 +28,7 @@ import {
   parseCompensationRanges,
   reconcileRemoteLocation,
 } from "../src/search-match-shared/opportunity.js";
+import { validatedDiscoveryTarget } from "../src/02-search/01-discovery/index.js";
 import { discoveryWorkIntent } from "../src/search-match-shared/search-intent.js";
 import { greenhouseJobApiUrl } from "../src/02-search/03-vacancy-validation/index.js";
 import {
@@ -204,6 +205,12 @@ const serviceFor = (root: string) =>
   );
 
 describe("job-search lifecycle", () => {
+  it("stops deep discovery once there is a ranked replacement bench", () => {
+    expect(validatedDiscoveryTarget(20, 5)).toBe(10);
+    expect(validatedDiscoveryTarget(8, 5)).toBe(8);
+    expect(validatedDiscoveryTarget(20, 1)).toBe(4);
+  });
+
   it("discovers only after validating an insufficient scored bench", () => {
     expect(
       discoveryLimitAfterBenchValidation({
