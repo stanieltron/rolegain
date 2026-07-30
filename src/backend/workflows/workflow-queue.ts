@@ -270,9 +270,15 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
       beta.remainingApplications,
     );
     switch (payload.type) {
-      case "analyze":
-        await this.service.analyzeCandidate(payload.userId);
+      case "analyze": {
+        const workspace = await this.service.analyzeCandidate(payload.userId);
+        if (workspace.intelligence.status !== "ready")
+          throw new Error(
+            workspace.intelligence.error ||
+              "Candidate analysis did not reach a ready state",
+          );
         return;
+      }
       case "prepare":
         if (applicationTarget <= 0) throw betaApplicationsExhausted();
         await this.service.prepareApplications(
