@@ -1059,20 +1059,38 @@ function ProfileView({ workspace, busy, act }: ViewProps) {
                       "Basic information and experience were extracted"}
                 </small>
               </div>
-              <label
-                className={`cv-update ${busy || analyzing ? "disabled" : ""}`}
-              >
-                <Upload size={14} /> Update CV
-                <input
-                  disabled={busy || analyzing}
-                  type="file"
-                  accept=".pdf,.doc,.docx,.txt,.md,.markdown,.rtf,.html,.htm"
-                  onChange={(event) => {
-                    void upload(event.target.files?.[0]);
-                    event.target.value = "";
-                  }}
-                />
-              </label>
+              <div className="cv-source-actions">
+                {cvSource.status === "analysis_failed" ? (
+                  <button
+                    className="cv-update"
+                    disabled={busy || analyzing}
+                    type="button"
+                    onClick={() =>
+                      void act(
+                        () => analyzeCandidate(),
+                        undefined,
+                        "candidate-analysis",
+                      )
+                    }
+                  >
+                    <RefreshCw size={14} /> Retry analysis
+                  </button>
+                ) : null}
+                <label
+                  className={`cv-update ${busy || analyzing ? "disabled" : ""}`}
+                >
+                  <Upload size={14} /> Update CV
+                  <input
+                    disabled={busy || analyzing}
+                    type="file"
+                    accept=".pdf,.doc,.docx,.txt,.md,.markdown,.rtf,.html,.htm"
+                    onChange={(event) => {
+                      void upload(event.target.files?.[0]);
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
             </div>
           ) : (
             <label className={`dropzone ${analyzing ? "disabled" : ""}`}>

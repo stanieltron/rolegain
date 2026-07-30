@@ -728,6 +728,11 @@ main {
   color: #65736a;
   font-size: 10px;
 }
+.cv-source-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .cv-update {
   border: 1px solid #b9d4c3;
   background: #fff;
