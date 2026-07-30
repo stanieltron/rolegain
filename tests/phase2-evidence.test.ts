@@ -53,8 +53,12 @@ describe("canonical Phase 2 evidence", () => {
       "Protocol Architect",
     );
     expect(phase2QueryPortfolio(context!, 1, 1)[0].canonicalTitle).toBe(
-      "AI Agent Infrastructure Engineer",
+      "Protocol Architect",
     );
+    expect(phase2QueryPortfolio(context!, 2, 2).map((query) => query.canonicalTitle)).toEqual([
+      "Protocol Architect",
+      "AI Agent Infrastructure Engineer",
+    ]);
     expect(
       canonicalOpportunityAlignment(context!, {
         title: "AI Agent Infrastructure Engineer",

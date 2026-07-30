@@ -70,6 +70,11 @@ import {
   updateSearchConfig,
 } from "./api.js";
 import { useAuthActions } from "./auth.js";
+import {
+  applicationOutcomeState,
+  isApplicationAttempt,
+  settlePipelineItemForDisplay,
+} from "./pipeline-items.js";
 import type {
   BetaStatus,
   CanonicalEvidenceModel,
@@ -2744,15 +2749,32 @@ function FindApplicationsProgress({
     0,
     (progress.stage === "looking" ? progress.target : items.length) - items.length,
   );
-  const allValidItems = allItems.filter(
+  const displayItems = allItems.map((item) =>
+    settlePipelineItemForDisplay(
+      item,
+      progress.stage === "ready" || progress.stage === "failed",
+    ),
+  );
+  const allValidItems = displayItems.filter(
     (item) => item.validation === "passed" || item.match !== "waiting",
   );
-  const newValidCount = allValidItems.filter((item) =>
+  const applicationAttemptItems = allValidItems.filter(isApplicationAttempt);
+  const matchOnlyItems = allValidItems.filter(
+    (item) => !isApplicationAttempt(item),
+  );
+  const newValidCount = matchOnlyItems.filter((item) =>
     currentItemIds.has(item.id),
   ).length;
   const newPreparedCount = preparedItems.filter((item) =>
     currentItemIds.has(item.id),
   ).length;
+  const failedApplicationCount = applicationAttemptItems.filter(
+    (item) => applicationOutcomeState(item) === "failed",
+  ).length;
+  const activeApplicationCount = applicationAttemptItems.filter((item) => {
+    const state = applicationOutcomeState(item);
+    return state === "running" || state === "selected";
+  }).length;
   const currentRunItems = items.filter((item) => currentItemIds.has(item.id));
   const pendingMatchCount = currentRunItems.filter(
     (item) => item.match === "waiting" || item.match === "running",
@@ -2784,8 +2806,8 @@ function FindApplicationsProgress({
         <PipelineColumn
           step="1"
           title="Discover & verify"
-          count={`${allItems.length} total · ${items.length} current`}
-          items={allItems}
+          count={`${displayItems.length} total · ${items.length} current`}
+          items={displayItems}
           currentItemIds={currentItemIds}
           phase="validation"
           placeholders={discoverySlots}
@@ -2794,19 +2816,19 @@ function FindApplicationsProgress({
         <PipelineColumn
           step="2"
           title="Match & rank"
-          count={`${allValidItems.length} total · ${newValidCount} current`}
-          items={[...allValidItems].sort((a, b) => (b.fit ?? -1) - (a.fit ?? -1))}
+          count={`${matchOnlyItems.length} total · ${newValidCount} current`}
+          items={[...matchOnlyItems].sort((a, b) => (b.fit ?? -1) - (a.fit ?? -1))}
           currentItemIds={currentItemIds}
           phase="match"
         />
         <span className="pipeline-arrow" aria-hidden="true">→</span>
         <PipelineColumn
           step="3"
-          title="Prepared & verified"
-          count={`${preparedItems.length} total · ${newPreparedCount} current`}
-          items={preparedItems}
+          title="Application preparation"
+          count={`${preparedItems.length} ready · ${failedApplicationCount} failed${activeApplicationCount ? ` · ${activeApplicationCount} active` : ""}`}
+          items={applicationAttemptItems}
           currentItemIds={currentItemIds}
-          phase="prepared_verified"
+          phase="application_outcome"
           currentRunEmptyMessage={preparedCurrentRunEmptyMessage}
         />
       </div>
@@ -2912,6 +2934,7 @@ type PipelinePhase =
   | "match"
   | "application"
   | "application_verification"
+  | "application_outcome"
   | "prepared_verified";
 
 function PipelineColumn({
@@ -3014,6 +3037,7 @@ function pipelineItemState(
   item: NonNullable<NonNullable<JobSearchWorkspace["searchProgress"]>["items"]>[number],
   phase: PipelinePhase,
 ) {
+  if (phase === "application_outcome") return applicationOutcomeState(item);
   if (phase === "prepared_verified") return "passed";
   if (phase === "application_verification") return item.applicationVerification;
   return item[phase];

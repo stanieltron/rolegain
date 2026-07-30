@@ -1014,8 +1014,8 @@ export class JobSearchService {
     if (!complete)
       workspace.searchProgress!.error =
         `Prepared ${prepared} of ${applicationTarget}; no more verified applications could be produced from the bounded search.`;
-    workspace.jobHistory = normalizeJobHistory(workspace);
     await pendingProgressWrite;
+    finalizePipelineHistory(workspace);
     await this.saveCandidate(workspace);
     return workspace;
   }
@@ -2788,7 +2788,7 @@ function applicationRefillRoundLimit() {
   const configured = Number(process.env.ROLEGAIN_MAX_REFILL_ROUNDS);
   return Number.isFinite(configured)
     ? Math.max(1, Math.min(20, Math.round(configured)))
-    : 6;
+    : 4;
 }
 
 function preparedVerifiedJobIds(workspace: JobSearchWorkspace) {
@@ -2855,7 +2855,13 @@ export function selectPhase2ApplicationPortfolio(
   ranked: JobOpportunity[],
   limit: number,
 ) {
-  return ranked.slice(0, Math.max(0, limit));
+  const configured = Number(process.env.ROLEGAIN_MIN_APPLICATION_FIT);
+  const minimumFit = Number.isFinite(configured)
+    ? Math.max(0, Math.min(100, configured))
+    : 35;
+  return ranked
+    .filter((job) => job.fit >= minimumFit)
+    .slice(0, Math.max(0, limit));
 }
 
 function mergeFailures(...groups: JobResearchFailure[][]) {
@@ -3425,6 +3431,11 @@ function normalizeJobHistory(workspace: JobSearchWorkspace) {
     const application = workspace.applications.find(
       (candidate) => candidate.jobId === job.id,
     );
+    const prior = history.find(
+      (item) =>
+        item.id === job.id ||
+        (job.jobNumber && item.jobNumber === job.jobNumber),
+    );
     add({
       ...pipelineIdentity(job),
       validation: "passed",
@@ -3435,25 +3446,55 @@ function normalizeJobHistory(workspace: JobSearchWorkspace) {
           : application.addedBy === "user"
             ? "selected"
             : "failed"
-        : "bench",
+        : prior?.application === "failed"
+          ? "failed"
+          : "bench",
       applicationVerification: application
         ? application.addedBy === "agent"
           ? "passed"
           : application.addedBy === "user"
             ? "waiting"
             : "failed"
-        : "waiting",
+        : prior?.applicationVerification === "failed"
+          ? "failed"
+          : "waiting",
       applicationReady: application?.status === "ready_to_send",
       fit: job.fit,
-      reason:
-        application?.addedBy === "user"
-          ? "Added manually to the candidate's application list"
-          : undefined,
+      ...(application?.addedBy === "user"
+        ? { reason: "Added manually to the candidate's application list" }
+        : {}),
     });
   }
   return history.sort(
     (a, b) => (b.jobNumber ?? -1) - (a.jobNumber ?? -1),
   );
+}
+
+export function finalizePipelineHistory(workspace: JobSearchWorkspace) {
+  const applicationsByJobId = new Map(
+    workspace.applications.map((application) => [application.jobId, application]),
+  );
+  const finalized = normalizeJobHistory(workspace).map((item) => {
+    const application = applicationsByJobId.get(item.id);
+    const next = { ...item };
+    if (next.validation === "running") next.validation = "bench";
+    if (next.match === "running") next.match = "bench";
+    if (next.application === "running") next.application = "failed";
+    if (next.applicationVerification === "running")
+      next.applicationVerification = "failed";
+    if (
+      application &&
+      !application.addedBy &&
+      (next.application === "failed" ||
+        next.applicationVerification === "failed") &&
+      !next.reason
+    )
+      next.reason = "Application preparation did not pass verification";
+    return next;
+  });
+  workspace.jobHistory = finalized;
+  if (workspace.searchProgress)
+    workspace.searchProgress.items = structuredClone(finalized);
 }
 
 function upsertJobHistory(

@@ -299,13 +299,34 @@ export function phase2DiscoveryPacket(context: Phase2EvidenceContext) {
   };
 }
 
+export function phase2ActiveSearchLanes(
+  context: Phase2EvidenceContext,
+  wave = 0,
+) {
+  const direct = context.searchLanes.filter((lane) => lane.roleClass === "direct");
+  const adjacent = context.searchLanes.filter(
+    (lane) => lane.roleClass === "adjacent",
+  );
+  const stretch = context.searchLanes.filter(
+    (lane) => lane.roleClass === "stretch",
+  );
+  const primary = direct.length > 0 ? direct : adjacent;
+  if (wave < 2) return primary.length > 0 ? primary : stretch;
+  if (wave < 4) {
+    const credible = [...direct, ...adjacent];
+    return credible.length > 0 ? credible : stretch;
+  }
+  return context.searchLanes;
+}
+
 export function phase2QueryPortfolio(
   context: Phase2EvidenceContext,
   wave = 0,
   limit = 4,
 ) {
-  if (context.searchLanes.length === 0) return [];
-  const variants = context.searchLanes.flatMap((lane) =>
+  const activeLanes = phase2ActiveSearchLanes(context, wave);
+  if (activeLanes.length === 0) return [];
+  const variants = activeLanes.flatMap((lane) =>
     lane.queries.map((item, variantIndex) => ({
       roleFamilyId: lane.roleFamilyId,
       roleClass: lane.roleClass,
@@ -315,11 +336,11 @@ export function phase2QueryPortfolio(
       variantIndex,
     })),
   );
-  const laneCount = context.searchLanes.length;
+  const laneCount = activeLanes.length;
   const startLane = (Math.max(0, wave) * limit) % laneCount;
   const selected: typeof variants = [];
   for (let offset = 0; offset < laneCount && selected.length < limit; offset += 1) {
-    const lane = context.searchLanes[(startLane + offset) % laneCount];
+    const lane = activeLanes[(startLane + offset) % laneCount];
     const variantIndex = Math.max(0, wave) % Math.max(1, lane.queries.length);
     const selectedQuery = lane.queries[variantIndex] || lane.queries[0];
     const query = selectedQuery?.query || lane.queryVariants[0];

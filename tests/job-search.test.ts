@@ -377,6 +377,15 @@ describe("job-search lifecycle", () => {
       error: expect.stringContaining("Prepared 1 of 5"),
     });
     expect(
+      result.searchProgress?.items?.some(
+        (item) =>
+          item.validation === "running" ||
+          item.match === "running" ||
+          item.application === "running" ||
+          item.applicationVerification === "running",
+      ),
+    ).toBe(false);
+    expect(
       result.searchProgress?.items?.find((item) => item.id === "match-fails"),
     ).toMatchObject({ match: "failed", application: "waiting" });
     expect(
@@ -385,7 +394,7 @@ describe("job-search lifecycle", () => {
       ),
     ).toMatchObject({
       match: "passed",
-      application: "passed",
+      application: "failed",
       applicationVerification: "failed",
     });
     expect(
@@ -2231,7 +2240,7 @@ describe("job-search lifecycle", () => {
     ).toBe(0.983);
   });
 
-  it("selects the top five matched jobs without portfolio or feasibility blocking", () => {
+  it("selects the top eligible jobs and excludes weak watchlist matches", () => {
     const jobs = [
       ["a1", "Acme", "apply_now"],
       ["a2", "Acme", "credible_adjacent"],
@@ -2248,7 +2257,7 @@ describe("job-search lifecycle", () => {
       sourceUrl: `https://example.test/${id}`,
       applyUrl: `https://example.test/${id}/apply`,
       capturedAt: "2026-07-17",
-      fit: 90 - index,
+      fit: id === "watch" ? 24 : 90 - index,
       summary: id,
       requirements: [],
       requirementMatches: [],
@@ -2261,7 +2270,6 @@ describe("job-search lifecycle", () => {
       "a1",
       "a2",
       "a3",
-      "watch",
       "b1",
     ]);
   });

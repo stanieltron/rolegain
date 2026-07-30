@@ -18,6 +18,7 @@ import {
   canonicalStrengthsForTitle,
   loadPhase2EvidenceContext,
   phase2DiscoveryPacket,
+  phase2ActiveSearchLanes,
   phase2QueryPortfolio,
   type Phase2EvidenceContext,
 } from "../../search-match-shared/evidence-context.js";
@@ -819,6 +820,7 @@ export async function discoverWebJobsWithAgent(
       },
       canonicalPlan: {
         ...canonicalPlan,
+        searchLanes: phase2ActiveSearchLanes(phase2Evidence, waveNumber),
         queryPortfolioForThisWave: queryPortfolio,
       },
       alreadyFoundUrls,
