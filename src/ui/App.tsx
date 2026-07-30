@@ -2301,6 +2301,7 @@ function DiscoveryView({
           allItems={allPipelineItems}
           preparedItems={preparedPipelineItems}
           currentItemIds={currentItemIds}
+          applicationTarget={workspace.searchConfig.applicationTarget}
         />
       ) : (
         <section className="discovery-empty">
@@ -2687,12 +2688,14 @@ function FindApplicationsProgress({
   allItems,
   preparedItems,
   currentItemIds,
+  applicationTarget,
   compact = false,
 }: {
   progress: JobSearchWorkspace["searchProgress"];
   allItems: JobSearchWorkspace["jobHistory"];
   preparedItems: JobSearchWorkspace["jobHistory"];
   currentItemIds: Set<string>;
+  applicationTarget: number;
   compact?: boolean;
 }) {
   if (!progress) return null;
@@ -2726,6 +2729,18 @@ function FindApplicationsProgress({
   const newPreparedCount = preparedItems.filter((item) =>
     currentItemIds.has(item.id),
   ).length;
+  const currentRunItems = items.filter((item) => currentItemIds.has(item.id));
+  const pendingMatchCount = currentRunItems.filter(
+    (item) => item.match === "waiting" || item.match === "running",
+  ).length;
+  const selectedApplicationCount = Math.min(
+    applicationTarget,
+    currentRunItems.length,
+  );
+  const preparedCurrentRunEmptyMessage =
+    progress.stage === "verifying" && pendingMatchCount > 0
+      ? `Waiting for ${pendingMatchCount} more ${pendingMatchCount === 1 ? "job" : "jobs"} to finish full evidence matching before selecting the top ${selectedApplicationCount} for application preparation.`
+      : undefined;
   const activity =
     progress.stage === "ready"
       ? `${newPreparedCount} new applications are prepared and independently verified. Some may still need candidate information before submission.`
@@ -2768,6 +2783,7 @@ function FindApplicationsProgress({
           items={preparedItems}
           currentItemIds={currentItemIds}
           phase="prepared_verified"
+          currentRunEmptyMessage={preparedCurrentRunEmptyMessage}
         />
       </div>
       {!!progress.events?.length && (
@@ -2882,6 +2898,7 @@ function PipelineColumn({
   currentItemIds,
   phase,
   placeholders = 0,
+  currentRunEmptyMessage,
 }: {
   step: string;
   title: string;
@@ -2890,6 +2907,7 @@ function PipelineColumn({
   currentItemIds: Set<string>;
   phase: PipelinePhase;
   placeholders?: number;
+  currentRunEmptyMessage?: string;
 }) {
   const newest = items.filter((item) => currentItemIds.has(item.id));
   const older = items.filter((item) => !currentItemIds.has(item.id));
@@ -2949,7 +2967,10 @@ function PipelineColumn({
             ))}
             </>
           ) : (
-            <span className="pipeline-area-empty">No job is at this stage in the current run.</span>
+            <span className="pipeline-area-empty">
+              {currentRunEmptyMessage ??
+                "No job is at this stage in the current run."}
+            </span>
           )}
         </section>
         <section className="pipeline-previous-batches">
