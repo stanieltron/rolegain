@@ -2830,6 +2830,7 @@ function FindApplicationsProgress({
           items={sortApplicationAttempts(applicationAttemptItems)}
           currentItemIds={currentItemIds}
           phase="application_outcome"
+          failedAtBottom
           currentRunEmptyMessage={preparedCurrentRunEmptyMessage}
         />
       </div>
@@ -2946,6 +2947,7 @@ function PipelineColumn({
   currentItemIds,
   phase,
   placeholders = 0,
+  failedAtBottom = false,
   currentRunEmptyMessage,
 }: {
   step: string;
@@ -2955,10 +2957,17 @@ function PipelineColumn({
   currentItemIds: Set<string>;
   phase: PipelinePhase;
   placeholders?: number;
+  failedAtBottom?: boolean;
   currentRunEmptyMessage?: string;
 }) {
-  const newest = items.filter((item) => currentItemIds.has(item.id));
-  const older = items.filter((item) => !currentItemIds.has(item.id));
+  const bottomFailures = failedAtBottom
+    ? items.filter((item) => applicationOutcomeState(item) === "failed")
+    : [];
+  const mainItems = failedAtBottom
+    ? items.filter((item) => applicationOutcomeState(item) !== "failed")
+    : items;
+  const newest = mainItems.filter((item) => currentItemIds.has(item.id));
+  const older = mainItems.filter((item) => !currentItemIds.has(item.id));
   const renderItem = (
     item: NonNullable<
       NonNullable<JobSearchWorkspace["searchProgress"]>["items"]
@@ -3029,6 +3038,12 @@ function PipelineColumn({
             <span className="pipeline-area-empty">No previous jobs at this stage.</span>
           )}
         </section>
+        {bottomFailures.length > 0 && (
+          <section className="pipeline-previous-batches pipeline-failed-at-bottom">
+            <span className="pipeline-previous-label">Failed attempts</span>
+            {bottomFailures.map(renderItem)}
+          </section>
+        )}
       </div>
     </section>
   );
