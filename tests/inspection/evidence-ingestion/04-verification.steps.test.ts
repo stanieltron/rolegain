@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { verifyAndPersistEvidence } from "../../../src/01-evidence-ingestion/04-verification/index.js";
 import { readCurrentEvidenceModel } from "../../../src/01-evidence-ingestion/04-verification/evidence-model.js";
+import { repairDerivedNarrativeReadiness } from "../../../src/01-evidence-ingestion/04-verification/profile-evidence/index.js";
 import type { EvidenceClaim } from "../../../src/contracts/evidence.js";
 import {
   mockAnalysis,
@@ -182,5 +183,50 @@ describe("Stage 04 — deterministic verification and persistence", () => {
     expect(run.manifest.readiness.blockers).not.toContain(
       'Profile field skills contains "backend-owned state" without exact source provenance',
     );
+  });
+
+  it("04.7 discards an unsupported generated summary without blocking search", async () => {
+    const dataRoot = await mkdtemp(path.join(tmpdir(), "inspection-derived-summary-"));
+    const workspace = mockWorkspaceWithCv();
+    const analysis = mockAnalysis(workspace);
+    analysis.profile.summary =
+      "Generated career narrative that is not a verbatim source fact.";
+    analysis.profileEvidence = (analysis.profileEvidence || []).filter(
+      (item) => item.field !== "summary",
+    );
+
+    const run = await verifyAndPersistEvidence({
+      dataRoot,
+      workspace,
+      analysis,
+      sourceIdsToAnalyze: new Set([workspace.sources[0].id]),
+    });
+
+    expect(workspace.profile.summary).toBe("");
+    expect(run.manifest.readiness.readyForSearch).toBe(true);
+    expect(run.manifest.readiness.blockers).toEqual([]);
+  });
+
+  it("04.8 repairs the obsolete derived-summary blocker in an existing run", () => {
+    const repaired = repairDerivedNarrativeReadiness({
+      readyForSearch: false,
+      blockers: [
+        'Profile field summary="Generated career narrative" has no exact source provenance',
+      ],
+      warnings: [],
+      counts: {
+        sources: 1,
+        sourceBlocks: 1,
+        claims: 57,
+        supportedClaims: 57,
+        capabilities: 26,
+        roleFamilies: 6,
+        unknowns: 0,
+        contradictions: 0,
+      },
+    });
+
+    expect(repaired.readyForSearch).toBe(true);
+    expect(repaired.blockers).toEqual([]);
   });
 });

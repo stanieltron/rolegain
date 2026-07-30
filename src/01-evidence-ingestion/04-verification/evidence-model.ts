@@ -41,6 +41,7 @@ import {
   buildEvidenceKnowledgeBase,
   writeEvidenceKnowledgeBase,
 } from "./knowledge-base/index.js";
+import { repairDerivedNarrativeReadiness } from "./profile-evidence/index.js";
 
 const OWNERSHIP_RANK: EvidenceOwnership[] = [
   "unknown",
@@ -1074,8 +1075,14 @@ async function readEvidenceModelFromDirectory(
       readJsonFile(path.join(directory, "search-vocabulary.json")),
       readJsonFile(path.join(directory, "readiness.json")),
     ]);
+  const repairedReadiness = repairDerivedNarrativeReadiness(
+    readiness as EvidenceReadiness,
+  );
   return {
-    manifest,
+    manifest: {
+      ...manifest,
+      readiness: repairDerivedNarrativeReadiness(manifest.readiness),
+    },
     claims,
     capabilities,
     constraints,
@@ -1085,7 +1092,7 @@ async function readEvidenceModelFromDirectory(
     profileEvidence,
     roleFamilies,
     searchVocabulary,
-    readiness,
+    readiness: repairedReadiness,
   };
 }
 

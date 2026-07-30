@@ -62,6 +62,7 @@ import {
 import {
   readCurrentEvidenceModel,
 } from "../../01-evidence-ingestion/04-verification/evidence-model.js";
+import { repairDerivedNarrativeReadiness } from "../../01-evidence-ingestion/04-verification/profile-evidence/index.js";
 import { normalizeSearchValidationFailure } from "../../02-search/03-vacancy-validation/failure-classification.js";
 import {
   FileWorkspaceStore,
@@ -2698,6 +2699,18 @@ function normalizeWorkspace(
     progress: savedIntelligence?.progress,
     evidenceRun: savedIntelligence?.evidenceRun,
   };
+  if (workspace.intelligence.evidenceRun) {
+    const repaired = repairDerivedNarrativeReadiness(
+      workspace.intelligence.evidenceRun,
+    );
+    workspace.intelligence.evidenceRun = {
+      ...workspace.intelligence.evidenceRun,
+      readyForSearch: repaired.readyForSearch,
+      blockers: repaired.blockers,
+      warnings: repaired.warnings,
+      counts: repaired.counts,
+    };
+  }
   if (workspace.profile.phone && isYearRange(workspace.profile.phone))
     workspace.profile.phone = "";
   const phoneQuestion = workspace.questions.find((item) => item.id === "phone");

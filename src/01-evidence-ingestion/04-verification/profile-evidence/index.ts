@@ -4,6 +4,7 @@ import type {
   CandidateSource,
 } from "../../../contracts/job-search.js";
 import type {
+  EvidenceReadiness,
   EvidenceProfileField,
   ProfileFieldEvidence,
   ProfileFieldEvidenceDraft,
@@ -79,10 +80,11 @@ export function auditProfileEvidence(input: {
   for (const field of SCALAR_FIELDS) {
     const baseline = scalar(input.baseline[field]);
     const proposed = scalar(input.proposed[field]);
-    const alwaysSourceDerived = field === "headline" || field === "summary";
+    const derivedNarrative = field === "headline" || field === "summary";
     if (
       proposed &&
-      (alwaysSourceDerived || proposed !== baseline) &&
+      !derivedNarrative &&
+      proposed !== baseline &&
       !supports(field, proposed)
     )
       blockers.push(
@@ -103,6 +105,30 @@ export function auditProfileEvidence(input: {
         );
   }
   return { verified, blockers, supports };
+}
+
+/**
+ * Headline and summary are optional synthesis output, not atomic candidate
+ * facts. Older runs incorrectly treated an unsupported synthesis as a fatal
+ * readiness blocker even though applyCandidateAnalysis had already discarded
+ * the value. Remove only that obsolete blocker; factual profile fields remain
+ * subject to exact-source verification.
+ */
+export function repairDerivedNarrativeReadiness(
+  readiness: EvidenceReadiness,
+): EvidenceReadiness {
+  const blockers = readiness.blockers.filter(
+    (blocker) =>
+      !/^Profile field (?:headline|summary)=.* has no exact source provenance$/s.test(
+        blocker,
+      ),
+  );
+  if (blockers.length === readiness.blockers.length) return readiness;
+  return {
+    ...readiness,
+    readyForSearch: blockers.length === 0,
+    blockers,
+  };
 }
 
 function selected(
