@@ -106,13 +106,16 @@ the strict factual boundary and is not overwritten.
 
 ## Container
 
-The supplied `Dockerfile` builds the Vite frontend, compiles the TypeScript
-server, installs Chromium, and starts the web process. Use the same image for a
-worker by overriding the command:
+The supplied `Dockerfile` includes Codex and Chromium for the workflow worker.
+Run that image as the worker by overriding its command:
 
 ```text
 node dist/server/scripts/start-worker.js
 ```
+
+The public web service should use `Dockerfile.web`, which builds the Vite
+frontend and TypeScript server without installing the worker-only browser/AI
+runtime.
 
 The web service must expose port `4317`. Set its health check to `/api/health`.
 
