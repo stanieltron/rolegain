@@ -122,6 +122,7 @@ export async function createRolegainDependencies(
           codex,
           artifacts,
           platform,
+          configuration.processJobs,
         )
       : undefined;
   if (workflows) await workflows.start(configuration.processJobs);

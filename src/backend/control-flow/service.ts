@@ -638,7 +638,7 @@ export class JobSearchService {
         }),
         stage: "failed",
         error,
-        activity: "The queued workflow failed.",
+        activity: `The queued workflow failed: ${error}`,
         updatedAt: new Date().toISOString(),
       };
     }

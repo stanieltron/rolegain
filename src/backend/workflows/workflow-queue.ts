@@ -12,6 +12,7 @@ import {
 
 const QUEUE = "rolegain-workflows";
 export const DEFAULT_WORKFLOW_QUEUE_POOL_SIZE = 1;
+export const DEFAULT_WORKER_WORKFLOW_QUEUE_POOL_SIZE = 2;
 export const DEFAULT_WORKER_CONCURRENCY = 1;
 
 export type WorkflowType =
@@ -62,10 +63,11 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
     private readonly codex: CodexExecClient,
     private readonly artifacts: ArtifactArchive,
     private readonly platform: PlatformControl,
+    processJobs = false,
   ) {
     this.boss = new PgBoss({
       connectionString,
-      max: workflowQueuePoolSize(),
+      max: workflowQueuePoolSize(process.env, processJobs),
       connectionTimeoutMillis: 10_000,
       application_name: "rolegain-workflow-queue",
     });
@@ -239,6 +241,10 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
       } catch (error) {
         const message =
           error instanceof Error ? error.message : String(error);
+        console.error(
+          `Rolegain workflow ${payload.runId} (${payload.type}) failed`,
+          error,
+        );
         const cancellation = await this.pool.query<{
           cancellation_requested_at: Date | null;
         }>(
@@ -385,10 +391,13 @@ export function workflowBlocksEnqueue(
 
 export function workflowQueuePoolSize(
   environment: NodeJS.ProcessEnv = process.env,
+  processJobs = false,
 ) {
   return positiveInteger(
     environment.ROLEGAIN_WORKFLOW_QUEUE_POOL_SIZE,
-    DEFAULT_WORKFLOW_QUEUE_POOL_SIZE,
+    processJobs
+      ? DEFAULT_WORKER_WORKFLOW_QUEUE_POOL_SIZE
+      : DEFAULT_WORKFLOW_QUEUE_POOL_SIZE,
   );
 }
 

@@ -765,16 +765,23 @@ export function interruptedResumeControl(
     workspace.searchProgress?.stage === "looking" ||
     workspace.searchProgress?.stage === "verifying" ||
     workspace.searchProgress?.stage === "filling";
+  const failedSearch =
+    workflow?.status === "failed" &&
+    (workflow.type === "prepare" ||
+      workflow.type === "prepare-search-ready" ||
+      workflow.type === "find-more") &&
+    workspace.searchProgress?.stage === "failed";
+  const searchResumable = searchRunning || failedSearch;
   const analysisRunning =
     workspace.intelligence.status === "analyzing" ||
     workspace.sources.some((source) => source.status === "processing");
-  if (!searchRunning && !analysisRunning) return undefined;
+  if (!searchResumable && !analysisRunning) return undefined;
 
   const control: BackgroundExecutionControl = {
     state: "stopped",
     stoppedAt: new Date().toISOString(),
   };
-  if (searchRunning)
+  if (searchResumable)
     control.resumeSearch =
       workflow?.type === "prepare-search-ready"
         ? "prepare_search_ready"

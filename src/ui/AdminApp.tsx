@@ -44,6 +44,7 @@ interface AdminUser {
     type: string;
     status: string;
     createdAt: string;
+    error?: string;
   };
 }
 
@@ -305,6 +306,11 @@ export function AdminApp() {
                     <small>
                       {user.sources} sources · {workflowLabel(user)}
                     </small>
+                    {user.latestWorkflow?.error && (
+                      <small className="admin-workflow-error">
+                        {user.latestWorkflow.error}
+                      </small>
+                    )}
                   </td>
                   <td>
                     <strong>{user.jobsSeen} seen</strong>

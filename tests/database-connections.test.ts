@@ -8,6 +8,7 @@ import {
 import { transactionPoolConnectionString } from "../src/config/runtime.js";
 import {
   DEFAULT_WORKER_CONCURRENCY,
+  DEFAULT_WORKER_WORKFLOW_QUEUE_POOL_SIZE,
   DEFAULT_WORKFLOW_QUEUE_POOL_SIZE,
   workerConcurrency,
   workflowQueuePoolSize,
@@ -15,11 +16,13 @@ import {
 
 describe("database connection budgets", () => {
   it("keeps the two-service deployment below a 15-client session pool", () => {
-    const clientsPerService =
+    const webClients =
       DEFAULT_SESSION_POOL_SIZE + DEFAULT_WORKFLOW_QUEUE_POOL_SIZE;
+    const workerClients =
+      DEFAULT_SESSION_POOL_SIZE + DEFAULT_WORKER_WORKFLOW_QUEUE_POOL_SIZE;
 
-    expect(clientsPerService * 2).toBe(6);
-    expect(clientsPerService * 4).toBeLessThanOrEqual(15);
+    expect(webClients + workerClients).toBe(7);
+    expect((webClients + workerClients) * 2).toBeLessThanOrEqual(15);
   });
 
   it("routes Supabase application queries through the free transaction pooler", () => {
@@ -44,7 +47,7 @@ describe("database connection budgets", () => {
     expect(
       workflowQueuePoolSize({
         ROLEGAIN_WORKFLOW_QUEUE_POOL_SIZE: "3",
-      }),
+      }, true),
     ).toBe(3);
     expect(sessionPoolSize({ ROLEGAIN_SESSION_POOL_SIZE: "4" })).toBe(4);
     expect(workerConcurrency({ ROLEGAIN_WORKER_CONCURRENCY: "2" })).toBe(2);
@@ -57,8 +60,8 @@ describe("database connection budgets", () => {
     expect(
       workflowQueuePoolSize({
         ROLEGAIN_WORKFLOW_QUEUE_POOL_SIZE: "-1",
-      }),
-    ).toBe(DEFAULT_WORKFLOW_QUEUE_POOL_SIZE);
+      }, true),
+    ).toBe(DEFAULT_WORKER_WORKFLOW_QUEUE_POOL_SIZE);
     expect(sessionPoolSize({ ROLEGAIN_SESSION_POOL_SIZE: "zero" })).toBe(
       DEFAULT_SESSION_POOL_SIZE,
     );

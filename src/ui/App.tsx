@@ -349,7 +349,14 @@ export function App() {
     workspace?.searchProgress?.stage === "looking" ||
     workspace?.searchProgress?.stage === "verifying" ||
     workspace?.searchProgress?.stage === "filling";
-  const resumableSavedWork = analysisClaimsWork || searchClaimsWork;
+  const failedSearchWork =
+    workspace?.workflowExecution?.status === "failed" &&
+    (workspace.workflowExecution.type === "prepare" ||
+      workspace.workflowExecution.type === "prepare-search-ready" ||
+      workspace.workflowExecution.type === "find-more") &&
+    workspace.searchProgress?.stage === "failed";
+  const resumableSavedWork =
+    analysisClaimsWork || searchClaimsWork || failedSearchWork;
   const workflowQueueManaged = Boolean(workspace?.workflowExecution);
   const workflowActive =
     (workspace?.workflowExecution?.status === "queued" ||

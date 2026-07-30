@@ -81,6 +81,7 @@ export interface AdminUserSummary {
     type: string;
     status: string;
     createdAt: string;
+    error?: string;
   };
   events: Record<string, number>;
   lastActiveAt?: string;
@@ -419,9 +420,10 @@ export class PlatformControl {
           type: string;
           status: string;
           created_at: Date;
+          error: string | null;
         }>(
           `select distinct on (user_id)
-                  user_id, type, status, created_at
+                  user_id, type, status, created_at, error
            from rolegain_workflow_runs
            order by user_id, created_at desc`,
         ),
@@ -496,6 +498,7 @@ export class PlatformControl {
         type: row.type,
         status: row.status,
         createdAt: row.created_at.toISOString(),
+        error: row.error || undefined,
       };
     for (const row of events.rows) {
       const user = ensure(row.user_id);

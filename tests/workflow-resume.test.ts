@@ -68,6 +68,23 @@ describe("workflow stop and resume state", () => {
     expect(control?.resumeSearch).toBe("prepare_search_ready");
   });
 
+  it("offers a retry for a failed search without starting another beta batch", () => {
+    const workspace = runningSearchWorkspace();
+    workspace.searchProgress = {
+      ...workspace.searchProgress!,
+      stage: "failed",
+      error: "heartbeat expired",
+    };
+    const control = interruptedResumeControl(workspace, {
+      type: "prepare",
+      status: "failed",
+    });
+    expect(control).toMatchObject({
+      state: "stopped",
+      resumeSearch: "prepare",
+    });
+  });
+
   it("does not offer resume while a workflow is genuinely queued or running", () => {
     expect(
       interruptedResumeControl(runningSearchWorkspace(), {
