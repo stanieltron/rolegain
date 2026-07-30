@@ -34,6 +34,7 @@ export interface WorkflowRun {
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
+  cancellationRequestedAt?: string;
 }
 
 export interface WorkflowQueue {
@@ -94,17 +95,20 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
     options: { resourceId?: string; reserveBetaBatch?: boolean } = {},
   ) {
     const existing = await this.pool.query<WorkflowRunRow>(
-      `select id, type, status, error, created_at, started_at, completed_at
+      `select id, type, status, error, created_at, started_at, completed_at,
+              cancellation_requested_at
        from rolegain_workflow_runs
        where user_id = $1
          and type = $2
          and coalesce(resource_key, '') = coalesce($3, '')
          and status in ('queued', 'running')
+         and cancellation_requested_at is null
        order by created_at desc
        limit 1`,
       [userId, type, options.resourceId],
     );
-    if (existing.rows[0]) return asWorkflowRun(existing.rows[0]);
+    if (existing.rows[0] && workflowBlocksEnqueue(existing.rows[0]))
+      return asWorkflowRun(existing.rows[0]);
     const reservesBetaBatch =
       isApplicationBatch(type) && options.reserveBetaBatch !== false;
     if (reservesBetaBatch) await this.platform.reserveBatch(userId);
@@ -156,7 +160,8 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
 
   async latest(userId: string) {
     const result = await this.pool.query<WorkflowRunRow>(
-      `select id, type, status, error, created_at, started_at, completed_at
+      `select id, type, status, error, created_at, started_at, completed_at,
+              cancellation_requested_at
        from rolegain_workflow_runs
        where user_id = $1
        order by created_at desc
@@ -312,7 +317,8 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
 
   private async byId(id: string) {
     const result = await this.pool.query<WorkflowRunRow>(
-      `select id, type, status, error, created_at, started_at, completed_at
+      `select id, type, status, error, created_at, started_at, completed_at,
+              cancellation_requested_at
        from rolegain_workflow_runs where id = $1`,
       [id],
     );
@@ -340,6 +346,7 @@ interface WorkflowRunRow {
   created_at: Date;
   started_at: Date | null;
   completed_at: Date | null;
+  cancellation_requested_at: Date | null;
 }
 
 function asWorkflowRun(row: WorkflowRunRow): WorkflowRun {
@@ -351,7 +358,23 @@ function asWorkflowRun(row: WorkflowRunRow): WorkflowRun {
     createdAt: row.created_at.toISOString(),
     startedAt: row.started_at?.toISOString(),
     completedAt: row.completed_at?.toISOString(),
+    cancellationRequestedAt: row.cancellation_requested_at?.toISOString(),
   };
+}
+
+export function workflowBlocksEnqueue(
+  run:
+    | {
+        status: WorkflowRun["status"];
+        cancellation_requested_at?: Date | null;
+      }
+    | undefined,
+) {
+  return Boolean(
+    run &&
+      (run.status === "queued" || run.status === "running") &&
+      !run.cancellation_requested_at,
+  );
 }
 
 function positiveInteger(value: string | undefined, fallback: number) {

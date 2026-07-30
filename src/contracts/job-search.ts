@@ -297,6 +297,28 @@ export interface BackgroundExecutionControl {
   resumeSearch?: BackgroundSearchOperation;
 }
 
+export interface WorkflowExecutionState {
+  id?: string;
+  type?:
+    | "analyze"
+    | "prepare"
+    | "prepare-search-ready"
+    | "find-more"
+    | "tailor-cv";
+  status:
+    | "idle"
+    | "queued"
+    | "running"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  error?: string;
+  createdAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  cancellationRequestedAt?: string;
+}
+
 export interface FormField {
   id: string;
   canonicalKey?: string;
@@ -429,6 +451,8 @@ export interface JobSearchWorkspace {
     baselineApplicationJobIds?: string[];
   };
   backgroundExecution?: BackgroundExecutionControl;
+  /** Live queue state supplied by the web API; it is not persisted in candidate data. */
+  workflowExecution?: WorkflowExecutionState;
   profileCompleteness: number;
   finalCv: string;
   intelligence: CandidateIntelligence;

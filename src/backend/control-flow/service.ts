@@ -30,6 +30,7 @@ import {
 export { stageProfileEvidenceSources };
 import type {
   ApplicationDraft,
+  BackgroundExecutionControl,
   CandidateProfile,
   CandidateSource,
   BackgroundSearchOperation,
@@ -724,10 +725,24 @@ export class JobSearchService {
   async continueBackgroundWork(
     candidateId = CANDIDATE_ID,
     scheduleWork = true,
+    resumeOverride?: BackgroundExecutionControl,
   ): Promise<JobSearchWorkspace> {
     const workspace = await this.get(candidateId);
-    const control = workspace.backgroundExecution;
-    if (control?.state !== "stopped") return workspace;
+    const persistedControl = workspace.backgroundExecution;
+    const persistedStop = persistedControl?.state === "stopped";
+    const control =
+      persistedStop
+        ? persistedControl
+        : resumeOverride?.state === "stopped"
+          ? resumeOverride
+          : undefined;
+    if (!control) return workspace;
+    const hasResumableWork = Boolean(
+      control.resumeCandidateAnalysis ||
+        control.resumeProfileSourceSync ||
+        control.resumeSearch,
+    );
+    if (!persistedStop && !hasResumableWork) return workspace;
     this.stoppedCandidates.delete(workspace.candidateId);
     this.stoppedSnapshots.delete(workspace.candidateId);
     workspace.backgroundExecution = { state: "running" };

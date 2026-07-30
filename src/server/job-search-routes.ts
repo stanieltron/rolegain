@@ -5,6 +5,12 @@ import type { RolegainDependencies } from "../backend/control-flow/composition.j
 import { readJson, sendJson, setCors } from "./http.js";
 import { serveStatic } from "./static-files.js";
 import type { AuthenticatedActor } from "./auth.js";
+import type {
+  BackgroundExecutionControl,
+  JobSearchWorkspace,
+  WorkflowExecutionState,
+} from "../contracts/job-search.js";
+import type { WorkflowRun } from "../backend/workflows/workflow-queue.js";
 import {
   answerSchema,
   applicationUpdateSchema,
@@ -165,6 +171,11 @@ export async function routeRequest(
         .filter((application) => Boolean(application.addedBy))
         .map((application) => application.id),
     );
+    if (dependencies.workflows)
+      workspace = attachWorkflowExecution(
+        workspace,
+        await dependencies.workflows.latest(userId),
+      );
     sendJson(response, 200, workspace);
     return;
   }
@@ -178,7 +189,13 @@ export async function routeRequest(
       await dependencies.codex.pauseTurnsForUser(userId);
       await stopping;
     }
-    sendJson(response, 200, await dependencies.jobSearch.get(userId));
+    let workspace = await dependencies.jobSearch.get(userId);
+    if (dependencies.workflows)
+      workspace = attachWorkflowExecution(
+        workspace,
+        await dependencies.workflows.latest(userId),
+      );
+    sendJson(response, 200, workspace);
     return;
   }
   if (
@@ -188,22 +205,38 @@ export async function routeRequest(
     dependencies.codex.resumeTurns();
     if (dependencies.workflows) {
       const before = await dependencies.jobSearch.get(userId);
-      const control = before.backgroundExecution;
+      const previousWorkflow = await dependencies.workflows.latest(userId);
+      const control =
+        before.backgroundExecution?.state === "stopped"
+          ? before.backgroundExecution
+          : interruptedResumeControl(before, previousWorkflow);
       const workspace = await dependencies.jobSearch.continueBackgroundWork(
         userId,
         false,
+        control,
       );
+      let resumedWorkflow: WorkflowRun | undefined;
       if (control?.resumeCandidateAnalysis || control?.resumeProfileSourceSync)
-        await dependencies.workflows.enqueue(userId, "analyze");
+        resumedWorkflow = await dependencies.workflows.enqueue(
+          userId,
+          "analyze",
+        );
       if (control?.resumeSearch)
-        await dependencies.workflows.enqueue(
+        resumedWorkflow = await dependencies.workflows.enqueue(
           userId,
           control.resumeSearch === "prepare_search_ready"
             ? "prepare-search-ready"
             : "prepare",
           { reserveBetaBatch: false },
         );
-      sendJson(response, 202, workspace);
+      sendJson(
+        response,
+        202,
+        attachWorkflowExecution(
+          workspace,
+          resumedWorkflow ?? previousWorkflow,
+        ),
+      );
     } else
       sendJson(
         response,
@@ -698,5 +731,71 @@ function codexRequiredPath(pathname: string) {
     /^\/api\/job-search\/applications\/[^/]+\/tailored-cv$/i.test(pathname) ||
     /^\/api\/job-search\/applications\/[^/]+\/cover-letter-chat$/i.test(pathname) ||
     /^\/api\/job-search\/applications\/[^/]+\/fields\/[^/]+\/refine$/i.test(pathname)
+  );
+}
+
+function attachWorkflowExecution(
+  workspace: JobSearchWorkspace,
+  workflow?: WorkflowRun,
+): JobSearchWorkspace {
+  const workflowExecution: WorkflowExecutionState = workflow
+    ? {
+        id: workflow.id,
+        type: workflow.type,
+        status: workflow.status,
+        error: workflow.error,
+        createdAt: workflow.createdAt,
+        startedAt: workflow.startedAt,
+        completedAt: workflow.completedAt,
+        cancellationRequestedAt: workflow.cancellationRequestedAt,
+      }
+    : { status: "idle" };
+  return { ...workspace, workflowExecution };
+}
+
+export function interruptedResumeControl(
+  workspace: JobSearchWorkspace,
+  workflow?: Pick<
+    WorkflowRun,
+    "type" | "status" | "cancellationRequestedAt"
+  >,
+): BackgroundExecutionControl | undefined {
+  if (workflowIsActive(workflow)) return undefined;
+  const searchRunning =
+    workspace.searchProgress?.stage === "looking" ||
+    workspace.searchProgress?.stage === "verifying" ||
+    workspace.searchProgress?.stage === "filling";
+  const analysisRunning =
+    workspace.intelligence.status === "analyzing" ||
+    workspace.sources.some((source) => source.status === "processing");
+  if (!searchRunning && !analysisRunning) return undefined;
+
+  const control: BackgroundExecutionControl = {
+    state: "stopped",
+    stoppedAt: new Date().toISOString(),
+  };
+  if (searchRunning)
+    control.resumeSearch =
+      workflow?.type === "prepare-search-ready"
+        ? "prepare_search_ready"
+        : "prepare";
+  if (analysisRunning) {
+    control.resumeProfileSourceSync = workspace.sources.some(
+      (source) => source.status === "processing" && Boolean(source.profileField),
+    );
+    control.resumeCandidateAnalysis = !control.resumeProfileSourceSync;
+  }
+  return control;
+}
+
+export function workflowIsActive(
+  workflow:
+    | Pick<WorkflowRun, "status" | "cancellationRequestedAt">
+    | undefined,
+) {
+  return Boolean(
+    workflow &&
+      (workflow.status === "queued" || workflow.status === "running") &&
+      !workflow.cancellationRequestedAt,
   );
 }

@@ -341,25 +341,42 @@ export function App() {
   }, [view]);
   const executionStopped =
     workspace?.backgroundExecution?.state === "stopped";
+  const analysisClaimsWork =
+    workspace?.intelligence.status === "analyzing" ||
+    (workspace?.sources.some((source) => source.status === "processing") ??
+      false);
+  const searchClaimsWork =
+    workspace?.searchProgress?.stage === "looking" ||
+    workspace?.searchProgress?.stage === "verifying" ||
+    workspace?.searchProgress?.stage === "filling";
+  const resumableSavedWork = analysisClaimsWork || searchClaimsWork;
+  const workflowQueueManaged = Boolean(workspace?.workflowExecution);
+  const workflowActive =
+    (workspace?.workflowExecution?.status === "queued" ||
+      workspace?.workflowExecution?.status === "running") &&
+    !workspace?.workflowExecution?.cancellationRequestedAt;
+  const interruptedWork =
+    !executionStopped &&
+    workflowQueueManaged &&
+    resumableSavedWork &&
+    !workflowActive;
   const hasPausedWork =
-    executionStopped &&
-    Boolean(
-      workspace?.backgroundExecution?.resumeCandidateAnalysis ||
-        workspace?.backgroundExecution?.resumeProfileSourceSync ||
-        workspace?.backgroundExecution?.resumeSearch,
-    );
+    (executionStopped &&
+      Boolean(
+        workspace?.backgroundExecution?.resumeCandidateAnalysis ||
+          workspace?.backgroundExecution?.resumeProfileSourceSync ||
+          workspace?.backgroundExecution?.resumeSearch,
+      )) ||
+    interruptedWork;
   const monitoring =
     !executionStopped &&
-    (workspace?.intelligence.status === "analyzing" ||
-      (workspace?.sources.some((source) => source.status === "processing") ??
-        false) ||
-      workspace?.searchProgress?.stage === "looking" ||
-      workspace?.searchProgress?.stage === "verifying" ||
-      workspace?.searchProgress?.stage === "filling" ||
-      (workspace?.applications.some(
-        (application) => application.tailoredCv?.status === "processing",
-      ) ??
-        false));
+    (workflowQueueManaged
+      ? workflowActive
+      : resumableSavedWork ||
+        (workspace?.applications.some(
+          (application) => application.tailoredCv?.status === "processing",
+        ) ??
+          false));
   useEffect(() => {
     if (!monitoring) return;
     const timer = window.setInterval(
