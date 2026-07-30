@@ -1537,6 +1537,46 @@ main {
   font-size: 10px;
   padding: 5px 8px;
 }
+.pipeline-depth-note,
+.application-depth-note {
+  align-items: flex-start;
+  background: #f1f7ff;
+  color: #315f94;
+  display: flex;
+  gap: 9px;
+  padding: 11px 15px;
+}
+.pipeline-depth-note {
+  border-bottom: 1px solid #dce8f5;
+}
+.pipeline-depth-note > svg,
+.application-depth-note > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.pipeline-depth-note > span,
+.application-depth-note > span {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pipeline-depth-note strong,
+.application-depth-note strong {
+  font-size: 10px;
+}
+.pipeline-depth-note small,
+.application-depth-note small {
+  color: #5b6f83;
+  font-size: 9px;
+  line-height: 1.45;
+}
+.pipeline-depth-note.compact {
+  border: 1px solid #dce8f5;
+  border-radius: 6px;
+  margin: 0;
+  padding: 9px 11px;
+}
 .pipeline-board {
   align-items: start;
   display: grid;
@@ -2311,6 +2351,12 @@ main {
   justify-content: center;
   gap: 6px;
   width: 100%;
+}
+.application-depth-note {
+  border: 1px solid #dce8f5;
+  border-radius: 6px;
+  margin-top: 10px;
+  padding: 9px 10px;
 }
 .application-feature-error {
   color: #9c2d2d !important;

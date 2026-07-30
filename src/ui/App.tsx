@@ -757,20 +757,20 @@ function NotificationPrompt({
   const copy =
     activity === "candidate-analysis"
       ? {
-          title: "We’ll take a careful look",
+          title: "Building your candidate knowledge base",
           detail:
-            "Thoroughly reading your CV, pages, and files can take a few minutes.",
+            "We read every source in full, extract and cross-check claims, resolve duplicates and contradictions, then build reusable knowledge for search, matching, cover letters, answers and tailored CVs.",
         }
       : activity === "application-preparation"
         ? {
-            title: "Application preparation takes time",
+            title: "Preparing each application independently",
             detail:
-              "We’ll inspect forms and prepare each selected application independently.",
+              "For every job, we inspect the live form, research the company, match requirements to your evidence, draft grounded materials and verify the result before showing it to you.",
           }
         : {
-            title: "Discovery may take a while",
+            title: "Running a verified job search",
             detail:
-              "We’ll search broadly, verify live vacancies, and match each one against your evidence.",
+              "We search across the public web, reopen each vacancy to confirm it is live, filter constraints, and match requirements against your candidate knowledge rather than relying on titles or keywords.",
           };
   return (
     <div className="notification-prompt-backdrop">
@@ -787,7 +787,9 @@ function NotificationPrompt({
           <span className="section-label">Runs in the background</span>
           <h2 id="notification-prompt-title">{copy.title}</h2>
           <p>
-            {copy.detail} You can switch to something else while it runs. Enable
+            {copy.detail} This is intentionally more thorough than a simple CV
+            read, keyword search or generic autofill, so it can take several
+            minutes. You can switch to something else while it runs. Enable
             desktop notifications and we’ll let you know when it’s ready or
             needs attention.
           </p>
@@ -1345,9 +1347,10 @@ function ProfileAnalysisStatus({
               : "Starting the complete reread, consolidation, and deduplication pass."}
         </span>
         <small className="analysis-disclaimer">
-          Please be patient. We are composing detailed, source-backed
-          knowledge about your experience. This can take a while, but it gives
-          job search and matching much stronger evidence.
+          This is more than a CV read. We are building a reusable,
+          source-backed AI knowledge base of your experience for stronger job
+          discovery, requirement matching, application answers, cover letters
+          and tailored CVs. The deeper pass can take several minutes.
         </small>
         <div
           className="progress-track"
@@ -2206,8 +2209,9 @@ function DiscoveryView({
         <div>
           <strong>Updating profile evidence, please wait</strong>
           <span>
-            Discovery is paused while the candidate knowledge and evidence
-            index are rebuilt.
+            Discovery is paused while RolegAIn rereads the sources and rebuilds
+            the evidence-grounded knowledge used for search, matching and
+            application customization.
           </span>
         </div>
       </section>
@@ -2692,6 +2696,10 @@ function FindApplicationsProgress({
   compact?: boolean;
 }) {
   if (!progress) return null;
+  const running =
+    progress.stage === "looking" ||
+    progress.stage === "verifying" ||
+    progress.stage === "filling";
   if (compact)
     return (
       <div className={`find-progress ${progress.stage}`} role="status" aria-live="polite">
@@ -2700,11 +2708,11 @@ function FindApplicationsProgress({
           {progress.activity ?? "Processing the job pipeline"}
         </span>
         <small>{progress.found} of {progress.target} in the current stage</small>
+        {running && <PipelineDepthNote stage={progress.stage} compact />}
         {progress.error && <small>{progress.error}</small>}
       </div>
     );
   const items = progress.items ?? [];
-  const running = progress.stage === "looking" || progress.stage === "verifying" || progress.stage === "filling";
   const discoverySlots = Math.max(
     0,
     (progress.stage === "looking" ? progress.target : items.length) - items.length,
@@ -2732,6 +2740,7 @@ function FindApplicationsProgress({
         </div>
         <b>{items.length} jobs</b>
       </header>
+      {running && <PipelineDepthNote stage={progress.stage} />}
       <div className="pipeline-board">
         <PipelineColumn
           step="1"
@@ -2773,6 +2782,34 @@ function FindApplicationsProgress({
       )}
       {progress.error && <div className="pipeline-error">{progress.error}</div>}
     </section>
+  );
+}
+
+function PipelineDepthNote({
+  stage,
+  compact = false,
+}: {
+  stage: NonNullable<JobSearchWorkspace["searchProgress"]>["stage"];
+  compact?: boolean;
+}) {
+  const detail =
+    stage === "looking"
+      ? "RolegAIn is running multiple evidence-guided searches and collecting concrete vacancies from the public web—not returning a quick title or keyword list."
+      : stage === "verifying"
+        ? "Every vacancy is reopened and checked for availability, role details and constraints before its requirements are compared with your evidence."
+        : "Each selected job is handled independently: form inspection, company research, requirement matching, grounded drafting and verification all happen before the application is marked ready.";
+  return (
+    <div className={`pipeline-depth-note ${compact ? "compact" : ""}`}>
+      <Sparkles size={15} />
+      <span>
+        <strong>Why this takes time</strong>
+        <small>
+          {detail} This deeper process is designed to produce better matches
+          and more specific applications than simple search or autofill. You
+          can leave it running; notifications will alert you if enabled.
+        </small>
+      </span>
+    </div>
   );
 }
 
@@ -3236,6 +3273,9 @@ function ApplicationsView({
           </button>
         </div>
       </div>
+      {findingMore && findProgress && (
+        <PipelineDepthNote stage={findProgress.stage} compact />
+      )}
       {adding && (
         <AddApplicationForm
           busy={busy}
@@ -3769,6 +3809,21 @@ function ApplicationEditor({
           )}
           {cvDownloadError && (
             <p className="application-feature-error">{cvDownloadError}</p>
+          )}
+          {(tailoringCv || app.tailoredCv?.status === "processing") && (
+            <div className="application-depth-note" role="status">
+              <Sparkles size={15} />
+              <span>
+                <strong>Building a job-specific CV</strong>
+                <small>
+                  RolegAIn is comparing the vacancy requirement by requirement
+                  with your canonical evidence, selecting the most relevant
+                  supported experience and checking that the revision stays
+                  truthful. This is deeper than keyword replacement, so it can
+                  take a few minutes.
+                </small>
+              </span>
+            </div>
           )}
           <button
             className="secondary tailored-cv-generate"
