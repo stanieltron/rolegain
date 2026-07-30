@@ -220,6 +220,7 @@ export async function searchAndValidateOpportunities(input: {
           eligibleCandidates,
           vacancyValidationConcurrency(),
           async (candidate) => {
+              if (opportunities.length >= validatedTarget) return;
               const lead = classifySearchLead(candidate);
               if (lead.kind === "vacancy")
                 await options.onProgress?.({
@@ -272,6 +273,7 @@ export async function searchAndValidateOpportunities(input: {
                     activity: `${candidate.company || "Vacancy source"} emitted ${resolved.length} independently validated vacancies.`,
                   });
                 for (const resolvedCandidate of resolved) {
+                  if (opportunities.length >= validatedTarget) break;
                   const vacancyKey = canonicalVacancyIdentity(resolvedCandidate);
                   if (resolvedVacancies.has(vacancyKey)) {
                     const failure = researchFailure(
