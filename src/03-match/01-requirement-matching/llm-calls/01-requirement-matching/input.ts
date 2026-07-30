@@ -5,18 +5,26 @@ import {
 } from "../../../../search-match-shared/opportunity.js";
 
 export function vacanciesForMatching(opportunities: JobOpportunity[]) {
-  return opportunities.map((opportunity) => ({
-    jobId: opportunity.id,
-    company: opportunity.company,
-    title: opportunity.title,
-    description: (opportunity.description || opportunity.summary).slice(0, 30_000),
-    responsibilitiesText: extractResponsibilitiesSection(
-      opportunity.description || opportunity.summary,
-    ),
-    qualificationText: extractQualificationSection(
-      opportunity.description || opportunity.summary,
-    ),
-  }));
+  return opportunities.map((opportunity) => {
+    const description = (opportunity.description || opportunity.summary).slice(
+      0,
+      30_000,
+    );
+    const responsibilities = extractResponsibilitiesSection(description);
+    const qualifications = extractQualificationSection(description);
+    return {
+      jobId: opportunity.id,
+      company: opportunity.company,
+      title: opportunity.title,
+      description,
+      responsibilitiesText: responsibilities || description,
+      qualificationText: qualifications || description,
+      responsibilitiesSource:
+        responsibilities ? "explicit_section" : "full_description_fallback",
+      qualificationSource:
+        qualifications ? "explicit_section" : "full_description_fallback",
+    };
+  });
 }
 
 export function buildInput(input: {
@@ -34,7 +42,7 @@ ${JSON.stringify(vacanciesForMatching(input.opportunities), null, 2)}
 Rules:
 - Return the supplied jobId and one requirements array containing every distinct employer requirement.
 - Extract every distinct core responsibility and explicit candidate qualification. Do not impose an arbitrary item limit.
-- Extract core responsibility rows only from responsibilitiesText and set category=responsibility. Extract qualifications only from qualificationText when it is present.
+- Extract core responsibility rows from responsibilitiesText and set category=responsibility. Extract qualifications from qualificationText. When a source is marked full_description_fallback, the employer did not expose a clean standalone section; use the supplied complete vacancy text conservatively instead of omitting the requirements or rejecting the vacancy.
 - Set category=mandatory when the employer presents a qualification as a requirement, minimum, must-have, or expected capability; category=preferred only when it says preferred, bonus, or nice-to-have; category=constraint for legal, authorization, location, schedule, travel, language, or credential gates.
 - Keep kind=required for responsibility, mandatory, and constraint rows; use kind=preferred only for preferred rows.
 - Do not treat responsibilities, company descriptions, benefits, compensation, or interview-process text as candidate qualifications.

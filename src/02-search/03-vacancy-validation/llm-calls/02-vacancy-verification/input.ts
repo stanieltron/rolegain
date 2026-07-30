@@ -32,7 +32,7 @@ ${JSON.stringify(
 
 Rules:
 - pageType is vacancy only when this page describes one concrete position.
-- Use closed_job/openStatus closed when the page explicitly says applications are closed, the job is filled, or the supplied valid-through date has passed.
+- Use closed_job/openStatus closed only when the current page explicitly says applications are closed, the job is filled, or the concrete vacancy/application route is gone. A stale valid-through date alone must not override a currently visible concrete vacancy with an active Apply route.
 - Use unknown rather than guessing when the page is blocked or insufficient.
 - description must contain the actual vacancy content, not navigation, cookie banners, company marketing, benefits-only text, or a search-result list.
 - applyUrl must be one of the captured URLs or empty.

@@ -24,7 +24,7 @@ ${JSON.stringify(input.deterministicFindings, null, 2)}
 Checks:
 - Return one top-level verification for the supplied jobId.
 - Ensure every core responsibility and explicit candidate qualification was extracted and categorized according to employer wording.
-- Responsibility rows must be grounded in responsibilitiesText; mandatory/preferred/constraint rows must be grounded in qualificationText when those sections are present.
+- Responsibility rows must be grounded in responsibilitiesText; mandatory/preferred/constraint rows must be grounded in qualificationText. When the corresponding source marker is full_description_fallback, that field intentionally contains the complete vacancy because the employer page did not expose a clean section. Do not reject merely because a standalone section was unavailable.
 - matched requires direct evidence; partial requires genuine adjacent or narrower evidence; missing must have no evidence.
 - Every matched or partial row needs a valid sourceId and faithful excerpt.
 - Concrete architecture and implementation details may establish complexity. Repository size, technology count, and complexity alone do not establish scalability or production scale; those require explicit scale mechanisms, load, throughput, performance work, or operational evidence. Treat scale-oriented design without evidence that it operated at scale as partial at most.

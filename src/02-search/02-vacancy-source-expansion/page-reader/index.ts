@@ -12,18 +12,27 @@ export async function readVacancySourcePage(
   const page = await browser.newPage({ serviceWorkers: "block" });
   try {
     await guardPublicPage(page);
-    const response = await page.goto(pageUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 20_000,
-    });
-    if (!response?.ok())
+    let response;
+    try {
+      response = await page.goto(pageUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 20_000,
+      });
+    } catch (error) {
+      if (!/Download is starting/i.test(String(error))) throw error;
+    }
+    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+    const captured = await captureVacancySourcePage(page);
+    if (
+      !response?.ok() &&
+      !(captured.bodyText.length >= 300 && captured.links.length >= 5)
+    )
       throw new Error(
         `Vacancy source returned ${response?.status() ?? "no response"}`,
       );
-    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
-    return await captureVacancySourcePage(page);
+    return captured;
   } finally {
-    await page.close();
+    await page.close().catch(() => undefined);
   }
 }
 

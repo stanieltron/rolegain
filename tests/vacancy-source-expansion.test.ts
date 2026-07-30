@@ -54,6 +54,18 @@ describe("persistent vacancy-source expansion", () => {
         job: { ...child("legacy").job, sourceKind: undefined },
       }).kind,
     ).toBe("vacancy");
+    expect(
+      classifySearchLead({
+        ...child("generic-list"),
+        job: {
+          ...child("generic-list").job,
+          title: "DeFi Jobs Listing",
+          jobUrl: "https://example.test/jobs/defi?page=1",
+          applyUrl: "https://example.test/jobs/defi?page=1",
+          sourceKind: "vacancy",
+        },
+      }).kind,
+    ).toBe("vacancy_search");
   });
 
   it("persists and reloads a source independently of one search run", async () => {

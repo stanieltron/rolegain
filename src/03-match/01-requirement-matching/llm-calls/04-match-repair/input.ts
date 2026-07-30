@@ -18,6 +18,7 @@ Final-output invariants:
 - Different statuses, explanations, normalized capabilities, or evidence do not make duplicate requirement text valid.
 - If a compound employer sentence needs separate rows, rewrite each row as one distinct faithful atomic clause. Never copy the complete compound sentence into multiple rows.
 - Otherwise consolidate the compound sentence into one row with one truthful overall classification.
+- A responsibilitiesText or qualificationText field marked full_description_fallback is an intentional conservative fallback to the complete employer vacancy. Repair the affected rows against that text; do not reject the entire vacancy because a standalone section was unavailable.
 
 Candidate source ledger:
 ${JSON.stringify(input.sourceLedger, null, 2)}

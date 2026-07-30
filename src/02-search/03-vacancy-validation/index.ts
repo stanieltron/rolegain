@@ -175,10 +175,17 @@ export async function resolveDiscoveredJobs(
   const page = await browser.newPage({ serviceWorkers: "block" });
   try {
     await guardPublicPage(page);
-    let response = await page.goto(candidate.job.jobUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 20_000,
-    });
+    let response;
+    let recoveredNavigation = false;
+    try {
+      response = await page.goto(candidate.job.jobUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 20_000,
+      });
+    } catch (error) {
+      if (!/Download is starting/i.test(String(error))) throw error;
+      recoveredNavigation = true;
+    }
     if (response?.status() === 403) {
       const canonicalGreenhouseUrl = await resolveGreenhouseCanonicalJobUrl(
         candidate.job.jobUrl,
@@ -195,11 +202,19 @@ export async function resolveDiscoveredJobs(
         });
       }
     }
-    if (!response?.ok())
-      throw new Error(`Job page returned ${response?.status() ?? "no response"}`);
     await page
       .waitForLoadState("networkidle", { timeout: 5_000 })
       .catch(() => undefined);
+    const pageExposesVacancy = await pageExposesCandidateVacancy(
+      page,
+      candidate.job.title,
+      response?.status() === 403,
+    );
+    if (
+      !response?.ok() &&
+      !(pageExposesVacancy && (recoveredNavigation || response?.status() === 403))
+    )
+      throw new Error(`Job page returned ${response?.status() ?? "no response"}`);
     const captured = (await page.evaluate(`(() => {
       const clean = (value) => String(value || "").replace(/\\s+/g, " ").trim();
       const plain = (value) => {
@@ -318,7 +333,10 @@ export async function resolveDiscoveredJobs(
       links: captured.links,
       structured: captured.structured,
     });
-    const interpretation = repairVacancyInterpretation(
+    const interpretation = preferVisibleActiveVacancy(
+      snapshot,
+      candidate,
+      repairVacancyInterpretation(
       structuredVacancyIsComplete(snapshot)
         ? interpretationFromStructuredData(snapshot)
         : await interpretVacancySnapshot(codex, cwd, snapshot, {
@@ -327,6 +345,7 @@ export async function resolveDiscoveredJobs(
             location: candidate.job.location || "",
             applyUrl: candidate.job.applyUrl,
           }),
+      ),
     );
     const expandable =
       interpretation.pageType === "job_list" ||
@@ -334,19 +353,25 @@ export async function resolveDiscoveredJobs(
       candidate.job.sourceKind === "job_list" ||
       candidate.job.sourceKind === "career_page";
     if (expandable) {
-      const interpretedLeads = await extractVacancyLeadsFromListing(
-        codex,
-        cwd,
-        snapshot,
-        {
-          location: discoveryWorkIntent(workspace).willingWorkLocations.join(" | "),
-          workplace: discoveryWorkIntent(workspace).workplaceModes.join(", "),
-          employmentTypes: workspace.profile.employmentTypes,
-          skills: workspace.profile.skills,
-          summary: workspace.profile.summary,
-        },
-        Math.min(10, Math.max(limit * 2, limit)),
-      );
+      let interpretedLeads: ListingVacancyLead[] = [];
+      try {
+        interpretedLeads = await extractVacancyLeadsFromListing(
+          codex,
+          cwd,
+          snapshot,
+          {
+            location: discoveryWorkIntent(workspace).willingWorkLocations.join(" | "),
+            workplace: discoveryWorkIntent(workspace).workplaceModes.join(", "),
+            employmentTypes: workspace.profile.employmentTypes,
+            skills: workspace.profile.skills,
+            summary: workspace.profile.summary,
+          },
+          Math.min(10, Math.max(limit * 2, limit)),
+        );
+      } catch {
+        // The frozen page still contains deterministic vacancy links. A model
+        // extraction defect must not discard the entire source.
+      }
       const leads = mergeListingLeads(
         interpretedLeads,
         deterministicListingVacancyLeads(
@@ -479,8 +504,112 @@ export async function resolveDiscoveredJobs(
       },
     }];
   } finally {
-    await page.close();
+    await page.close().catch(() => undefined);
   }
+}
+
+async function pageExposesCandidateVacancy(
+  page: Page,
+  expectedTitle: string,
+  requireApplyControl: boolean,
+) {
+  const visible = (await page
+    .evaluate(`(() => ({
+      title: String(document.querySelector("h1, h2")?.textContent || document.title || "").replace(/\\s+/g, " ").trim(),
+      body: String(document.body?.innerText || "").replace(/\\s+/g, " ").trim(),
+      hasApply: Array.from(document.querySelectorAll("a,button")).some((node) =>
+        /^(?:apply|apply now|apply for (?:this|the) job|start application)$/i.test(
+          String(node.textContent || "").replace(/\\s+/g, " ").trim()
+        )
+      )
+    }))()` as string)
+    .catch(() => undefined)) as
+    | { title: string; body: string; hasApply: boolean }
+    | undefined;
+  if (!visible || visible.body.length < 300) return false;
+  if (
+    /additional verification required|cloudflare|captcha|access denied|page not found|job not found|doesn.?t exist|no longer available/i.test(
+      visible.body,
+    )
+  )
+    return false;
+  const expectedTokens = normalizedTitleTokens(expectedTitle);
+  const visibleTokens = new Set(
+    normalizedTitleTokens(`${visible.title} ${visible.body.slice(0, 1000)}`),
+  );
+  const overlap = expectedTokens.filter((token) => visibleTokens.has(token)).length;
+  const titleMatches =
+    expectedTokens.length > 0 &&
+    overlap / expectedTokens.length >= 0.65;
+  return titleMatches && (!requireApplyControl || visible.hasApply);
+}
+
+function normalizedTitleTokens(value: string) {
+  return [
+    ...new Set(
+      value
+        .toLowerCase()
+        .split(/[^a-z0-9+#]+/)
+        .filter((token) => token.length >= 3),
+    ),
+  ];
+}
+
+export function preferVisibleActiveVacancy(
+  snapshot: VacancyPageSnapshot,
+  candidate: LiveCandidate,
+  interpretation: VacancyInterpretation,
+): VacancyInterpretation {
+  const title = snapshot.structured.title || snapshot.h1;
+  const expectedTokens = normalizedTitleTokens(candidate.job.title);
+  const visibleTokens = new Set(normalizedTitleTokens(title));
+  const overlap = expectedTokens.filter((token) => visibleTokens.has(token)).length;
+  const titleMatches =
+    expectedTokens.length > 0 &&
+    overlap / expectedTokens.length >= 0.65;
+  const explicitClosure =
+    /job (?:is )?no longer available|position (?:has been )?filled|applications? (?:are|is) closed|vacancy expired|this job has expired|\barchived\b|page (?:you are looking for )?doesn.?t exist|job not found|page not found/i.test(
+      `${snapshot.pageTitle} ${snapshot.h1} ${snapshot.bodyText}`,
+    );
+  const visibleApplyUrl =
+    snapshot.structured.applyUrl ||
+    snapshot.applyLinks.find((link) =>
+      /apply|application|submit/i.test(link.text),
+    )?.url;
+  const applyUrl =
+    visibleApplyUrl || interpretation.applyUrl || candidate.job.applyUrl;
+  const active =
+    titleMatches &&
+    snapshot.bodyText.length >= 300 &&
+    !explicitClosure &&
+    Boolean(visibleApplyUrl);
+  if (!active) return interpretation;
+  if (
+    interpretation.pageType === "vacancy" &&
+    interpretation.openStatus !== "closed"
+  )
+    return { ...interpretation, validThrough: "" };
+  return {
+    ...interpretation,
+    pageType: "vacancy",
+    openStatus: "open",
+    title: title || candidate.job.title,
+    company:
+      snapshot.structured.company ||
+      interpretation.company ||
+      candidate.company,
+    description:
+      snapshot.structured.description ||
+      interpretation.description ||
+      snapshot.bodyText,
+    applyUrl,
+    validThrough: "",
+    confidence: Math.max(interpretation.confidence, 70),
+    ambiguities: [
+      ...interpretation.ambiguities,
+      "A stale or uncertain status signal was overridden because the current page exposes the concrete vacancy and an active application route.",
+    ],
+  };
 }
 
 export function greenhouseJobApiUrl(value: string) {

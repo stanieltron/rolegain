@@ -125,6 +125,50 @@ describe("match repair recovery", () => {
     ).rejects.toBeInstanceOf(ResultGatewayError);
     expect(repairCalls).toBe(1);
   });
+
+  it("retains a complete conservative assessment when the verifier still requests repair", async () => {
+    let verificationCalls = 0;
+    const repaired = assessment([
+      requirement("Own the technical strategy.", "missing"),
+    ]);
+    const codex = {
+      startThread: async ({ callId }: { callId: string }) => ({ id: callId }),
+      runTurn: async ({ threadId }: { threadId: string }) => {
+        if (threadId === "match.verification") {
+          verificationCalls += 1;
+          return {
+            finalText: JSON.stringify({
+              jobId: "job-1",
+              verdict: "needs_repair",
+              findings: [
+                {
+                  code: "evidence_quality",
+                  requirement: "Own the technical strategy.",
+                  message: "Keep this requirement missing without evidence.",
+                },
+              ],
+              repairInstructions: ["Use the conservative missing state."],
+            }),
+          };
+        }
+        return { finalText: JSON.stringify(repaired) };
+      },
+    } as unknown as CodexExecClient;
+
+    const result = await verifyAndRepairAssessments(
+      codex,
+      process.cwd(),
+      "test-model",
+      [],
+      [opportunity()],
+      [repaired],
+    );
+
+    expect(verificationCalls).toBe(2);
+    expect(result.assessments).toEqual([repaired]);
+    expect(result.rejected).toEqual([]);
+    expect(result.reviews[0].verdict).toBe("needs_repair");
+  });
 });
 
 function gatewayError(defect: ResultGatewayDefect) {

@@ -59,8 +59,40 @@ export interface VacancySourcePage {
 }
 
 export function classifySearchLead(candidate: LiveCandidate): SearchLead {
-  return candidate.job.sourceKind === "job_list" ||
-    candidate.job.sourceKind === "career_page"
+  return searchLeadLooksExpandable(candidate)
     ? { kind: "vacancy_search", candidate }
     : { kind: "vacancy", candidate };
+}
+
+export function searchLeadLooksExpandable(candidate: LiveCandidate) {
+  if (
+    candidate.job.sourceKind === "job_list" ||
+    candidate.job.sourceKind === "career_page"
+  )
+    return true;
+  const title = candidate.job.title.trim();
+  let url: URL;
+  try {
+    url = new URL(candidate.job.jobUrl);
+  } catch {
+    return false;
+  }
+  const pathname = decodeURIComponent(url.pathname)
+    .toLowerCase()
+    .replace(/\/+$/, "");
+  const genericTitle =
+    /^(?:remote\s+)?(?:crypto\s*&?\s*web3|blockchain|defi|engineering|smart contract engineer)?\s*jobs(?:\s+(?:listing|list|board))?$/i.test(
+      title,
+    ) ||
+    /^(?:current\s+)?(?:job\s+)?openings$|^open positions$|^careers?$/i.test(
+      title,
+    );
+  const genericPath =
+    /\/role\/r\/[^/]+$/.test(pathname) ||
+    /\/q-[^/]*-jobs(?:\.html)?$/.test(pathname) ||
+    /^\/remote(?:_[a-z-]+)?$/.test(pathname) ||
+    (/\/jobs\/[^/]+$/.test(pathname) && url.searchParams.has("page")) ||
+    (["/jobs", "/careers", "/open-positions"].includes(pathname) &&
+      genericTitle);
+  return genericTitle || genericPath;
 }

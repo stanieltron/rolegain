@@ -158,10 +158,14 @@ export async function inspectLiveApplication(
   try {
     await assertPublicHttpUrl(new URL(candidate.job.applyUrl));
     await guardPublicPage(page);
-    await page.goto(candidate.job.applyUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 20_000,
-    });
+    try {
+      await page.goto(candidate.job.applyUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 20_000,
+      });
+    } catch (error) {
+      if (!/Download is starting/i.test(String(error))) throw error;
+    }
     await page.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => undefined);
     await waitForRenderedApplicationControls(page, 4_000);
     if (!(await hasLikelyApplicationForm(page))) {
@@ -350,7 +354,7 @@ export async function inspectLiveApplication(
       schemaAudit,
     };
   } finally {
-    await page.close();
+    await page.close().catch(() => undefined);
   }
 }
 
@@ -1129,10 +1133,14 @@ export async function openApplicationControl(page: Page): Promise<boolean> {
     if (href) {
       const target = new URL(href, page.url());
       await assertPublicHttpUrl(target);
-      await page.goto(target.href, {
-        waitUntil: "domcontentloaded",
-        timeout: 20_000,
-      });
+      try {
+        await page.goto(target.href, {
+          waitUntil: "domcontentloaded",
+          timeout: 20_000,
+        });
+      } catch (error) {
+        if (!/Download is starting/i.test(String(error))) throw error;
+      }
     } else await link.click();
   } else {
     if ((await button.count()) === 0) return false;

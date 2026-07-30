@@ -938,10 +938,20 @@ export async function verifyAndRepairAssessments(
   const rejected = finalVerification.filter(
     (item) => item.verdict === "needs_repair",
   );
-  const rejectedIds = new Set(rejected.map((item) => item.jobId));
+  const mergedById = new Map(merged.map((item) => [item.jobId, item]));
+  const unrecoverable = rejected.filter(
+    (item) => !mergedById.get(item.jobId)?.requirements.length,
+  );
+  const unrecoverableIds = new Set(
+    unrecoverable.map((item) => item.jobId),
+  );
   return {
-    assessments: merged.filter((item) => !rejectedIds.has(item.jobId)),
-    rejected,
+    // A verifier finding is a reason to keep the skeptical review and lower
+    // unsupported rows, not to discard an otherwise complete live vacancy.
+    // The deterministic conversion below already turns invalid or uncited
+    // evidence into missing requirements before scoring.
+    assessments: merged.filter((item) => !unrecoverableIds.has(item.jobId)),
+    rejected: unrecoverable,
     reviews: [
       ...first.filter((item) => !failedIds.has(item.jobId)),
       ...finalVerification,
