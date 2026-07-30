@@ -107,4 +107,48 @@ describe("deterministic listing expansion", () => {
       validThrough: "",
     });
   });
+
+  it("recognizes a live application form even when the page has no separate apply link", () => {
+    const captured = listingSnapshot([]);
+    captured.pageUrl =
+      "https://jobs.example.test/principal-architect/application";
+    captured.h1 = "Principal Solution Architect, AI Agents";
+    captured.bodyText =
+      "Principal Solution Architect, AI Agents. Upload your resume and cover letter, then submit your application. ".repeat(
+        4,
+      );
+    const candidate = {
+      company: "Example",
+      preliminaryFit: 50,
+      job: {
+        id: "principal",
+        title: captured.h1,
+        jobUrl: captured.pageUrl,
+        applyUrl: captured.pageUrl,
+        sourceKind: "vacancy",
+      },
+    } as LiveCandidate;
+    const result = preferVisibleActiveVacancy(captured, candidate, {
+      pageType: "unknown",
+      openStatus: "unknown",
+      title: captured.h1,
+      company: candidate.company,
+      location: "",
+      workplaceType: "",
+      employmentType: "",
+      description: captured.bodyText,
+      compensation: "",
+      applyUrl: captured.pageUrl,
+      publishedAt: "",
+      validThrough: "",
+      confidence: 0,
+      ambiguities: ["LLM evidence validation failed"],
+      evidence: [],
+    });
+    expect(result).toMatchObject({
+      pageType: "vacancy",
+      openStatus: "open",
+      applyUrl: captured.pageUrl,
+    });
+  });
 });

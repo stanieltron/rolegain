@@ -32,6 +32,7 @@ import {
 } from "../../search-match-shared/opportunity.js";
 import { progressItemFromOpportunity } from "../../search-match-shared/progress.js";
 import { discoveryWorkIntent } from "../../search-match-shared/search-intent.js";
+import { searchLeadLooksExpandable } from "../02-vacancy-source-expansion/contracts.js";
 import {
   mapParallelOrdered,
   vacancyValidationConcurrency,
@@ -350,21 +351,30 @@ export async function resolveDiscoveredJobs(
       links: captured.links,
       structured: captured.structured,
     });
-    const interpretation = preferVisibleActiveVacancy(
-      snapshot,
-      candidate,
-      repairVacancyInterpretation(
-      structuredVacancyIsComplete(snapshot)
+    let interpreted: VacancyInterpretation;
+    try {
+      interpreted = structuredVacancyIsComplete(snapshot)
         ? interpretationFromStructuredData(snapshot)
         : await interpretVacancySnapshot(codex, cwd, snapshot, {
             title: candidate.job.title,
             company: candidate.company,
             location: candidate.job.location || "",
             applyUrl: candidate.job.applyUrl,
-          }),
-      ),
+          });
+    } catch (error) {
+      interpreted = uncertainVacancyInterpretation(
+        snapshot,
+        candidate,
+        error,
+      );
+    }
+    const interpretation = preferVisibleActiveVacancy(
+      snapshot,
+      candidate,
+      repairVacancyInterpretation(interpreted),
     );
     const expandable =
+      searchLeadLooksExpandable(candidate) ||
       interpretation.pageType === "job_list" ||
       interpretation.pageType === "company_page" ||
       candidate.job.sourceKind === "job_list" ||
@@ -588,11 +598,17 @@ export function preferVisibleActiveVacancy(
     /job (?:is )?no longer available|position (?:has been )?filled|applications? (?:are|is) closed|vacancy expired|this job has expired|\barchived\b|page (?:you are looking for )?doesn.?t exist|job not found|page not found/i.test(
       `${snapshot.pageTitle} ${snapshot.h1} ${snapshot.bodyText}`,
     );
+  const currentPageIsApplication =
+    /\/(?:apply|application)(?:\/|$|\?)/i.test(snapshot.pageUrl) &&
+    /submit application|submit your application|resume|curriculum vitae|cover letter/i.test(
+      snapshot.bodyText,
+    );
   const visibleApplyUrl =
     snapshot.structured.applyUrl ||
     snapshot.applyLinks.find((link) =>
       /apply|application|submit/i.test(link.text),
-    )?.url;
+    )?.url ||
+    (currentPageIsApplication ? snapshot.pageUrl : "");
   const applyUrl =
     visibleApplyUrl || interpretation.applyUrl || candidate.job.applyUrl;
   const active =
@@ -626,6 +642,45 @@ export function preferVisibleActiveVacancy(
       ...interpretation.ambiguities,
       "A stale or uncertain status signal was overridden because the current page exposes the concrete vacancy and an active application route.",
     ],
+  };
+}
+
+function uncertainVacancyInterpretation(
+  snapshot: VacancyPageSnapshot,
+  candidate: LiveCandidate,
+  error: unknown,
+): VacancyInterpretation {
+  return {
+    pageType: "unknown",
+    openStatus: "unknown",
+    title: snapshot.structured.title || snapshot.h1 || candidate.job.title,
+    company: snapshot.structured.company || candidate.company,
+    location: snapshot.structured.location || candidate.job.location || "",
+    workplaceType:
+      snapshot.structured.workplaceType ||
+      candidate.job.workplaceType ||
+      "",
+    employmentType:
+      snapshot.structured.employmentType ||
+      candidate.job.employmentType ||
+      "",
+    description: snapshot.structured.description || snapshot.bodyText,
+    compensation: candidate.job.compensation || "",
+    applyUrl:
+      snapshot.structured.applyUrl ||
+      snapshot.applyLinks.find((link) =>
+        /apply|application|submit/i.test(link.text),
+      )?.url ||
+      candidate.job.applyUrl,
+    publishedAt: snapshot.structured.datePosted,
+    validThrough: snapshot.structured.validThrough,
+    confidence: 0,
+    ambiguities: [
+      `The LLM interpretation was unavailable and deterministic page evidence was used: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    ],
+    evidence: [],
   };
 }
 
