@@ -3,6 +3,7 @@ export type AuthMode = "local" | "supabase";
 export interface RuntimeConfiguration {
   authMode: AuthMode;
   databaseUrl?: string;
+  applicationDatabaseUrl?: string;
   publicOrigin?: string;
   processJobs: boolean;
   objectStorageEnabled: boolean;
@@ -29,6 +30,10 @@ export function runtimeConfiguration(
   const supabaseServiceRoleKey = clean(
     environment.SUPABASE_SERVICE_ROLE_KEY,
   );
+  const databaseUrl = clean(environment.DATABASE_URL);
+  const applicationDatabaseUrl =
+    clean(environment.ROLEGAIN_TRANSACTION_DATABASE_URL) ||
+    transactionPoolConnectionString(databaseUrl);
 
   if (authMode === "supabase") {
     required("DATABASE_URL", environment.DATABASE_URL);
@@ -39,7 +44,8 @@ export function runtimeConfiguration(
 
   return {
     authMode,
-    databaseUrl: clean(environment.DATABASE_URL),
+    databaseUrl,
+    applicationDatabaseUrl,
     publicOrigin: clean(environment.ROLEGAIN_PUBLIC_ORIGIN),
     processJobs: environment.ROLEGAIN_PROCESS_JOBS !== "false",
     objectStorageEnabled:
@@ -54,6 +60,25 @@ export function runtimeConfiguration(
     adminPassword: clean(environment.ROLEGAIN_ADMIN_PASSWORD),
     adminSessionSecret: clean(environment.ROLEGAIN_ADMIN_SESSION_SECRET),
   };
+}
+
+export function transactionPoolConnectionString(
+  connectionString: string | undefined,
+) {
+  if (!connectionString) return undefined;
+  try {
+    const url = new URL(connectionString);
+    if (
+      url.port === "5432" &&
+      /(^|\.)pooler\.supabase\.com$/i.test(url.hostname)
+    ) {
+      url.port = "6543";
+      return url.toString();
+    }
+  } catch {
+    // Preserve non-URL libpq connection strings and let node-postgres parse them.
+  }
+  return connectionString;
 }
 
 function clean(value: string | undefined) {

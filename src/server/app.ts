@@ -110,7 +110,7 @@ export async function createRolegainApp(
           pathname !== "/api/job-search/background/stop"
         )
           await withUserLock(
-            dependencies.database,
+            dependencies.sessionDatabase || dependencies.database,
             actor.userId,
             () => runAuthenticatedRoute(),
           );

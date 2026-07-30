@@ -57,6 +57,7 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
   constructor(
     connectionString: string,
     private readonly pool: Pool,
+    private readonly lockPool: Pool,
     private readonly service: JobSearchService,
     private readonly codex: CodexExecClient,
     private readonly artifacts: ArtifactArchive,
@@ -199,7 +200,7 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
   }
 
   private async process(payload: WorkflowPayload) {
-    await withUserLock(this.pool, payload.userId, async () => {
+    await withUserLock(this.lockPool, payload.userId, async () => {
       const state = await this.pool.query<{ cancellation_requested_at: Date | null }>(
         `update rolegain_workflow_runs
          set status = 'running', started_at = coalesce(started_at, now()), error = null

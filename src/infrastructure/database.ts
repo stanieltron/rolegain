@@ -2,12 +2,17 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Pool, type PoolClient } from "pg";
 
-export const DEFAULT_DATABASE_POOL_SIZE = 2;
+export const DEFAULT_DATABASE_POOL_SIZE = 5;
+export const DEFAULT_SESSION_POOL_SIZE = 2;
 
-export function createDatabasePool(connectionString: string) {
+export function createDatabasePool(
+  connectionString: string,
+  options: { max?: number; applicationName?: string } = {},
+) {
   return new Pool({
     connectionString,
-    max: databasePoolSize(),
+    max: options.max ?? databasePoolSize(),
+    application_name: options.applicationName,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
     ssl:
@@ -15,6 +20,15 @@ export function createDatabasePool(connectionString: string) {
         ? false
         : { rejectUnauthorized: process.env.ROLEGAIN_DATABASE_SSL_REJECT_UNAUTHORIZED !== "false" },
   });
+}
+
+export function sessionPoolSize(
+  environment: NodeJS.ProcessEnv = process.env,
+) {
+  return positiveInteger(
+    environment.ROLEGAIN_SESSION_POOL_SIZE,
+    DEFAULT_SESSION_POOL_SIZE,
+  );
 }
 
 export function databasePoolSize(

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_DATABASE_POOL_SIZE,
+  DEFAULT_SESSION_POOL_SIZE,
   databasePoolSize,
+  sessionPoolSize,
 } from "../src/infrastructure/database.js";
+import { transactionPoolConnectionString } from "../src/config/runtime.js";
 import {
   DEFAULT_WORKER_CONCURRENCY,
   DEFAULT_WORKFLOW_QUEUE_POOL_SIZE,
@@ -13,10 +16,25 @@ import {
 describe("database connection budgets", () => {
   it("keeps the two-service deployment below a 15-client session pool", () => {
     const clientsPerService =
-      DEFAULT_DATABASE_POOL_SIZE + DEFAULT_WORKFLOW_QUEUE_POOL_SIZE;
+      DEFAULT_SESSION_POOL_SIZE + DEFAULT_WORKFLOW_QUEUE_POOL_SIZE;
 
     expect(clientsPerService * 2).toBe(6);
     expect(clientsPerService * 4).toBeLessThanOrEqual(15);
+  });
+
+  it("routes Supabase application queries through the free transaction pooler", () => {
+    expect(
+      transactionPoolConnectionString(
+        "postgresql://postgres.project:secret@aws-0-eu.pooler.supabase.com:5432/postgres",
+      ),
+    ).toBe(
+      "postgresql://postgres.project:secret@aws-0-eu.pooler.supabase.com:6543/postgres",
+    );
+    expect(
+      transactionPoolConnectionString(
+        "postgresql://postgres:secret@localhost:5432/postgres",
+      ),
+    ).toBe("postgresql://postgres:secret@localhost:5432/postgres");
   });
 
   it("allows positive environment overrides", () => {
@@ -28,6 +46,7 @@ describe("database connection budgets", () => {
         ROLEGAIN_WORKFLOW_QUEUE_POOL_SIZE: "3",
       }),
     ).toBe(3);
+    expect(sessionPoolSize({ ROLEGAIN_SESSION_POOL_SIZE: "4" })).toBe(4);
     expect(workerConcurrency({ ROLEGAIN_WORKER_CONCURRENCY: "2" })).toBe(2);
   });
 
@@ -40,6 +59,9 @@ describe("database connection budgets", () => {
         ROLEGAIN_WORKFLOW_QUEUE_POOL_SIZE: "-1",
       }),
     ).toBe(DEFAULT_WORKFLOW_QUEUE_POOL_SIZE);
+    expect(sessionPoolSize({ ROLEGAIN_SESSION_POOL_SIZE: "zero" })).toBe(
+      DEFAULT_SESSION_POOL_SIZE,
+    );
     expect(workerConcurrency({ ROLEGAIN_WORKER_CONCURRENCY: "many" })).toBe(
       DEFAULT_WORKER_CONCURRENCY,
     );

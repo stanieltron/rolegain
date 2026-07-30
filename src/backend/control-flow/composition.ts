@@ -9,6 +9,7 @@ import { runtimeConfiguration, type RuntimeConfiguration } from "../../config/ru
 import {
   createDatabasePool,
   migrateDatabase,
+  sessionPoolSize,
 } from "../../infrastructure/database.js";
 import {
   FileWorkspaceStore,
@@ -42,6 +43,7 @@ export interface RolegainDependencies {
   writer: CodexCoverLetterWriter;
   configuration: RuntimeConfiguration;
   database?: Pool;
+  sessionDatabase?: Pool;
   tokenCounter: TokenCounter;
   artifacts: ArtifactArchive;
   workflows?: WorkflowQueue;
@@ -56,10 +58,21 @@ export async function createRolegainDependencies(
   const root = options.rootDir ?? defaultProjectRoot;
   const dataRoot = options.dataRoot ?? path.join(root, "data");
   const configuration = runtimeConfiguration();
-  const database = configuration.databaseUrl
-    ? createDatabasePool(configuration.databaseUrl)
+  const serviceName = configuration.processJobs ? "worker" : "web";
+  const database = configuration.applicationDatabaseUrl
+    ? createDatabasePool(configuration.applicationDatabaseUrl, {
+        applicationName: `rolegain-${serviceName}-application`,
+      })
     : undefined;
-  if (database) await migrateDatabase(database);
+  const sessionDatabase = configuration.databaseUrl
+    ? configuration.databaseUrl === configuration.applicationDatabaseUrl
+      ? database
+      : createDatabasePool(configuration.databaseUrl, {
+          max: sessionPoolSize(),
+          applicationName: `rolegain-${serviceName}-session`,
+        })
+    : undefined;
+  if (sessionDatabase) await migrateDatabase(sessionDatabase);
   const workspaceStore = database
     ? new PostgresWorkspaceStore(database)
     : new FileWorkspaceStore(
@@ -104,6 +117,7 @@ export async function createRolegainDependencies(
       ? new PostgresWorkflowQueue(
           configuration.databaseUrl,
           database,
+          sessionDatabase!,
           jobSearch,
           codex,
           artifacts,
@@ -120,6 +134,7 @@ export async function createRolegainDependencies(
     writer,
     configuration,
     database,
+    sessionDatabase,
     tokenCounter,
     artifacts,
     workflows,
@@ -129,6 +144,8 @@ export async function createRolegainDependencies(
       await researcher.cancelAll();
       await codex.close();
       await database?.end();
+      if (sessionDatabase && sessionDatabase !== database)
+        await sessionDatabase.end();
     },
   };
 }
