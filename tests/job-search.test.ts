@@ -206,9 +206,9 @@ const serviceFor = (root: string) =>
 
 describe("job-search lifecycle", () => {
   it("stops deep discovery once there is a ranked replacement bench", () => {
-    expect(validatedDiscoveryTarget(20, 5)).toBe(10);
-    expect(validatedDiscoveryTarget(8, 5)).toBe(8);
-    expect(validatedDiscoveryTarget(20, 1)).toBe(4);
+    expect(validatedDiscoveryTarget(20, 5)).toBe(7);
+    expect(validatedDiscoveryTarget(8, 5)).toBe(7);
+    expect(validatedDiscoveryTarget(20, 1)).toBe(3);
   });
 
   it("discovers only after validating an insufficient scored bench", () => {

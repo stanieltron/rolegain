@@ -482,19 +482,31 @@ export async function searchAndValidateOpportunities(input: {
               opportunity.applyUrl,
             ]),
           ];
-          candidates = await discoverWebJobsWithAgent(
-            codex,
-            cwd,
-            workspace,
-            retryExclusions,
-            Math.min(
-              50,
-              Math.max(5, (validatedTarget - opportunities.length) * 2),
-            ),
-            phase2Evidence,
-            inspectionErrors,
-            wave + 1,
-          );
+          try {
+            candidates = await discoverWebJobsWithAgent(
+              codex,
+              cwd,
+              workspace,
+              retryExclusions,
+              Math.min(
+                50,
+                Math.max(5, (validatedTarget - opportunities.length) * 2),
+              ),
+              phase2Evidence,
+              inspectionErrors,
+              wave + 1,
+            );
+          } catch (error) {
+            const reason =
+              error instanceof Error ? error.message : String(error);
+            inspectionErrors.push(`Search wave ${wave + 2}: ${reason}`);
+            waveRecords[wave].nextDecision =
+              "continue_with_partial_results_after_search_error";
+            await options.onProgress?.({
+              activity: `The next search wave could not complete. Continuing with ${opportunities.length} independently verified vacancies.`,
+            });
+            break;
+          }
           await Promise.all(
             candidates
               .filter(
@@ -543,7 +555,7 @@ export function validatedDiscoveryTarget(
   const applications = Math.max(1, Math.floor(applicationTarget));
   return Math.min(
     requested,
-    Math.max(applications * 2, applications + 3),
+    applications + 2,
   );
 }
 
