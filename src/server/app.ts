@@ -34,7 +34,11 @@ export async function createRolegainApp(
   const { root, codex, jobSearch, configuration } = dependencies;
   const authenticator = createRequestAuthenticator(configuration);
   const rateLimiter = new ApiRateLimiter();
-  const adminRoutes = new AdminRoutes(configuration, dependencies.platform);
+  const adminRoutes = new AdminRoutes(
+    configuration,
+    dependencies.platform,
+    dependencies.workflows,
+  );
   const restoredUsers = new Set<string>();
   const applicationFormAutofillScript = await readFile(
     path.join(

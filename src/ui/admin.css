@@ -321,6 +321,39 @@
   font-style: normal;
 }
 
+.admin-replay-control {
+  display: grid;
+  gap: 4px;
+  margin-top: 9px;
+}
+
+.admin-replay-control button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: var(--rg-border-width) solid var(--rg-color-border-strong);
+  border-radius: var(--rg-radius-sm);
+  background: var(--rg-color-surface);
+  padding: 5px 8px;
+  color: var(--rg-color-text);
+  font: inherit;
+  font-size: .72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.admin-replay-control button:disabled {
+  cursor: default;
+  opacity: .5;
+}
+
+.admin-replay-control em {
+  color: var(--rg-color-danger);
+  font-size: .65rem;
+  font-style: normal;
+}
+
 .admin-users td span {
   margin-top: 3px;
   color: #475467;

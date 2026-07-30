@@ -5,6 +5,7 @@ import {
 } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { PlatformControl } from "../backend/admin/platform-control.js";
+import type { WorkflowQueue } from "../backend/workflows/workflow-queue.js";
 import type { RuntimeConfiguration } from "../config/runtime.js";
 import { readJson, sendJson } from "./http.js";
 import { HttpError } from "./auth.js";
@@ -24,6 +25,7 @@ export class AdminRoutes {
   constructor(
     private readonly configuration: RuntimeConfiguration,
     private readonly platform: PlatformControl,
+    private readonly workflows?: WorkflowQueue,
   ) {}
 
   matches(pathname: string) {
@@ -103,6 +105,27 @@ export class AdminRoutes {
         await this.platform.setUserApplicationLimit(
           decodeURIComponent(userLimitMatch[1]),
           typeof body.limit === "number" ? body.limit : Number.NaN,
+        ),
+      );
+      return;
+    }
+    const validationReplayMatch = pathname.match(
+      /^\/api\/admin\/users\/([^/]+)\/revalidate-search$/,
+    );
+    if (request.method === "POST" && validationReplayMatch) {
+      if (!this.workflows)
+        throw new HttpError(
+          503,
+          "Background workflows are not configured",
+          "workflows_not_configured",
+        );
+      sendJson(
+        response,
+        202,
+        await this.workflows.enqueue(
+          decodeURIComponent(validationReplayMatch[1]),
+          "revalidate-search",
+          { reserveBetaBatch: false },
         ),
       );
       return;

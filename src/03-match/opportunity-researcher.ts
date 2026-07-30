@@ -151,6 +151,7 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
     workspace: JobSearchWorkspace,
     opportunities: JobOpportunity[],
     onProgress?: OpportunityProgressReporter,
+    options?: { expansionLimit?: number },
   ) {
     if (!this.codex)
       return Promise.resolve({ opportunities, failures: [] });
@@ -161,6 +162,7 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
       workspace,
       opportunities,
       onProgress,
+      expansionLimit: options?.expansionLimit,
     });
   }
 }

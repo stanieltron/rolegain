@@ -137,6 +137,18 @@ describe.sequential("administrator HTTP surface", () => {
       batchLimit: 5,
     });
 
+    const replayWithoutQueue = await fetch(
+      `${base}/api/admin/users/test-user/revalidate-search`,
+      {
+        method: "POST",
+        headers: { Cookie: cookie },
+      },
+    );
+    expect(replayWithoutQueue.status).toBe(503);
+    expect(await replayWithoutQueue.json()).toMatchObject({
+      code: "workflows_not_configured",
+    });
+
     const paused = await fetch(`${base}/api/admin/codex`, {
       method: "POST",
       headers: {

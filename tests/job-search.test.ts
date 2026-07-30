@@ -1982,6 +1982,117 @@ describe("job-search lifecycle", () => {
     expect(result.opportunities).toEqual([]);
   });
 
+  it("revalidates persisted search history without matching or preparing applications", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-replay-"));
+    const seedService = new JobSearchService(root);
+    await seedService.initialize();
+    const seed = await seedService.get();
+    const existing = (await deterministicResearch.research(seed)).opportunities[0];
+    const existingApplication = (
+      await deterministicResearch.research(seed)
+    ).applications[0];
+    seed.opportunities = [existing];
+    seed.applications = [existingApplication];
+    seed.jobHistory = [
+      {
+        id: "live-again",
+        jobNumber: 101,
+        company: "Live Again",
+        title: "Platform Architect",
+        sourceUrl: "https://jobs.example.test/live-again",
+        validation: "failed",
+        match: "waiting",
+        application: "waiting",
+        applicationVerification: "waiting",
+        reason: "Old verifier failure",
+      },
+      {
+        id: "still-closed",
+        jobNumber: 102,
+        company: "Closed",
+        title: "Closed Architect",
+        sourceUrl: "https://jobs.example.test/still-closed",
+        validation: "failed",
+        match: "waiting",
+        application: "waiting",
+        applicationVerification: "waiting",
+        reason: "Old verifier failure",
+      },
+    ];
+    await writeFile(
+      path.join(root, "job-search", "candidates", "candidate-1.json"),
+      `${JSON.stringify(seed, null, 2)}\n`,
+      "utf8",
+    );
+
+    let expansionLimit = 0;
+    const replayService = new JobSearchService(root, undefined, {
+      async research() {
+        throw new Error("Discovery must not run during validation replay");
+      },
+      async revalidate(_workspace, opportunities, onProgress, options) {
+        expansionLimit = options?.expansionLimit ?? 0;
+        for (const opportunity of opportunities) {
+          await onProgress?.({
+            item: {
+              id: opportunity.id,
+              company: opportunity.company,
+              title: opportunity.title,
+              sourceUrl: opportunity.sourceUrl,
+            },
+            phase: "validation",
+            state:
+              opportunity.id === "still-closed" ? "failed" : "passed",
+            reason:
+              opportunity.id === "still-closed"
+                ? "Current page confirms the vacancy is closed"
+                : undefined,
+          });
+        }
+        return {
+          opportunities: opportunities.filter(
+            (opportunity) => opportunity.id !== "still-closed",
+          ),
+          failures: [
+            {
+              id: "still-closed",
+              jobNumber: 102,
+              company: "Closed",
+              title: "Closed Architect",
+              location: "Remote",
+              sourceUrl: "https://jobs.example.test/still-closed",
+              applyUrl: "https://jobs.example.test/still-closed",
+              stage: "expired",
+              reason: "Current page confirms the vacancy is closed",
+              capturedAt: new Date().toISOString(),
+            },
+          ],
+        };
+      },
+    });
+    await replayService.initialize();
+    const result = await replayService.revalidateSearchHistory();
+
+    expect(expansionLimit).toBe(10);
+    expect(result.applications).toEqual([existingApplication]);
+    expect(result.opportunities).toHaveLength(1);
+    expect(result.opportunities[0]).toMatchObject({
+      id: existing.id,
+      title: existing.title,
+      requirementMatches: existing.requirementMatches,
+    });
+    expect(result.jobHistory.find((item) => item.id === "live-again"))
+      .toMatchObject({ validation: "passed", reason: undefined });
+    expect(result.jobHistory.find((item) => item.id === "still-closed"))
+      .toMatchObject({
+        validation: "failed",
+        reason: "Current page confirms the vacancy is closed",
+      });
+    expect(result.searchProgress?.activity).toContain(
+      "Validation replay complete",
+    );
+  });
+
   it("coalesces board and canonical ATS records before search revalidation", () => {
     const boardRecord: JobOpportunity = {
       id: "board-record",

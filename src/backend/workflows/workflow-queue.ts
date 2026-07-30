@@ -20,6 +20,7 @@ export type WorkflowType =
   | "prepare"
   | "prepare-search-ready"
   | "find-more"
+  | "revalidate-search"
   | "tailor-cv";
 
 interface WorkflowPayload {
@@ -141,11 +142,12 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
         } satisfies WorkflowPayload,
         {
           singletonKey: userId,
-          retryLimit: 2,
+          retryLimit: type === "revalidate-search" ? 0 : 2,
           retryDelay: 15,
           retryBackoff: true,
           heartbeatSeconds: 30,
-          expireInSeconds: 60 * 60,
+          expireInSeconds:
+            type === "revalidate-search" ? 4 * 60 * 60 : 60 * 60,
         },
       );
       if (!queueJobId)
@@ -316,6 +318,9 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
           payload.userId,
           applicationTarget,
         );
+        return;
+      case "revalidate-search":
+        await this.service.revalidateSearchHistory(payload.userId);
         return;
       case "tailor-cv":
         if (!payload.resourceId)

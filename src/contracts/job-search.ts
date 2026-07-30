@@ -304,6 +304,7 @@ export interface WorkflowExecutionState {
     | "prepare"
     | "prepare-search-ready"
     | "find-more"
+    | "revalidate-search"
     | "tailor-cv";
   status:
     | "idle"

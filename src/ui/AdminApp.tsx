@@ -318,6 +318,10 @@ export function AdminApp() {
                     <small>
                       {user.events.job_source_opened ?? 0} source clicks
                     </small>
+                    <ValidationReplayControl
+                      user={user}
+                      onUpdated={refresh}
+                    />
                   </td>
                   <td>
                     <strong>{user.applications} current</strong>
@@ -485,6 +489,54 @@ function UserLimitControl({
         }}
       >
         {busy ? "Saving…" : "Set"}
+      </button>
+      {error && <em>{error}</em>}
+    </div>
+  );
+}
+
+function ValidationReplayControl({
+  user,
+  onUpdated,
+}: {
+  user: AdminUser;
+  onUpdated: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const replayActive =
+    user.latestWorkflow?.type === "revalidate-search" &&
+    (user.latestWorkflow.status === "queued" ||
+      user.latestWorkflow.status === "running");
+
+  return (
+    <div className="admin-replay-control">
+      <button
+        type="button"
+        disabled={busy || replayActive || user.jobsSeen === 0}
+        onClick={async () => {
+          setBusy(true);
+          setError("");
+          try {
+            const response = await fetch(
+              `/api/admin/users/${encodeURIComponent(user.id)}/revalidate-search`,
+              {
+                method: "POST",
+                credentials: "same-origin",
+              },
+            );
+            if (!response.ok)
+              throw new Error(await responseError(response));
+            await onUpdated();
+          } catch (cause) {
+            setError(cause instanceof Error ? cause.message : String(cause));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <RefreshCw size={12} />
+        {replayActive ? "Replay running" : busy ? "Starting…" : "Revalidate jobs"}
       </button>
       {error && <em>{error}</em>}
     </div>

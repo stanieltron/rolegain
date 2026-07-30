@@ -602,6 +602,7 @@ export class JobSearchService {
       | "prepare"
       | "prepare-search-ready"
       | "find-more"
+      | "revalidate-search"
       | "tailor-cv",
     error: string,
     candidateId = CANDIDATE_ID,
@@ -1563,6 +1564,208 @@ export class JobSearchService {
       true,
       candidateId,
     );
+  }
+
+  /**
+   * Reopen every persisted discovery record with the current vacancy validator.
+   * This deliberately stops before evidence matching or application preparation.
+   */
+  async revalidateSearchHistory(
+    candidateId = CANDIDATE_ID,
+  ): Promise<JobSearchWorkspace> {
+    this.assertBackgroundExecutionRunning(candidateId);
+    if (!this.opportunityResearch?.revalidate)
+      throw new Error("Live vacancy revalidation is not configured");
+    const workspace = await this.get(candidateId);
+    workspace.jobHistory = normalizeJobHistory(workspace);
+    const records = workspace.jobHistory.filter((item) =>
+      validHttpUrl(item.sourceUrl),
+    );
+    if (!records.length)
+      throw new Error("There are no persisted search records to revalidate");
+
+    const replayedIds = new Set(records.map((item) => item.id));
+    const replayedUrls = new Set(records.map((item) => normalizeUrl(item.sourceUrl)));
+    const inputs = records.map((item) => replayOpportunity(item));
+    const previousStage = workspace.searchProgress?.stage;
+    workspace.searchProgress = {
+      ...(workspace.searchProgress ?? {
+        target: records.length,
+        found: 0,
+        items: [],
+      }),
+      stage: "verifying",
+      target: records.length,
+      found: 0,
+      error: undefined,
+      activity: `Revalidating 0 of ${records.length} stored search records with the current vacancy logic. Matching and applications will not run.`,
+      updatedAt: new Date().toISOString(),
+      items: structuredClone(workspace.jobHistory),
+      events: [
+        ...(workspace.searchProgress?.events ?? []),
+        progressEvent(
+          `Started a validation-only replay of ${records.length} stored search records.`,
+        ),
+      ].slice(-10),
+    };
+    await this.saveCandidate(workspace);
+
+    let completed = 0;
+    let writes = Promise.resolve();
+    const terminalUpdates = new Set<string>();
+    const reportProgress = async (update: OpportunityProgressUpdate) => {
+      applyProgressUpdate(workspace, update);
+      if (
+        update.phase === "validation" &&
+        (update.state === "passed" || update.state === "failed")
+      ) {
+        const key = `${update.item?.id ?? ""}:${update.state}`;
+        if (!terminalUpdates.has(key)) {
+          terminalUpdates.add(key);
+          completed += 1;
+        }
+        workspace.searchProgress!.found = completed;
+        workspace.searchProgress!.activity =
+          `Revalidated ${completed} of ${records.length} stored search records. Matching and applications remain unchanged.`;
+        if (completed % 10 === 0) {
+          writes = writes.then(() => this.saveCandidate(workspace));
+          await writes;
+        }
+      }
+    };
+
+    const replay = await this.opportunityResearch.revalidate(
+      workspace,
+      inputs,
+      reportProgress,
+      { expansionLimit: 10 },
+    );
+    await writes;
+    await this.assignJobNumbers([
+      ...replay.opportunities,
+      ...replay.failures,
+    ]);
+
+    const isReplayedValidationFailure = (failure: JobResearchFailure) =>
+      (failure.stage === "vacancy_validation" || failure.stage === "expired") &&
+      (replayedIds.has(failure.id) ||
+        replayedUrls.has(normalizeUrl(failure.sourceUrl)));
+    workspace.rejectedOpportunities = workspace.rejectedOpportunities.filter(
+      (failure) => !isReplayedValidationFailure(failure),
+    );
+    workspace.searchValidationIssues = workspace.searchValidationIssues.filter(
+      (failure) => !isReplayedValidationFailure(failure),
+    );
+    mergeResearchFailures(workspace, replay.failures);
+
+    const existingApplicationJobIds = new Set(
+      workspace.applications.map((application) => application.jobId),
+    );
+    const existingAssessedUrls = new Set(
+      workspace.opportunities.flatMap((job) => [
+        normalizeUrl(job.sourceUrl),
+        normalizeUrl(job.applyUrl),
+      ]),
+    );
+    const retainedReady = workspace.searchReadyOpportunities.filter(
+      (job) =>
+        !replayedUrls.has(normalizeUrl(job.sourceUrl)) &&
+        !replayedUrls.has(normalizeUrl(job.applyUrl)),
+    );
+    const newlyReady = replay.opportunities.filter(
+      (job) =>
+        !existingApplicationJobIds.has(job.id) &&
+        !existingAssessedUrls.has(normalizeUrl(job.sourceUrl)) &&
+        !existingAssessedUrls.has(normalizeUrl(job.applyUrl)),
+    );
+    workspace.searchReadyOpportunities = mergeUniqueJobs(
+      retainedReady,
+      newlyReady,
+    );
+
+    const outcomeIds = new Set([
+      ...replay.opportunities.map((job) => job.id),
+      ...replay.failures.map((failure) => failure.id),
+    ]);
+    for (const job of replay.opportunities) {
+      const previous = workspace.jobHistory.find(
+        (item) =>
+          item.id === job.id ||
+          normalizeUrl(item.sourceUrl) === normalizeUrl(job.sourceUrl),
+      );
+      upsertJobHistory(workspace, {
+        ...pipelineIdentity(job),
+        validation: "passed",
+        match: previous?.match ?? "waiting",
+        application: previous?.application ?? "waiting",
+        applicationVerification:
+          previous?.applicationVerification ?? "waiting",
+        applicationReady: previous?.applicationReady,
+        fit: previous?.fit,
+      });
+    }
+    for (const failure of replay.failures) {
+      const previous = workspace.jobHistory.find(
+        (item) => item.id === failure.id,
+      );
+      upsertJobHistory(workspace, {
+        id: failure.id,
+        jobNumber: failure.jobNumber,
+        company: failure.company,
+        title: failure.title,
+        sourceUrl: failure.sourceUrl,
+        validation: "failed",
+        match: previous?.match ?? "waiting",
+        application: previous?.application ?? "waiting",
+        applicationVerification:
+          previous?.applicationVerification ?? "waiting",
+        applicationReady: previous?.applicationReady,
+        fit: previous?.fit,
+        reason: failure.reason,
+        validationDisposition: failure.disposition,
+      });
+    }
+    const expandedSources = records.filter(
+      (record) => !outcomeIds.has(record.id),
+    );
+    for (const source of expandedSources)
+      upsertJobHistory(workspace, {
+        ...source,
+        validation: "bench",
+        reason:
+          "Generic vacancy source expanded into concrete jobs during validation replay.",
+        validationDisposition: "source_page",
+      });
+
+    workspace.seenJobUrls = uniqueUrls([
+      ...workspace.seenJobUrls,
+      ...replay.opportunities.flatMap((job) => [job.sourceUrl, job.applyUrl]),
+      ...replay.failures.flatMap((failure) => [
+        failure.sourceUrl,
+        failure.applyUrl,
+      ]),
+    ]);
+    workspace.searchProgress = {
+      ...workspace.searchProgress!,
+      stage: previousStage === "stopped" ? "stopped" : "ready",
+      target: records.length,
+      found: replay.opportunities.length,
+      error: undefined,
+      activity:
+        `Validation replay complete: ${records.length} stored records checked, ` +
+        `${replay.opportunities.length} concrete live vacancies returned, ` +
+        `${replay.failures.length} failed, and ${expandedSources.length} generic sources expanded.`,
+      updatedAt: new Date().toISOString(),
+      events: [
+        ...(workspace.searchProgress?.events ?? []),
+        progressEvent(
+          `Validation-only replay completed: ${replay.opportunities.length} live vacancies, ${replay.failures.length} failures, ${expandedSources.length} expanded sources.`,
+        ),
+      ].slice(-10),
+    };
+    finalizePipelineHistory(workspace);
+    await this.saveCandidate(workspace);
+    return workspace;
   }
 
   async findMoreApplications(
@@ -2784,6 +2987,28 @@ function uniqueUrls(values: string[]) {
   for (const value of values)
     if (value?.trim()) byNormalized.set(normalizeUrl(value), value.trim());
   return [...byNormalized.values()];
+}
+
+function replayOpportunity(item: SearchPipelineItem): JobOpportunity {
+  return {
+    id: item.id,
+    jobNumber: item.jobNumber,
+    company: item.company,
+    title: item.title,
+    location: "Not specified",
+    workplace: "Not specified",
+    compensation: "Not disclosed",
+    sourceUrl: item.sourceUrl,
+    applyUrl: item.sourceUrl,
+    capturedAt: new Date().toISOString(),
+    fit: 0,
+    summary: "Persisted search record queued for validation-only replay.",
+    description: "",
+    requirements: [],
+    requirementMatches: [],
+    strengths: [],
+    gaps: [],
+  };
 }
 
 function applicationRefillRoundLimit() {

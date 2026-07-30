@@ -123,5 +123,6 @@ export interface OpportunityResearchProvider {
     workspace: JobSearchWorkspace,
     opportunities: JobOpportunity[],
     onProgress?: OpportunityProgressReporter,
+    options?: { expansionLimit?: number },
   ): Promise<{ opportunities: JobOpportunity[]; failures: JobResearchFailure[] }>;
 }

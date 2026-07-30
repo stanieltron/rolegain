@@ -45,91 +45,110 @@ export async function revalidateOpportunities(input: {
   workspace: JobSearchWorkspace;
   opportunities: JobOpportunity[];
   onProgress?: OpportunityProgressReporter;
+  expansionLimit?: number;
 }): Promise<{ opportunities: JobOpportunity[]; failures: JobResearchFailure[] }> {
-  const { codex, cwd, browsers, workspace, opportunities, onProgress } = input;
+  const {
+    codex,
+    cwd,
+    browsers,
+    workspace,
+    opportunities,
+    onProgress,
+    expansionLimit = 1,
+  } = input;
   if (!codex) return { opportunities, failures: [] };
-    const executionGeneration = browsers.currentGeneration(workspace.candidateId);
-    const browser = await browsers.launch.bind(browsers)(
-      workspace.candidateId,
-      executionGeneration,
-    );
-    try {
-      const results = await mapParallelOrdered(
-        opportunities,
-        vacancyValidationConcurrency(),
-        async (opportunity) => {
+  const executionGeneration = browsers.currentGeneration(workspace.candidateId);
+  const browser = await browsers.launch.bind(browsers)(
+    workspace.candidateId,
+    executionGeneration,
+  );
+  try {
+    const results = await mapParallelOrdered(
+      opportunities,
+      vacancyValidationConcurrency(),
+      async (opportunity) => {
           await onProgress?.({
             item: progressItemFromOpportunity(opportunity),
             phase: "validation",
             state: "running",
           });
           try {
-            const candidates = await resolveDiscoveredJobs(
+            const resolvedCandidates = await resolveDiscoveredJobs(
               browser,
               candidateFromOpportunity(opportunity),
               codex,
               cwd,
               workspace,
-              1,
+              expansionLimit,
             );
-            const candidate = candidates[0];
-            if (!candidate) throw new Error("Vacancy no longer resolves to a current job");
-            if (!matchesWorkplace(candidate.job, workspace))
+            if (!resolvedCandidates.length)
+              throw new Error("Vacancy no longer resolves to a current job");
+            const candidates = resolvedCandidates.filter((candidate) =>
+              matchesWorkplace(candidate.job, workspace),
+            );
+            if (!candidates.length)
               throw new Error("Workplace or location does not match the candidate constraint");
-            const compensation =
-              normalizeCompensationText(candidate.job.compensation || "") ||
-              extractCompensation(candidate.job.descriptionPlain || "") ||
-              opportunity.compensation;
             await onProgress?.({
               item: progressItemFromOpportunity(opportunity),
               phase: "validation",
               state: "passed",
             });
-            const description =
-              candidate.job.descriptionPlain || opportunity.description || "";
             const validatedAt = new Date().toISOString();
-            const sourceConfidence = authoritativeSourceConfidence(
-              candidate.job.jobUrl,
-              candidate.job.applyUrl,
-            );
-            const riskSignals = validationRiskSignals(candidate.job);
             return {
-              opportunity: {
-                ...opportunity,
-                company: candidate.company,
-                title: candidate.job.title,
-                location: candidate.job.location || opportunity.location,
-                workplace:
-                  candidate.job.workplaceType || opportunity.workplace,
-                compensation: compensation || "Not disclosed",
-                sourceUrl: candidate.job.jobUrl,
-                applyUrl: candidate.job.applyUrl,
-                summary: summarize(description),
-                description,
-                lastValidatedAt: validatedAt,
-                opportunityConfidence: calculateOpportunityConfidence({
-                  sourceConfidence,
-                  hasApplicationPath:
-                    normalizeOpportunityUrl(candidate.job.applyUrl) !==
-                      normalizeOpportunityUrl(candidate.job.jobUrl) ||
-                    /\/application|\/apply\b/i.test(candidate.job.applyUrl),
-                  descriptionComplete: description.length >= 500,
-                  statusConsistent: candidate.job.isListed !== false,
-                  hasPublishedDate: Boolean(candidate.job.publishedAt),
-                  riskSignalCount: riskSignals.length,
-                }),
-                validation: {
-                  status: "live",
-                  sourceConfidence,
-                  retrievedAt: validatedAt,
-                  descriptionFingerprint: createHash("sha256")
-                    .update(description)
-                    .digest("hex"),
-                  responsibilitiesText: extractResponsibilitiesSection(description),
-                  qualificationsText: extractQualificationSection(description),
-                  riskSignals,
-                },
-              } as JobOpportunity,
+              opportunities: candidates.map((candidate) => {
+                const description =
+                  candidate.job.descriptionPlain || opportunity.description || "";
+                const compensation =
+                  normalizeCompensationText(candidate.job.compensation || "") ||
+                  extractCompensation(description) ||
+                  opportunity.compensation;
+                const sourceConfidence = authoritativeSourceConfidence(
+                  candidate.job.jobUrl,
+                  candidate.job.applyUrl,
+                );
+                const riskSignals = validationRiskSignals(candidate.job);
+                const expanded = candidates.length > 1;
+                return {
+                  ...opportunity,
+                  id: expanded ? candidate.job.id : opportunity.id,
+                  jobNumber: expanded ? undefined : opportunity.jobNumber,
+                  company: candidate.company,
+                  title: candidate.job.title,
+                  location: candidate.job.location || opportunity.location,
+                  workplace:
+                    candidate.job.workplaceType || opportunity.workplace,
+                  compensation: compensation || "Not disclosed",
+                  sourceUrl: candidate.job.jobUrl,
+                  applyUrl: candidate.job.applyUrl,
+                  summary: summarize(description),
+                  description,
+                  lastValidatedAt: validatedAt,
+                  opportunityConfidence: calculateOpportunityConfidence({
+                    sourceConfidence,
+                    hasApplicationPath:
+                      normalizeOpportunityUrl(candidate.job.applyUrl) !==
+                        normalizeOpportunityUrl(candidate.job.jobUrl) ||
+                      /\/application|\/apply\b/i.test(candidate.job.applyUrl),
+                    descriptionComplete: description.length >= 500,
+                    statusConsistent: candidate.job.isListed !== false,
+                    hasPublishedDate: Boolean(candidate.job.publishedAt),
+                    riskSignalCount: riskSignals.length,
+                  }),
+                  validation: {
+                    status: "live",
+                    sourceConfidence,
+                    retrievedAt: validatedAt,
+                    descriptionFingerprint: createHash("sha256")
+                      .update(description)
+                      .digest("hex"),
+                    responsibilitiesText:
+                      extractResponsibilitiesSection(description),
+                    qualificationsText:
+                      extractQualificationSection(description),
+                    riskSignals,
+                  },
+                } as JobOpportunity;
+              }),
             };
           } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
@@ -147,19 +166,17 @@ export async function revalidateOpportunities(input: {
             });
             return { failure };
           }
-        },
-      );
-      return {
-        opportunities: results.flatMap((item) =>
-          item.opportunity ? [item.opportunity] : [],
-        ),
-        failures: results
-          .map((item) => item.failure)
-          .filter((item): item is JobResearchFailure => Boolean(item)),
-      };
-    } finally {
-      await browsers.close(browser);
-    }
+      },
+    );
+    return {
+      opportunities: results.flatMap((item) => item.opportunities ?? []),
+      failures: results
+        .map((item) => item.failure)
+        .filter((item): item is JobResearchFailure => Boolean(item)),
+    };
+  } finally {
+    await browsers.close(browser);
+  }
 }
 
 export async function resolveDiscoveredJobs(
