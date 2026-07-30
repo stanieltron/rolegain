@@ -2106,7 +2106,8 @@ export class JobSearchService {
       if (this.candidateWrites.get(id) === pending) break;
     }
     const cached = this.candidateCache.get(id);
-    if (cached) return normalizeWorkspace(structuredClone(cached), id);
+    if (cached && this.workspaceStore instanceof FileWorkspaceStore)
+      return normalizeWorkspace(structuredClone(cached), id);
     const stored = await this.workspaceStore.load(id);
     if (!stored) {
       const created = emptyWorkspace(id, {
