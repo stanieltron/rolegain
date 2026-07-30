@@ -119,6 +119,11 @@ export function evaluateResultGateway(input: {
       defects.push(...(validate.errors || []).map(schemaDefect));
   }
 
+  if (input.callId === "search.web-discovery") {
+    checks.push("duplicate-normalization");
+    sanitizeDuplicateRows(output, "jobs", "jobUrl", adjustments);
+  }
+
   const exactKeys = EXACT_SOURCE_KEYS[input.callId];
   if (exactKeys) {
     checks.push("exact-source-grounding");
@@ -756,6 +761,38 @@ function uniqueValues(
       });
     seen.add(normalized);
   });
+}
+
+function sanitizeDuplicateRows(
+  output: unknown,
+  collectionKey: string,
+  identityKey: string,
+  adjustments: ResultGatewayAdjustment[],
+) {
+  if (!isObject(output) || !Array.isArray(output[collectionKey])) return;
+  const rows = output[collectionKey] as unknown[];
+  const seen = new Set<string>();
+  const retained: unknown[] = [];
+  for (const [index, row] of rows.entries()) {
+    if (!isObject(row) || typeof row[identityKey] !== "string") {
+      retained.push(row);
+      continue;
+    }
+    const identity = row[identityKey].trim();
+    if (!identity || !seen.has(identity)) {
+      if (identity) seen.add(identity);
+      retained.push(row);
+      continue;
+    }
+    adjustments.push({
+      code: "DUPLICATE_RESULT_DROPPED",
+      path: `$.${collectionKey}[${index}]`,
+      message: `Dropped a duplicate ${identityKey} returned by discovery`,
+      before: row,
+      after: undefined,
+    });
+  }
+  if (retained.length !== rows.length) output[collectionKey] = retained;
 }
 
 function uniqueStrings(value: unknown, path: string, defects: ResultGatewayDefect[]) {

@@ -49,6 +49,25 @@ describe("deterministic LLM result gateway", () => {
     );
   });
 
+  it("deduplicates repeated web-discovery URLs instead of rejecting the wave", () => {
+    const job = {
+      jobUrl: "https://jobs.example.test/role-1",
+      applyUrl: "https://jobs.example.test/role-1/apply",
+    };
+    const result = evaluateResultGateway({
+      callId: "search.web-discovery",
+      finalText: JSON.stringify({ jobs: [job, { ...job }] }),
+      outputSchema: objectSchema,
+      prompt: "Find current jobs.",
+    });
+
+    expect(result.report.accepted).toBe(true);
+    expect(result.report.adjustments).toContainEqual(
+      expect.objectContaining({ code: "DUPLICATE_RESULT_DROPPED" }),
+    );
+    expect(result.output).toEqual({ jobs: [job] });
+  });
+
   it("drops ungrounded chunk evidence so coverage can repair the omission", () => {
     const result = evaluateResultGateway({
       callId: "evidence.chunk-analysis",
