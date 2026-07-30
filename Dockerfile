@@ -19,7 +19,10 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm ci --omit=dev \
     && npm install --global @openai/codex@0.146.0 \
     && npx playwright install --with-deps chromium
 COPY --from=build /app/dist ./dist
