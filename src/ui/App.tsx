@@ -2790,7 +2790,9 @@ function FindApplicationsProgress({
       : undefined;
   const activity =
     progress.stage === "ready"
-      ? `${newPreparedCount} new applications are prepared and independently verified. Some may still need candidate information before submission.`
+      ? progress.activity?.startsWith("Validation replay complete:")
+        ? progress.activity
+        : `${newPreparedCount} new applications are prepared and independently verified. Some may still need candidate information before submission.`
       : progress.activity ?? "Job pipeline";
   return (
     <section className={`search-pipeline ${progress.stage}`} role="status" aria-live="polite">
