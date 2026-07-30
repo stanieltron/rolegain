@@ -11,6 +11,8 @@ import {
 } from "../admin/platform-control.js";
 
 const QUEUE = "rolegain-workflows";
+export const DEFAULT_WORKFLOW_QUEUE_POOL_SIZE = 1;
+export const DEFAULT_WORKER_CONCURRENCY = 1;
 
 export type WorkflowType =
   | "analyze"
@@ -60,7 +62,12 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
     private readonly artifacts: ArtifactArchive,
     private readonly platform: PlatformControl,
   ) {
-    this.boss = new PgBoss(connectionString);
+    this.boss = new PgBoss({
+      connectionString,
+      max: workflowQueuePoolSize(),
+      connectionTimeoutMillis: 10_000,
+      application_name: "rolegain-workflow-queue",
+    });
     this.boss.on("error", (error) =>
       console.error("Rolegain workflow queue error", error),
     );
@@ -77,10 +84,7 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
       QUEUE,
       {
         batchSize: 1,
-        localConcurrency: positiveInteger(
-          process.env.ROLEGAIN_WORKER_CONCURRENCY,
-          2,
-        ),
+        localConcurrency: workerConcurrency(),
         pollingIntervalSeconds: 2,
       },
       async (jobs) => {
@@ -374,6 +378,24 @@ export function workflowBlocksEnqueue(
     run &&
       (run.status === "queued" || run.status === "running") &&
       !run.cancellation_requested_at,
+  );
+}
+
+export function workflowQueuePoolSize(
+  environment: NodeJS.ProcessEnv = process.env,
+) {
+  return positiveInteger(
+    environment.ROLEGAIN_WORKFLOW_QUEUE_POOL_SIZE,
+    DEFAULT_WORKFLOW_QUEUE_POOL_SIZE,
+  );
+}
+
+export function workerConcurrency(
+  environment: NodeJS.ProcessEnv = process.env,
+) {
+  return positiveInteger(
+    environment.ROLEGAIN_WORKER_CONCURRENCY,
+    DEFAULT_WORKER_CONCURRENCY,
   );
 }
 

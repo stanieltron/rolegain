@@ -154,6 +154,11 @@ Deploy the web and worker as separate Railway services from the same repository:
 - worker command: `node dist/server/scripts/start-worker.js`;
 - worker variables: `ROLEGAIN_LLM_TRANSPORT=codex`,
   `ROLEGAIN_CODEX_HOME=/data/codex`;
+- both services default to two application-database connections and one
+  workflow-queue connection. Keep `ROLEGAIN_DATABASE_POOL_SIZE=2`,
+  `ROLEGAIN_WORKFLOW_QUEUE_POOL_SIZE=1`, and
+  `ROLEGAIN_WORKER_CONCURRENCY=1` for a Supabase session pool limited to 15
+  clients;
 - mount a private persistent volume at `/data` on the worker;
 - do not generate a public domain for the worker.
 
