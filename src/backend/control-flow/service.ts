@@ -913,7 +913,9 @@ export class JobSearchService {
       );
       const excludedUrls = new Set(applicationUrls.map(normalizeUrl));
       const reusableBench = revalidated.opportunities.filter(
-        hasReusableAssessment,
+        (job) =>
+          hasReusableAssessment(job) &&
+          job.fit >= applicationMinimumFit(),
       );
       const discoveryLimit = discoveryLimitAfterBenchValidation({
         remainingApplications: remaining,
@@ -2791,6 +2793,13 @@ function applicationRefillRoundLimit() {
     : 4;
 }
 
+function applicationMinimumFit() {
+  const configured = Number(process.env.ROLEGAIN_MIN_APPLICATION_FIT);
+  return Number.isFinite(configured)
+    ? Math.max(0, Math.min(100, configured))
+    : 35;
+}
+
 function preparedVerifiedJobIds(workspace: JobSearchWorkspace) {
   return new Set(
     workspace.applications
@@ -2855,12 +2864,8 @@ export function selectPhase2ApplicationPortfolio(
   ranked: JobOpportunity[],
   limit: number,
 ) {
-  const configured = Number(process.env.ROLEGAIN_MIN_APPLICATION_FIT);
-  const minimumFit = Number.isFinite(configured)
-    ? Math.max(0, Math.min(100, configured))
-    : 35;
   return ranked
-    .filter((job) => job.fit >= minimumFit)
+    .filter((job) => job.fit >= applicationMinimumFit())
     .slice(0, Math.max(0, limit));
 }
 
