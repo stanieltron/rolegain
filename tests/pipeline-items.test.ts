@@ -4,6 +4,7 @@ import {
   applicationOutcomeState,
   isApplicationAttempt,
   settlePipelineItemForDisplay,
+  sortApplicationAttempts,
 } from "../src/ui/pipeline-items.js";
 
 const item = (
@@ -39,5 +40,30 @@ describe("pipeline application classification", () => {
     const stale = item({ match: "running" });
     expect(settlePipelineItemForDisplay(stale, true).match).toBe("bench");
     expect(settlePipelineItemForDisplay(stale, false).match).toBe("running");
+  });
+
+  it("places failed application attempts after ready and active attempts", () => {
+    const failed = item({
+      id: "failed",
+      jobNumber: 3,
+      application: "failed",
+      applicationVerification: "failed",
+    });
+    const active = item({
+      id: "active",
+      jobNumber: 2,
+      application: "running",
+    });
+    const ready = item({
+      id: "ready",
+      jobNumber: 1,
+      application: "passed",
+      applicationVerification: "passed",
+    });
+    expect(
+      sortApplicationAttempts([failed, active, ready]).map(
+        (candidate) => candidate.id,
+      ),
+    ).toEqual(["ready", "active", "failed"]);
   });
 });

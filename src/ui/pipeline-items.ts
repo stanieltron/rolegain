@@ -49,3 +49,21 @@ export function settlePipelineItemForDisplay(
         : item.applicationVerification,
   };
 }
+
+export function sortApplicationAttempts(items: SearchPipelineItem[]) {
+  const order: Record<SearchPipelineState, number> = {
+    passed: 0,
+    selected: 1,
+    running: 1,
+    waiting: 1,
+    bench: 1,
+    failed: 2,
+  };
+  return [...items].sort((left, right) => {
+    const outcomeOrder =
+      order[applicationOutcomeState(left)] -
+      order[applicationOutcomeState(right)];
+    if (outcomeOrder !== 0) return outcomeOrder;
+    return (right.jobNumber ?? -1) - (left.jobNumber ?? -1);
+  });
+}

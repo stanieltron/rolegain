@@ -74,6 +74,7 @@ import {
   applicationOutcomeState,
   isApplicationAttempt,
   settlePipelineItemForDisplay,
+  sortApplicationAttempts,
 } from "./pipeline-items.js";
 import type {
   BetaStatus,
@@ -2826,7 +2827,7 @@ function FindApplicationsProgress({
           step="3"
           title="Application preparation"
           count={`${preparedItems.length} ready · ${failedApplicationCount} failed${activeApplicationCount ? ` · ${activeApplicationCount} active` : ""}`}
-          items={applicationAttemptItems}
+          items={sortApplicationAttempts(applicationAttemptItems)}
           currentItemIds={currentItemIds}
           phase="application_outcome"
           currentRunEmptyMessage={preparedCurrentRunEmptyMessage}
