@@ -61,6 +61,8 @@ import {
   resetUser,
   refineApplicationField,
   refineCoverLetter,
+  reviewEvidenceClaim,
+  reviewEvidenceContradiction,
   setApplicationOutcome,
   stopBackgroundWork,
   tailorApplicationCv,
@@ -1053,6 +1055,33 @@ function ProfileView({ workspace, busy, act }: ViewProps) {
     }
   };
 
+  const refreshCanonicalEvidence = async () => {
+    setCanonicalEvidence(await getCanonicalEvidence(workspace.candidateId));
+  };
+
+  const reviewClaim = async (
+    claimId: string,
+    decision: "candidate_confirmed" | "keep_weak" | "remove",
+  ) => {
+    const result = await act(() => reviewEvidenceClaim(claimId, decision));
+    if (result) await refreshCanonicalEvidence();
+  };
+
+  const reviewContradiction = async (
+    contradictionId: string,
+    decision: "use_value" | "both_valid" | "keep_unresolved",
+    selectedValue?: string,
+  ) => {
+    const result = await act(() =>
+      reviewEvidenceContradiction(
+        contradictionId,
+        decision,
+        selectedValue,
+      ),
+    );
+    if (result) await refreshCanonicalEvidence();
+  };
+
   return (
     <div className="profile-wizard">
       <section className="band wizard-panel wizard-cv">
@@ -1262,6 +1291,12 @@ function ProfileView({ workspace, busy, act }: ViewProps) {
             workspace={workspace}
             canonicalEvidence={canonicalEvidence}
             disabled={busy || analyzing}
+            onReviewClaim={(claimId, decision) =>
+              void reviewClaim(claimId, decision)
+            }
+            onReviewContradiction={(contradictionId, decision, value) =>
+              void reviewContradiction(contradictionId, decision, value)
+            }
             onRemove={(sourceId) => {
               if (
                 window.confirm(
@@ -1401,13 +1436,37 @@ function EvidenceLedger({
   canonicalEvidence,
   disabled,
   onRemove,
+  onReviewClaim,
+  onReviewContradiction,
 }: {
   workspace: JobSearchWorkspace;
   canonicalEvidence?: CanonicalEvidenceModel;
   disabled: boolean;
   onRemove: (sourceId: string) => void;
+  onReviewClaim: (
+    claimId: string,
+    decision: "candidate_confirmed" | "keep_weak" | "remove",
+  ) => void;
+  onReviewContradiction: (
+    contradictionId: string,
+    decision: "use_value" | "both_valid" | "keep_unresolved",
+    selectedValue?: string,
+  ) => void;
 }) {
   if (workspace.sources.length === 0) return null;
+  const reviewedClaimIds = new Set(
+    (workspace.intelligence.evidenceReview?.claims ?? []).map(
+      (review) => review.claimId,
+    ),
+  );
+  const weakClaims = (canonicalEvidence?.claims ?? []).filter(
+    (claim) =>
+      claim.supportStatus !== "supported" &&
+      !claim.review &&
+      !reviewedClaimIds.has(claim.claimId),
+  );
+  const contradictions = canonicalEvidence?.contradictions ?? [];
+  const hasReviewItems = weakClaims.length > 0 || contradictions.length > 0;
   return (
     <section className="band evidence-ledger">
       <div className="subsection-heading">
@@ -1417,79 +1476,124 @@ function EvidenceLedger({
           Codex reasons across these source-backed facts when ranking jobs.
         </small>
       </div>
-      {workspace.intelligence.evidenceRun && (
-        <div
-          className={`canonical-evidence-readiness ${
-            workspace.intelligence.evidenceRun.readyForSearch ? "ready" : "blocked"
-          }`}
-        >
-          <strong>
-            {workspace.intelligence.evidenceRun.readyForSearch
-              ? "Canonical evidence is ready for search"
-              : "Canonical evidence needs review"}
-          </strong>
-          <span>
-            {workspace.intelligence.evidenceRun.counts.supportedClaims} supported claims ·{" "}
-            {workspace.intelligence.evidenceRun.counts.capabilities} capabilities ·{" "}
-            {workspace.intelligence.evidenceRun.counts.roleFamilies} role families
-          </span>
-          {workspace.intelligence.evidenceRun.blockers.map((blocker) => (
-            <small key={blocker}>{blocker}</small>
-          ))}
-          {workspace.intelligence.evidenceRun.warnings.map((warning) => (
-            <small key={warning}>{warning}</small>
-          ))}
-          {canonicalEvidence && (
-            <details className="canonical-evidence-review">
-              <summary>Review canonical claims and search roles</summary>
-              <div className="canonical-evidence-columns">
-                <section>
-                  <strong>Atomic claims</strong>
-                  <ul>
-                    {canonicalEvidence.claims.map((claim) => (
-                      <li key={claim.claimId}>
-                        <span>{claim.action}</span>
-                        <small>
-                          {claim.capability} · {claim.supportStatus} ·{" "}
-                          {Math.round(claim.confidence * 100)}%
-                        </small>
-                        {claim.sourceRefs.map((ref) => (
-                          <small key={`${ref.sourceVersionId}:${ref.locator}`}>
-                            {ref.locator}: “{ref.quote}”
-                          </small>
-                        ))}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-                <section>
-                  <strong>Role hypotheses</strong>
-                  <ul>
-                    {canonicalEvidence.roleFamilies.map((role) => (
-                      <li key={role.roleFamilyId}>
-                        <span>{role.canonicalTitle}</span>
-                        <small>{role.roleClass} · {Math.round(role.confidence * 100)}%</small>
-                      </li>
-                    ))}
-                  </ul>
-                  {canonicalEvidence.unknowns.length > 0 && (
-                    <>
-                      <strong>Material unknowns</strong>
-                      <ul>
-                        {canonicalEvidence.unknowns.map((unknown) => (
-                          <li key={unknown.unknownId}>
-                            <span>{unknown.field}</span>
-                            <small>{unknown.reason}</small>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </section>
+      {hasReviewItems && (
+        <section className="evidence-review-queue" aria-label="Evidence review">
+          <header>
+            <div>
+              <span className="section-label">Your judgment</span>
+              <strong>Evidence review</strong>
+            </div>
+            <small>
+              These items need context only you can provide. They do not block job search.
+            </small>
+          </header>
+          {weakClaims.map((claim) => (
+            <article className="evidence-review-card" key={claim.claimId}>
+              <div>
+                <small>
+                  Weakly supported claim · {Math.round(claim.confidence * 100)}%
+                </small>
+                <strong>{claim.action} {claim.capability}</strong>
+                {claim.sourceRefs[0] && (
+                  <p>
+                    {claim.sourceRefs[0].locator}: “{claim.sourceRefs[0].quote}”
+                  </p>
+                )}
+                {claim.limitations[0] && <p>{claim.limitations[0]}</p>}
               </div>
-            </details>
-          )}
-        </div>
+              <div className="evidence-review-actions">
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onReviewClaim(claim.claimId, "candidate_confirmed")}
+                >
+                  Confirm personally
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={disabled}
+                  onClick={() => onReviewClaim(claim.claimId, "keep_weak")}
+                >
+                  Keep as weak
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={disabled}
+                  onClick={() =>
+                    document.getElementById("experience-evidence")?.focus()
+                  }
+                >
+                  Add evidence
+                </button>
+                <button
+                  type="button"
+                  className="secondary evidence-review-remove"
+                  disabled={disabled}
+                  onClick={() => onReviewClaim(claim.claimId, "remove")}
+                >
+                  Remove
+                </button>
+              </div>
+            </article>
+          ))}
+          {contradictions.map((contradiction) => (
+            <article
+              className="evidence-review-card"
+              key={contradiction.contradictionId}
+            >
+              <div>
+                <small>Conflicting evidence · {contradiction.field}</small>
+                <strong>{contradiction.explanation}</strong>
+              </div>
+              <div className="evidence-review-values">
+                {contradiction.values.map((entry) => (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    key={`${entry.sourceId}:${entry.value}`}
+                    onClick={() =>
+                      onReviewContradiction(
+                        contradiction.contradictionId,
+                        "use_value",
+                        entry.value,
+                      )
+                    }
+                  >
+                    Use “{entry.value}”
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={disabled}
+                  onClick={() =>
+                    onReviewContradiction(
+                      contradiction.contradictionId,
+                      "both_valid",
+                    )
+                  }
+                >
+                  Both are valid variants
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={disabled}
+                  onClick={() =>
+                    onReviewContradiction(
+                      contradiction.contradictionId,
+                      "keep_unresolved",
+                    )
+                  }
+                >
+                  Decide later
+                </button>
+              </div>
+            </article>
+          ))}
+        </section>
       )}
       <div className="evidence-sources">
         {workspace.sources.map((source) => (

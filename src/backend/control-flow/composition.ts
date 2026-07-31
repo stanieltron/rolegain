@@ -31,6 +31,7 @@ import {
 } from "../workflows/workflow-queue.js";
 import type { Pool } from "pg";
 import { PlatformControl } from "../admin/platform-control.js";
+import { appendDiagnosticEvent } from "../../diagnostics/run-log.js";
 
 const defaultProjectRoot = process.cwd();
 
@@ -111,6 +112,15 @@ export async function createRolegainDependencies(
   codex.onRunCompleted = async (observation) => {
     if (observation.executionContext)
       await tokenCounter.record(observation.executionContext, observation);
+    await appendDiagnosticEvent("llm-run-completed", {
+      ...observation,
+      finalText: observation.finalText,
+    });
+  };
+  codex.onNotification = (message) =>
+    appendDiagnosticEvent("codex-notification", { message });
+  codex.onStderr = (line) => {
+    void appendDiagnosticEvent("codex-stderr", { line });
   };
   const workflows =
     database && configuration.databaseUrl

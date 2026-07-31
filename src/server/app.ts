@@ -16,6 +16,7 @@ import {
 import { ApiRateLimiter } from "./rate-limit.js";
 import { withUserLock } from "../infrastructure/database.js";
 import { AdminRoutes } from "./admin-routes.js";
+import { appendDiagnosticEvent } from "../diagnostics/run-log.js";
 
 const projectRoot = process.cwd();
 
@@ -52,6 +53,17 @@ export async function createRolegainApp(
   );
 
   const server = createServer(async (request, response) => {
+    const requestStartedAt = Date.now();
+    const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+    response.once("finish", () => {
+      void appendDiagnosticEvent("http-request", {
+        method: request.method,
+        pathname: requestUrl.pathname,
+        query: requestUrl.search,
+        statusCode: response.statusCode,
+        durationMs: Date.now() - requestStartedAt,
+      });
+    });
     try {
       response.setHeader("X-Content-Type-Options", "nosniff");
       response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");

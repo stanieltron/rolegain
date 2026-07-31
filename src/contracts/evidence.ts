@@ -66,6 +66,13 @@ export interface ProfileFieldEvidenceDraft {
 export interface ProfileFieldEvidence extends ProfileFieldEvidenceDraft {
   sourceVersionId: string;
   quoteHash: string;
+  /**
+   * Explicit means the model supplied the field/value/quote mapping. Recovered
+   * evidence is created deterministically when the selected skill can be found
+   * in a bounded source passage even though the model omitted that mapping.
+   */
+  matchStrength?: "explicit" | "recovered_exact" | "recovered_context";
+  confidence?: number;
 }
 
 export interface SourceSnapshot {
@@ -150,6 +157,11 @@ export interface EvidenceClaim {
   confidence: number;
   limitations: string[];
   status: "active" | "superseded" | "contradicted";
+  review?: {
+    decision: "candidate_confirmed" | "keep_weak" | "remove";
+    note?: string;
+    reviewedAt: string;
+  };
 }
 
 export interface CandidateUnknown {

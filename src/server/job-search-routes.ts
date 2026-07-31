@@ -14,6 +14,8 @@ import type { WorkflowRun } from "../backend/workflows/workflow-queue.js";
 import {
   answerSchema,
   applicationUpdateSchema,
+  evidenceClaimReviewSchema,
+  evidenceContradictionReviewSchema,
   messageSchema,
   opportunitySchema,
   outcomeSchema,
@@ -255,6 +257,41 @@ export async function routeRequest(
       response,
       200,
       await dependencies.jobSearch.canonicalEvidence(candidateEvidenceMatch[1]),
+    );
+    return;
+  }
+  const claimReviewMatch = pathname.match(
+    /^\/api\/job-search\/evidence-review\/claims\/([a-z0-9-]+)$/i,
+  );
+  if (request.method === "POST" && claimReviewMatch) {
+    const body = validate(evidenceClaimReviewSchema, await readJson(request));
+    sendJson(
+      response,
+      200,
+      await dependencies.jobSearch.reviewEvidenceClaim(
+        claimReviewMatch[1],
+        body,
+        userId,
+      ),
+    );
+    return;
+  }
+  const contradictionReviewMatch = pathname.match(
+    /^\/api\/job-search\/evidence-review\/contradictions\/([a-z0-9-]+)$/i,
+  );
+  if (request.method === "POST" && contradictionReviewMatch) {
+    const body = validate(
+      evidenceContradictionReviewSchema,
+      await readJson(request),
+    );
+    sendJson(
+      response,
+      200,
+      await dependencies.jobSearch.reviewEvidenceContradiction(
+        contradictionReviewMatch[1],
+        body,
+        userId,
+      ),
     );
     return;
   }

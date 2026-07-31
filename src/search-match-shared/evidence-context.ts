@@ -1,5 +1,6 @@
 import type { JobOpportunity, JobSearchWorkspace } from "../contracts/job-search.js";
 import { readEvidenceModel } from "../01-evidence-ingestion/04-verification/evidence-model.js";
+import { applyEvidenceReviews } from "./evidence-review.js";
 import {
   knowledgeOverlap as overlap,
   knowledgeTokens as tokens,
@@ -130,17 +131,23 @@ export async function loadPhase2EvidenceContext(
     workspace.candidateId,
     model.manifest.evidenceRunId,
   );
+  const reviewedEvidence = applyEvidenceReviews(
+    model.claims,
+    model.contradictions,
+    workspace.profile,
+    workspace.intelligence.evidenceReview,
+  );
   return {
     evidenceRunId: model.manifest.evidenceRunId,
     manifest: model.manifest,
     readiness: model.readiness,
-    claims: model.claims,
+    claims: reviewedEvidence.claims,
     capabilities: model.capabilities,
     roleFamilies: model.roleFamilies,
     searchVocabulary: model.searchVocabulary,
     constraints: model.constraints,
     unknowns: model.unknowns,
-    contradictions: model.contradictions,
+    contradictions: reviewedEvidence.contradictions,
     prohibitedInferences: model.prohibitedInferences,
     searchLanes: buildPhase2SearchLanes(
       model.roleFamilies,

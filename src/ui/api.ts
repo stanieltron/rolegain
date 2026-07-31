@@ -1,6 +1,7 @@
 import type { JobOpportunity, JobSearchWorkspace } from "../contracts/job-search.js";
 import type {
   CandidateUnknown,
+  CandidateContradiction,
   Capability,
   EvidenceClaim,
   RoleFamily,
@@ -12,6 +13,7 @@ export interface CanonicalEvidenceModel {
   capabilities: Capability[];
   roleFamilies: RoleFamily[];
   unknowns: CandidateUnknown[];
+  contradictions: CandidateContradiction[];
 }
 
 export interface BetaStatus {
@@ -35,6 +37,24 @@ export const getWorkspace = () =>
 export const getCanonicalEvidence = (candidateId: string) =>
   get<CanonicalEvidenceModel>(
     `/api/job-search/candidates/${encodeURIComponent(candidateId)}/evidence`,
+  );
+export const reviewEvidenceClaim = (
+  claimId: string,
+  decision: "candidate_confirmed" | "keep_weak" | "remove",
+  note?: string,
+) =>
+  workspacePost(
+    `/api/job-search/evidence-review/claims/${encodeURIComponent(claimId)}`,
+    { decision, note },
+  );
+export const reviewEvidenceContradiction = (
+  contradictionId: string,
+  decision: "use_value" | "both_valid" | "keep_unresolved",
+  selectedValue?: string,
+) =>
+  workspacePost(
+    `/api/job-search/evidence-review/contradictions/${encodeURIComponent(contradictionId)}`,
+    { decision, selectedValue },
   );
 export const getBetaStatus = () => get<BetaStatus>("/api/beta");
 export const getServiceStatus = () =>
@@ -191,6 +211,10 @@ function normalizeWorkspace(workspace: JobSearchWorkspace): JobSearchWorkspace {
     status: source.status ?? "ready",
   }));
   workspace.intelligence ??= { status: "idle" };
+  workspace.intelligence.evidenceReview ??= {
+    claims: [],
+    contradictions: [],
+  };
   workspace.discoveryNeedsRun ??=
     !workspace.searchProgress && (workspace.jobHistory?.length ?? 0) === 0;
   workspace.rejectedOpportunities ??= [];

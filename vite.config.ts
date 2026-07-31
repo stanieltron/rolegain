@@ -18,7 +18,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      "/api": "http://127.0.0.1:4317",
+      "/api/":
+        process.env.ROLEGAIN_LOCAL_API_ORIGIN || "http://127.0.0.1:4317",
     },
   },
 });

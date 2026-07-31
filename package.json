@@ -9,6 +9,7 @@
     "dev:server": "tsx watch src/server/index.ts",
     "dev:server:api": "tsx watch scripts/start-api-server.ts",
     "dev:ui": "vite --host 127.0.0.1",
+    "dev:diagnostic": "tsx scripts/start-local-diagnostic.ts",
     "build": "tsc --noEmit && vite build && tsc -p tsconfig.server.json",
     "start": "tsx src/server/index.ts",
     "start:production": "node dist/server/src/server/index.js",

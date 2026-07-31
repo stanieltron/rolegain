@@ -1,4 +1,4 @@
-export const SUPPORTED_CODEX_VERSION = "0.139.0";
+export const SUPPORTED_CODEX_VERSION = "0.146.0";
 
 export interface RpcRequest {
   id: number;

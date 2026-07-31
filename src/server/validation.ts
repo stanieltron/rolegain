@@ -80,6 +80,16 @@ export const outcomeSchema = z.object({
     .optional(),
 });
 
+export const evidenceClaimReviewSchema = z.object({
+  decision: z.enum(["candidate_confirmed", "keep_weak", "remove"]),
+  note: optionalText(2_000),
+});
+
+export const evidenceContradictionReviewSchema = z.object({
+  decision: z.enum(["use_value", "both_valid", "keep_unresolved"]),
+  selectedValue: optionalText(10_000),
+});
+
 export function validate<T>(schema: ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (result.success) return result.data;

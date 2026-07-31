@@ -40,6 +40,14 @@ import type {
   JobSearchWorkspace,
   SearchPipelineItem,
 } from "../../contracts/job-search.js";
+import type {
+  CandidateContradiction,
+  EvidenceClaim,
+} from "../../contracts/evidence.js";
+import {
+  applyEvidenceReviews,
+  PROFILE_REVIEW_FIELDS,
+} from "../../search-match-shared/evidence-review.js";
 import { normalizeCompensationText } from "../../search-match-shared/opportunity.js";
 import type {
   OpportunityResearchProvider,
@@ -218,7 +226,90 @@ export class JobSearchService {
 
   async canonicalEvidence(candidateId?: string) {
     const id = candidateId || CANDIDATE_ID;
-    return readCurrentEvidenceModel(this.root, id);
+    const [model, workspace] = await Promise.all([
+      readCurrentEvidenceModel(this.root, id),
+      this.get(id),
+    ]);
+    const { claims, contradictions } = applyEvidenceReviews(
+      model.claims as EvidenceClaim[],
+      model.contradictions as CandidateContradiction[],
+      workspace.profile,
+      workspace.intelligence.evidenceReview,
+    );
+    return { ...model, claims, contradictions };
+  }
+
+  async reviewEvidenceClaim(
+    claimId: string,
+    input: {
+      decision: "candidate_confirmed" | "keep_weak" | "remove";
+      note?: string;
+    },
+    candidateId = CANDIDATE_ID,
+  ) {
+    const model = await readCurrentEvidenceModel(this.root, candidateId);
+    const claim = (model.claims as EvidenceClaim[]).find(
+      (item) => item.claimId === claimId,
+    );
+    if (!claim) throw new Error("Unknown evidence claim");
+    if (claim.supportStatus === "supported")
+      throw new Error("Only weak evidence claims require review");
+    const workspace = await this.get(candidateId);
+    const review = ensureEvidenceReview(workspace);
+    review.claims = [
+      ...review.claims.filter((item) => item.claimId !== claimId),
+      {
+        claimId,
+        decision: input.decision,
+        note: input.note?.trim() || undefined,
+        reviewedAt: new Date().toISOString(),
+      },
+    ];
+    await this.saveCandidate(workspace);
+    return workspace;
+  }
+
+  async reviewEvidenceContradiction(
+    contradictionId: string,
+    input: {
+      decision: "use_value" | "both_valid" | "keep_unresolved";
+      selectedValue?: string;
+    },
+    candidateId = CANDIDATE_ID,
+  ) {
+    const model = await readCurrentEvidenceModel(this.root, candidateId);
+    const contradiction = (
+      model.contradictions as CandidateContradiction[]
+    ).find((item) => item.contradictionId === contradictionId);
+    if (!contradiction) throw new Error("Unknown evidence contradiction");
+    const selectedValue = input.selectedValue?.trim();
+    if (
+      input.decision === "use_value" &&
+      (!selectedValue ||
+        !contradiction.values.some((item) => item.value === selectedValue))
+    )
+      throw new Error("Select one of the evidence values");
+    const workspace = await this.get(candidateId);
+    if (input.decision === "use_value" && selectedValue)
+      applyContradictionProfileValue(
+        workspace.profile,
+        contradiction.field,
+        selectedValue,
+      );
+    const review = ensureEvidenceReview(workspace);
+    review.contradictions = [
+      ...review.contradictions.filter(
+        (item) => item.contradictionId !== contradictionId,
+      ),
+      {
+        contradictionId,
+        decision: input.decision,
+        selectedValue,
+        reviewedAt: new Date().toISOString(),
+      },
+    ];
+    await this.saveCandidate(workspace);
+    return workspace;
   }
 
 
@@ -2698,6 +2789,10 @@ function normalizeWorkspace(
     error: savedIntelligence?.error,
     progress: savedIntelligence?.progress,
     evidenceRun: savedIntelligence?.evidenceRun,
+    evidenceReview: savedIntelligence?.evidenceReview ?? {
+      claims: [],
+      contradictions: [],
+    },
   };
   if (workspace.intelligence.evidenceRun) {
     const repaired = repairDerivedNarrativeReadiness(
@@ -2824,8 +2919,28 @@ function repairWorkspaceJobText(workspace: JobSearchWorkspace): void {
   }));
 }
 function emptyIntelligence(): JobSearchWorkspace["intelligence"] {
-  return { status: "idle" };
+  return {
+    status: "idle",
+    evidenceReview: { claims: [], contradictions: [] },
+  };
 }
+
+function ensureEvidenceReview(workspace: JobSearchWorkspace) {
+  return (workspace.intelligence.evidenceReview ??= {
+    claims: [],
+    contradictions: [],
+  });
+}
+
+function applyContradictionProfileValue(
+  profile: CandidateProfile,
+  field: string,
+  value: string,
+) {
+  if (!PROFILE_REVIEW_FIELDS.has(field)) return;
+  (profile as unknown as Record<string, string>)[field] = value;
+}
+
 function mimeTypeFromFilename(name: string) {
   const extension = path.extname(name).toLowerCase();
   if (extension === ".pdf") return "application/pdf";

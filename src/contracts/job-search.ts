@@ -66,6 +66,20 @@ export interface CandidateIntelligence {
       contradictions: number;
     };
   };
+  evidenceReview?: {
+    claims: Array<{
+      claimId: string;
+      decision: "candidate_confirmed" | "keep_weak" | "remove";
+      note?: string;
+      reviewedAt: string;
+    }>;
+    contradictions: Array<{
+      contradictionId: string;
+      decision: "use_value" | "both_valid" | "keep_unresolved";
+      selectedValue?: string;
+      reviewedAt: string;
+    }>;
+  };
 }
 
 export interface IntakeQuestion {

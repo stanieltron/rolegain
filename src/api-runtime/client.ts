@@ -12,6 +12,7 @@ import {
   serializableResolvedConfig,
   type LlmConfigurationSet,
 } from "../codex-runtime/llm-call-config.js";
+import { llmRunRoot } from "../llm-runtime/run-root.js";
 import type {
   CodexRuntimeInfo,
   CodexThread,
@@ -151,9 +152,7 @@ export class OpenAiCompatibleClient extends CodexExecClient {
     const turnId = randomUUID();
     const startedAt = Date.now();
     const runRoot = path.join(
-      this.apiProjectRoot,
-      ".agent-runtime",
-      "runs",
+      llmRunRoot(this.apiProjectRoot),
       `${new Date().toISOString().replace(/[:.]/g, "-")}-${safeName(resolvedConfig.role)}-${turnId.slice(0, 8)}`,
     );
     await mkdir(runRoot, { recursive: true });

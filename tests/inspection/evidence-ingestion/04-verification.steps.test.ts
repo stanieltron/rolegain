@@ -4,7 +4,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { verifyAndPersistEvidence } from "../../../src/01-evidence-ingestion/04-verification/index.js";
 import { readCurrentEvidenceModel } from "../../../src/01-evidence-ingestion/04-verification/evidence-model.js";
-import { repairDerivedNarrativeReadiness } from "../../../src/01-evidence-ingestion/04-verification/profile-evidence/index.js";
+import {
+  auditProfileEvidence,
+  repairDerivedNarrativeReadiness,
+} from "../../../src/01-evidence-ingestion/04-verification/profile-evidence/index.js";
 import type { EvidenceClaim } from "../../../src/contracts/evidence.js";
 import {
   mockAnalysis,
@@ -228,5 +231,79 @@ describe("Stage 04 — deterministic verification and persistence", () => {
 
     expect(repaired.readyForSearch).toBe(true);
     expect(repaired.blockers).toEqual([]);
+  });
+
+  it("04.9 recovers selected skills from exact and bounded source passages", async () => {
+    const dataRoot = await mkdtemp(path.join(tmpdir(), "inspection-skill-recovery-"));
+    const workspace = mockWorkspaceWithCv();
+    workspace.sources[0].content +=
+      "\nBuilt durable memory with vector and hybrid search for agent workflows.";
+    const analysis = mockAnalysis(workspace);
+    analysis.profile.skills.push("Durable memory", "Vector search");
+    analysis.profileEvidence = (analysis.profileEvidence || []).filter(
+      (item) =>
+        item.value !== "Durable memory" && item.value !== "Vector search",
+    );
+
+    const run = await verifyAndPersistEvidence({
+      dataRoot,
+      workspace,
+      analysis,
+      sourceIdsToAnalyze: new Set([workspace.sources[0].id]),
+    });
+
+    expect(workspace.profile.skills).toEqual(
+      expect.arrayContaining(["Durable memory", "Vector search"]),
+    );
+    expect(run.manifest.readiness.blockers).not.toContain(
+      'Profile field skills contains "Durable memory" without exact source provenance',
+    );
+    expect(run.manifest.readiness.blockers).not.toContain(
+      'Profile field skills contains "Vector search" without exact source provenance',
+    );
+  });
+
+  it("04.10 still rejects a selected skill with no source support", async () => {
+    const dataRoot = await mkdtemp(path.join(tmpdir(), "inspection-unsupported-skill-"));
+    const workspace = mockWorkspaceWithCv();
+    const analysis = mockAnalysis(workspace);
+    analysis.profile.skills.push("Kubernetes operations");
+    analysis.profileEvidence = (analysis.profileEvidence || []).filter(
+      (item) => item.value !== "Kubernetes operations",
+    );
+
+    const run = await verifyAndPersistEvidence({
+      dataRoot,
+      workspace,
+      analysis,
+      sourceIdsToAnalyze: new Set([workspace.sources[0].id]),
+    });
+
+    expect(workspace.profile.skills).not.toContain("Kubernetes operations");
+    expect(run.manifest.readiness.blockers).toContain(
+      'Profile field skills contains "Kubernetes operations" without exact source provenance',
+    );
+  });
+
+  it("04.11 does not recover a short skill from inside an unrelated word", () => {
+    const workspace = mockWorkspaceWithCv();
+    workspace.sources[0].content =
+      "Storage Administrator responsible for enterprise systems.";
+    const proposed = {
+      ...workspace.profile,
+      skills: ["RAG"],
+    };
+
+    const audit = auditProfileEvidence({
+      baseline: workspace.profile,
+      proposed,
+      sources: workspace.sources,
+      evidence: [],
+    });
+
+    expect(audit.supports("skills", "RAG")).toBe(false);
+    expect(audit.blockers).toContain(
+      'Profile field skills contains "RAG" without exact source provenance',
+    );
   });
 });
