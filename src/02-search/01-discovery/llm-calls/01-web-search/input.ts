@@ -30,7 +30,7 @@ Search rules:
 - Prefer one concrete, individually named position per result and set sourceKind=vacancy.
 - A relevant specialist listing/search page with many explicit positions may use sourceKind=job_list. An employer careers index with many explicit positions may use sourceKind=career_page. These are vacancy_search sources for a separate persistent expander, not vacancies and never enter matching themselves.
 - Skip generic homepages, unrelated directories, and pages that do not visibly lead to concrete positions.
-- Use a direct applyUrl only when the search result exposes it; otherwise set applyUrl to jobUrl.
+- Use a direct applyUrl only when the search result exposes an absolute HTTP(S) URL; otherwise set applyUrl to jobUrl. Never return mailto:, javascript:, relative, or private URLs.
 - Exclude results whose snippet explicitly says expired, closed, speculative, duplicate, staffing-pool, or already found.
 - When validation failures are supplied, avoid those exact vacancies and prefer different domains, especially employer-owned career pages and publicly accessible regional sources.
 - description must be a short faithful summary of the search-result snippet; do not research a complete description.

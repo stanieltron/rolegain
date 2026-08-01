@@ -124,6 +124,15 @@ export function evaluateResultGateway(input: {
     sanitizeDuplicateRows(output, "jobs", "jobUrl", adjustments);
   }
 
+  if (
+    input.callId === "search.web-discovery" ||
+    input.callId === "search.listing-extraction" ||
+    input.callId === "search.vacancy-verification"
+  ) {
+    checks.push("application-url-normalization");
+    sanitizeSearchApplicationUrls(input.callId, output, adjustments);
+  }
+
   const exactKeys = EXACT_SOURCE_KEYS[input.callId];
   if (exactKeys) {
     checks.push("exact-source-grounding");
@@ -837,6 +846,50 @@ function validateHttpUrls(
       }
     }
   });
+}
+
+function sanitizeSearchApplicationUrls(
+  callId: string,
+  output: unknown,
+  adjustments: ResultGatewayAdjustment[],
+) {
+  const root = isObject(output) ? output : undefined;
+  if (!root) return;
+  const rows =
+    callId === "search.vacancy-verification"
+      ? [root]
+      : asArray(root.jobs).filter(isObject);
+  rows.forEach((row, index) => {
+    const applyUrl = row.applyUrl;
+    if (typeof applyUrl !== "string" || !applyUrl.trim() || isPublicHttpUrl(applyUrl))
+      return;
+    const fallback =
+      typeof row.jobUrl === "string" && isPublicHttpUrl(row.jobUrl)
+        ? row.jobUrl.trim()
+        : "";
+    row.applyUrl = fallback;
+    adjustments.push({
+      code: "NON_HTTP_APPLY_URL_REPLACED",
+      path:
+        callId === "search.vacancy-verification"
+          ? "$.applyUrl"
+          : `$.jobs[${index}].applyUrl`,
+      message: fallback
+        ? "Kept the vacancy and replaced its non-web application action with the public vacancy page"
+        : "Kept the vacancy interpretation but removed its non-web application action",
+      before: applyUrl,
+      after: fallback,
+    });
+  });
+}
+
+function isPublicHttpUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function nonEmptyString(value: unknown): value is string {

@@ -170,6 +170,13 @@ export interface JobDiscoveryProvenance {
   discoveredAt: string;
 }
 
+export interface JobSourceGroup {
+  id: string;
+  name: string;
+  url: string;
+  sourceClass: string;
+}
+
 export interface JobOpportunity {
   id: string;
   /** Canonical evidence run used to discover and assess this vacancy. */
@@ -205,6 +212,8 @@ export interface JobOpportunity {
     riskSignals: string[];
   };
   discoveryProvenance?: JobDiscoveryProvenance[];
+  /** Listing/marketplace page from which this concrete vacancy was extracted. */
+  sourceGroup?: JobSourceGroup;
   feasibilityGate?: {
     status: "passed" | "unknown" | "blocked";
     reasons: string[];
@@ -291,6 +300,7 @@ export interface SearchPipelineItem {
   fit?: number;
   reason?: string;
   validationDisposition?: SearchValidationDisposition;
+  sourceGroup?: JobSourceGroup;
 }
 
 export interface SearchProgressEvent {

@@ -1647,6 +1647,38 @@ main {
   gap: 6px;
   padding: 3px 0 0;
 }
+.pipeline-source-groups,
+.pipeline-source-group {
+  display: grid;
+  gap: 5px;
+}
+.pipeline-source-groups {
+  border-top: 1px solid #e5e9ec;
+  margin-top: 3px;
+  padding-top: 7px;
+}
+.pipeline-source-group { padding-bottom: 3px; }
+.pipeline-source-parent {
+  background: #f5f8fb;
+  border-left-color: #577b9d;
+}
+.pipeline-source-child {
+  background: #fbfcfd;
+  border-left: 1px solid #cdd7df;
+  margin-left: 18px;
+  min-height: 36px;
+  padding: 5px 7px;
+}
+.pipeline-source-child strong { font-size: 8px; }
+.pipeline-source-child a > span { font-size: 7px; }
+.pipeline-source-branch {
+  color: #7e929f;
+  display: grid;
+  font-size: 12px;
+  height: 15px;
+  place-items: center;
+  width: 15px;
+}
 .pipeline-previous-label {
   color: #7a858c;
   font-size: 8px;

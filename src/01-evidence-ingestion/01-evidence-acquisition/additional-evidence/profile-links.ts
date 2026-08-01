@@ -8,7 +8,10 @@ import {
   readSupplementalEvidence,
   type SupplementalEvidenceInput,
 } from "./read-source.js";
-import { markCandidateEvidenceForRebuild } from "./add-evidence.js";
+import {
+  evidenceUrlsMatch,
+  markCandidateEvidenceForRebuild,
+} from "./add-evidence.js";
 
 export type ProfileEvidenceField = "linkedin" | "github" | "website";
 
@@ -32,7 +35,7 @@ export function stageProfileEvidenceSources(
   workspace: JobSearchWorkspace,
   fields: Iterable<ProfileEvidenceField>,
 ) {
-  let changed = false;
+  let changed = collapseEquivalentProfileEvidenceSources(workspace);
   let needsFetch = false;
   for (const field of fields) {
     const normalized = normalizeProfileEvidenceUrl(
@@ -57,12 +60,12 @@ export function stageProfileEvidenceSources(
       (source) =>
         !source.profileField &&
         source.url &&
-        normalizeWebUrl(source.url)?.href === url,
+        evidenceUrlsMatch(source.url, url),
     );
     if (!managed && matchingManualSource) continue;
     if (
       managed &&
-      managed.url === url &&
+      evidenceUrlsMatch(managed.url, url) &&
       ((managed.status === "ready" && Boolean(managed.content)) ||
         ((managed.status === "needs_review" ||
           managed.status === "analysis_failed") &&
@@ -103,6 +106,29 @@ export function stageProfileEvidenceSources(
     workspace.intelligence.error = undefined;
   }
   return { changed, needsFetch };
+}
+
+/** Prefer an already-ingested manual source over an empty managed duplicate. */
+export function collapseEquivalentProfileEvidenceSources(
+  workspace: JobSearchWorkspace,
+) {
+  let changed = false;
+  for (let index = workspace.sources.length - 1; index >= 0; index -= 1) {
+    const managed = workspace.sources[index];
+    if (!managed.profileField || !managed.url || managed.content?.trim()) continue;
+    const equivalentReadySource = workspace.sources.some(
+      (source, sourceIndex) =>
+        sourceIndex !== index &&
+        !source.profileField &&
+        source.status === "ready" &&
+        Boolean(source.content?.trim()) &&
+        evidenceUrlsMatch(source.url, managed.url),
+    );
+    if (!equivalentReadySource) continue;
+    workspace.sources.splice(index, 1);
+    changed = true;
+  }
+  return changed;
 }
 
 export function isProfileEvidenceField(

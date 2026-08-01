@@ -6,7 +6,11 @@ import type {
   JobSearchWorkspace,
 } from "../contracts/job-search.js";
 import { CodexExecClient } from "../codex-runtime/client.js";
-import { searchAndValidateOpportunities } from "../02-search/01-discovery/index.js";
+import type { SearchVersion } from "../config/runtime.js";
+import {
+  searchImplementationFor,
+  type SearchImplementation,
+} from "../search-discovery.js";
 import { revalidateOpportunities } from "../02-search/03-vacancy-validation/index.js";
 import { matchOpportunities } from "./01-requirement-matching/index.js";
 import { inspectOpportunityApplications } from "./02-application-inspection/index.js";
@@ -33,12 +37,18 @@ export interface OpportunityResearchResult {
  */
 export class LiveOpportunityResearcher implements OpportunityResearchProvider {
   private readonly browsers = new BrowserPool();
+  private readonly search: SearchImplementation;
 
   constructor(
     private readonly codex?: CodexExecClient,
     private readonly cwd = process.cwd(),
     private readonly dataRoot = path.join(this.cwd, "data"),
-  ) {}
+    searchVersion: SearchVersion = process.env.ROLEGAIN_SEARCH_VERSION === "v2"
+      ? "v2"
+      : "v1",
+  ) {
+    this.search = searchImplementationFor(searchVersion);
+  }
 
   cancelAll() {
     return this.browsers.cancelAll();
@@ -85,7 +95,7 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
     } = {},
   ) {
     if (!this.codex) throw new Error("Codex live web search is not configured");
-    return searchAndValidateOpportunities({
+    return this.search({
       codex: this.codex,
       cwd: this.cwd,
       dataRoot: this.dataRoot,
@@ -113,6 +123,7 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
       dataRoot: this.dataRoot,
       browsers: this.browsers,
       workspace,
+      search: this.search,
       options,
     });
   }

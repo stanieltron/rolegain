@@ -23,6 +23,12 @@ export interface DiscoveredJob {
   discoveryQuery?: string;
   discoveryWave?: number;
   sourceClass?: string;
+  sourceGroup?: {
+    id: string;
+    name: string;
+    url: string;
+    sourceClass: string;
+  };
 }
 
 export interface LiveCandidate {
@@ -59,6 +65,7 @@ export interface OpportunityProgressUpdate {
     company: string;
     title: string;
     sourceUrl: string;
+    sourceGroup?: DiscoveredJob["sourceGroup"];
   };
   phase?: "validation" | "match" | "application" | "application_verification";
   state?: "waiting" | "running" | "passed" | "failed" | "bench" | "selected";

@@ -204,47 +204,11 @@ export async function routeRequest(
     request.method === "POST" &&
     pathname === "/api/job-search/background/continue"
   ) {
-    dependencies.codex.resumeTurns();
-    if (dependencies.workflows) {
-      const before = await dependencies.jobSearch.get(userId);
-      const previousWorkflow = await dependencies.workflows.latest(userId);
-      const control =
-        before.backgroundExecution?.state === "stopped"
-          ? before.backgroundExecution
-          : interruptedResumeControl(before, previousWorkflow);
-      const workspace = await dependencies.jobSearch.continueBackgroundWork(
-        userId,
-        false,
-        control,
-      );
-      let resumedWorkflow: WorkflowRun | undefined;
-      if (control?.resumeCandidateAnalysis || control?.resumeProfileSourceSync)
-        resumedWorkflow = await dependencies.workflows.enqueue(
-          userId,
-          "analyze",
-        );
-      if (control?.resumeSearch)
-        resumedWorkflow = await dependencies.workflows.enqueue(
-          userId,
-          control.resumeSearch === "prepare_search_ready"
-            ? "prepare-search-ready"
-            : "prepare",
-          { reserveBetaBatch: false },
-        );
-      sendJson(
-        response,
-        202,
-        attachWorkflowExecution(
-          workspace,
-          resumedWorkflow ?? previousWorkflow,
-        ),
-      );
-    } else
-      sendJson(
-        response,
-        202,
-        await dependencies.jobSearch.continueBackgroundWork(userId),
-      );
+    sendJson(
+      response,
+      202,
+      await resumeBackgroundExecution(dependencies, userId),
+    );
     return;
   }
   const candidateEvidenceMatch = pathname.match(
@@ -442,6 +406,7 @@ export async function routeRequest(
     return;
   }
   if (request.method === "POST" && pathname === "/api/job-search/prepare") {
+    if (await resumePausedWorkIfPresent(response, dependencies, userId)) return;
     if (dependencies.workflows) {
       const workspace = await dependencies.jobSearch.markWorkflowQueued(
         "prepare",
@@ -473,6 +438,7 @@ export async function routeRequest(
     request.method === "POST" &&
     pathname === "/api/job-search/prepare-ready"
   ) {
+    if (await resumePausedWorkIfPresent(response, dependencies, userId)) return;
     if (dependencies.workflows) {
       const workspace = await dependencies.jobSearch.markWorkflowQueued(
         "prepare-search-ready",
@@ -520,6 +486,7 @@ export async function routeRequest(
     return;
   }
   if (request.method === "POST" && pathname === "/api/job-search/find-more") {
+    if (await resumePausedWorkIfPresent(response, dependencies, userId)) return;
     if (dependencies.workflows) {
       const workspace = await dependencies.jobSearch.markWorkflowQueued(
         "find-more",
@@ -751,6 +718,74 @@ export async function routeRequest(
     pathname,
     response,
     path.join(dependencies.root, "dist", "client"),
+  );
+}
+
+async function resumePausedWorkIfPresent(
+  response: ServerResponse,
+  dependencies: RouteDependencies,
+  userId: string,
+) {
+  const workspace = await dependencies.jobSearch.get(userId);
+  const control = workspace.backgroundExecution;
+  if (control?.state !== "stopped") return false;
+  const hasResumableWork = hasResumablePausedWork(workspace);
+  if (!hasResumableWork) {
+    dependencies.codex.resumeTurns();
+    await dependencies.jobSearch.continueBackgroundWork(userId, false);
+    return false;
+  }
+  sendJson(
+    response,
+    202,
+    await resumeBackgroundExecution(dependencies, userId),
+  );
+  return true;
+}
+
+export function hasResumablePausedWork(workspace: JobSearchWorkspace) {
+  const control = workspace.backgroundExecution;
+  return Boolean(
+    control?.state === "stopped" &&
+      (control.resumeCandidateAnalysis ||
+        control.resumeProfileSourceSync ||
+        control.resumeSearch),
+  );
+}
+
+async function resumeBackgroundExecution(
+  dependencies: RouteDependencies,
+  userId: string,
+) {
+  dependencies.codex.resumeTurns();
+  if (!dependencies.workflows)
+    return dependencies.jobSearch.continueBackgroundWork(userId);
+
+  const before = await dependencies.jobSearch.get(userId);
+  const previousWorkflow = await dependencies.workflows.latest(userId);
+  const control =
+    before.backgroundExecution?.state === "stopped"
+      ? before.backgroundExecution
+      : interruptedResumeControl(before, previousWorkflow);
+  const workspace = await dependencies.jobSearch.continueBackgroundWork(
+    userId,
+    false,
+    control,
+  );
+  let resumedWorkflow: WorkflowRun | undefined;
+  if (control?.resumeCandidateAnalysis || control?.resumeProfileSourceSync)
+    resumedWorkflow = await dependencies.workflows.enqueue(userId, "analyze");
+  if (control?.resumeSearch)
+    resumedWorkflow = await dependencies.workflows.enqueue(
+      userId,
+      control.resumeSearch === "prepare_search_ready"
+        ? "prepare-search-ready"
+        : "prepare",
+      { reserveBetaBatch: false },
+    );
+  return attachWorkflowExecution(
+    workspace,
+    resumedWorkflow ?? previousWorkflow,
   );
 }
 

@@ -846,6 +846,12 @@ export function candidateFromListingLead(
       discoveryQuery: parent.job.discoveryQuery,
       discoveryWave: parent.job.discoveryWave,
       sourceClass: parent.job.sourceClass,
+      sourceGroup: parent.job.sourceGroup ?? {
+        id: `source-${parent.job.id}`,
+        name: parent.company || parent.job.title || new URL(pageUrl).hostname,
+        url: pageUrl,
+        sourceClass: parent.job.sourceClass || "job_marketplace",
+      },
     },
   };
 }

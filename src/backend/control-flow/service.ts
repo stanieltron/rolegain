@@ -21,6 +21,7 @@ import {
 export { evidenceUrlsMatch };
 import {
   isProfileEvidenceField,
+  collapseEquivalentProfileEvidenceSources,
   PROFILE_EVIDENCE_FIELDS,
   profileSourceError,
   stageProfileEvidenceSources,
@@ -1318,20 +1319,35 @@ export class JobSearchService {
     await this.assignJobNumbers([...assessed, ...assessmentFailures]);
     mergeResearchFailures(workspace, assessmentFailures);
     const ranked = mergeUniqueJobs(assessed).sort((a, b) => b.fit - a.fit);
-    const selectedJobs = selectPhase2ApplicationPortfolio(
-      ranked,
-      selectionLimit ?? workspace.searchConfig.applicationTarget,
-    );
-    return this.prepareSelectedApplications({
-      workspace,
-      ranked,
-      selectedJobs,
-      existingApplicationJobs,
-      fallbackApplications,
-      nextSeenJobUrls,
-      reportProgress,
-      waitForProgress,
-    });
+    const successTarget = selectionLimit ?? workspace.searchConfig.applicationTarget;
+    const eligibleJobs = selectPhase2ApplicationPortfolio(ranked, ranked.length);
+    const preparedBefore = preparedVerifiedJobIds(workspace).size;
+    let result = workspace;
+
+    // A refill round is a complete funnel. Drain the eligible ranked bench in
+    // ordered batches sized to the remaining success shortfall. Failed forms
+    // immediately yield to the next scored batch without forcing new search.
+    let cursor = 0;
+    while (
+      cursor < eligibleJobs.length &&
+      preparedVerifiedJobIds(workspace).size - preparedBefore < successTarget
+    ) {
+      const completed = preparedVerifiedJobIds(workspace).size - preparedBefore;
+      const remaining = successTarget - completed;
+      const selectedJobs = eligibleJobs.slice(cursor, cursor + remaining);
+      cursor += selectedJobs.length;
+      result = await this.prepareSelectedApplications({
+        workspace,
+        ranked,
+        selectedJobs,
+        existingApplicationJobs,
+        fallbackApplications,
+        nextSeenJobUrls,
+        reportProgress,
+        waitForProgress,
+      });
+    }
+    return result;
   }
 
   private async prepareSelectedApplications(input: {
@@ -1357,15 +1373,19 @@ export class JobSearchService {
       waitForProgress,
     } = input;
     const selectedIds = new Set(selectedJobs.map((job) => job.id));
+    const attemptedIds = new Set(
+      workspace.applications.map((application) => application.jobId),
+    );
     await Promise.all(
-      ranked.map((job) =>
-        reportProgress({
+      ranked.map((job) => {
+        if (!selectedIds.has(job.id) && attemptedIds.has(job.id)) return undefined;
+        return reportProgress({
           item: pipelineIdentity(job),
           phase: "application",
           state: selectedIds.has(job.id) ? "selected" : "bench",
           fit: job.fit,
-        }),
-      ),
+        });
+      }),
     );
     setSearchStage(
       workspace,
@@ -2497,6 +2517,11 @@ export class JobSearchService {
           activity: failureActivity,
           updatedAt: new Date().toISOString(),
         };
+        current.backgroundExecution = {
+          state: "stopped",
+          stoppedAt: new Date().toISOString(),
+          resumeSearch: mode,
+        };
         await this.saveCandidate(current);
       })
       .finally(() => {
@@ -2643,7 +2668,7 @@ function emptyWorkspace(
     searchValidationIssues: [],
     jobHistory: [],
     seenJobUrls: [],
-    searchConfig: { discoveryTarget: 20, applicationTarget: 5 },
+    searchConfig: { discoveryTarget: 26, applicationTarget: 5 },
     sharedAnswers: {},
     profileSetupStep: 1,
     discoveryNeedsRun: true,
@@ -2662,6 +2687,21 @@ function normalizeWorkspace(
   workspace.rejectedOpportunities = workspace.rejectedOpportunities ?? [];
   workspace.searchValidationIssues = workspace.searchValidationIssues ?? [];
   workspace.backgroundExecution ??= { state: "running" };
+  if (
+    workspace.searchProgress?.stage === "failed" &&
+    workspace.backgroundExecution.state === "running" &&
+    workspace.workflowExecution?.status !== "queued" &&
+    workspace.workflowExecution?.status !== "running"
+  ) {
+    workspace.backgroundExecution = {
+      state: "stopped",
+      stoppedAt: workspace.searchProgress.updatedAt || new Date().toISOString(),
+      resumeSearch:
+        workspace.workflowExecution?.type === "prepare-search-ready"
+          ? "prepare_search_ready"
+          : "prepare",
+    };
+  }
   const normalizedValidationOutcomes = mergeFailures(
     workspace.rejectedOpportunities,
     workspace.searchValidationIssues,
@@ -2693,7 +2733,7 @@ function normalizeWorkspace(
   workspace.searchConfig = {
     discoveryTarget: Math.max(
       5,
-      Math.min(50, workspace.searchConfig?.discoveryTarget ?? 20),
+      Math.min(50, workspace.searchConfig?.discoveryTarget ?? 26),
     ),
     applicationTarget: Math.max(
       1,
@@ -2824,14 +2864,35 @@ function normalizeWorkspace(
       .update(source.content || "")
       .digest("hex");
   }
+  collapseEquivalentProfileEvidenceSources(workspace);
+  repairCompletedEvidenceState(workspace);
   advanceProfileSetupAfterAnalysis(workspace);
   normalizeApplications(workspace.applications);
   for (const app of workspace.applications) {
     refreshApplicationReadiness(app, false);
   }
-  workspace.jobHistory = normalizeJobHistory(workspace);
+  if (
+    workspace.searchProgress?.stage === "ready" ||
+    workspace.searchProgress?.stage === "failed"
+  )
+    finalizePipelineHistory(workspace);
+  else workspace.jobHistory = normalizeJobHistory(workspace);
   recalculate(workspace);
   return workspace;
+}
+
+function repairCompletedEvidenceState(workspace: JobSearchWorkspace) {
+  if (
+    workspace.intelligence.status !== "analyzing" ||
+    workspace.intelligence.evidenceRun?.readyForSearch !== true ||
+    workspace.sources.some(
+      (source) => source.status === "processing" || source.analysisRequired,
+    )
+  )
+    return;
+  workspace.intelligence.status = "ready";
+  workspace.intelligence.error = undefined;
+  workspace.intelligence.progress = undefined;
 }
 
 
@@ -3210,7 +3271,7 @@ export function discoveryLimitAfterBenchValidation(input: {
   if (shortfall === 0) return 0;
   if (input.firstBatch && input.refillRound === 0)
     return Math.max(1, Math.floor(input.configuredDiscoveryTarget));
-  return Math.max(1, shortfall * 4);
+  return Math.max(1, Math.ceil(shortfall * 5.2));
 }
 
 export function selectPhase2ApplicationPortfolio(
@@ -3652,6 +3713,7 @@ function pipelineIdentity(job: JobOpportunity) {
     company: job.company,
     title: job.title,
     sourceUrl: job.sourceUrl,
+    sourceGroup: job.sourceGroup,
   };
 }
 
@@ -3729,6 +3791,7 @@ function applyProgressUpdate(
       item.company = update.item.company || item.company;
       item.title = update.item.title || item.title;
       item.sourceUrl = update.item.sourceUrl || item.sourceUrl;
+      item.sourceGroup = update.item.sourceGroup || item.sourceGroup;
     }
     if (update.item.jobNumber) item.jobNumber = update.item.jobNumber;
     if (update.phase === "validation") item.validation = update.state ?? item.validation;
@@ -3835,8 +3898,18 @@ export function finalizePipelineHistory(workspace: JobSearchWorkspace) {
   const finalized = normalizeJobHistory(workspace).map((item) => {
     const application = applicationsByJobId.get(item.id);
     const next = { ...item };
-    if (next.validation === "running") next.validation = "bench";
-    if (next.match === "running") next.match = "bench";
+    if (
+      (next.validation === "waiting" || next.validation === "running") &&
+      next.match === "waiting" &&
+      next.application === "waiting"
+    ) {
+      next.validation = "failed";
+      next.reason ||= "Vacancy verification did not return a completed result";
+    }
+    if (next.match === "running") {
+      next.match = "failed";
+      next.reason ||= "Evidence matching did not return a completed result";
+    }
     if (next.application === "running") next.application = "failed";
     if (next.applicationVerification === "running")
       next.applicationVerification = "failed";

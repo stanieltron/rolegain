@@ -4,7 +4,10 @@ import type {
   JobSearchWorkspace,
 } from "../../contracts/job-search.js";
 import type { CodexExecClient } from "../../codex-runtime/client.js";
-import { searchAndValidateOpportunities } from "../../02-search/01-discovery/index.js";
+import {
+  searchImplementationFor,
+  type SearchImplementation,
+} from "../../search-discovery.js";
 import { matchOneOpportunity } from "../01-requirement-matching/match-one/index.js";
 import type { BrowserPool } from "../../search-match-shared/browser-pool.js";
 import { matchingConcurrency } from "../../search-match-shared/parallel.js";
@@ -19,6 +22,7 @@ export interface SearchToMatchStreamInput {
   dataRoot: string;
   browsers: BrowserPool;
   workspace: JobSearchWorkspace;
+  search?: SearchImplementation;
   options?: {
     excludeApplyUrls?: string[];
     limit?: number;
@@ -37,15 +41,18 @@ interface MatchTerminalResult {
 /** Search, validate, match, and reverse-verify without cross-stage barriers. */
 export async function streamSearchToMatch(input: SearchToMatchStreamInput) {
   const onProgress = input.options?.onProgress;
+  const search = input.search ?? searchImplementationFor(
+    process.env.ROLEGAIN_SEARCH_VERSION === "v2" ? "v2" : "v1",
+  );
   const streamed = await runBoundedStreamingPipeline<
     JobOpportunity,
     MatchTerminalResult,
-    Awaited<ReturnType<typeof searchAndValidateOpportunities>>
+    Awaited<ReturnType<SearchImplementation>>
   >({
     concurrency: matchingConcurrency(),
     key: (opportunity) => opportunity.id,
     produce: (emit) =>
-      searchAndValidateOpportunities({
+      search({
         codex: input.codex,
         cwd: input.cwd,
         dataRoot: input.dataRoot,

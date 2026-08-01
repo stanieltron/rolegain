@@ -417,6 +417,7 @@ export async function searchAndValidateOpportunities(input: {
                         discoveredAt: validatedAt,
                       },
                     ],
+                    sourceGroup: resolvedCandidate.job.sourceGroup,
                   };
                   opportunities.push(opportunity);
                   await options.onProgress?.({
@@ -556,7 +557,7 @@ export function validatedDiscoveryTarget(
   const applications = Math.max(1, Math.floor(applicationTarget));
   return Math.min(
     requested,
-    applications + 2,
+    Math.max(4, Math.ceil(applications * 2.6)),
   );
 }
 

@@ -34,7 +34,7 @@ ${JSON.stringify(
 Rules:
 - Include a row only when the page explicitly names a concrete position relevant to the candidate.
 - A category/list page may yield individual job links. An employer page may yield multiple same-page vacancies sharing one form.
-- jobUrl and applyUrl must be the captured page URL or exact captured URLs. When a same-page vacancy uses a shared form, use pageUrl for jobUrl and the captured form/apply URL when present, otherwise pageUrl.
+- jobUrl and applyUrl must be absolute captured HTTP(S) URLs. When a same-page vacancy uses a shared web form, use pageUrl for jobUrl and the captured HTTP(S) form/apply URL when present, otherwise pageUrl. Never use mailto: as applyUrl; keep the vacancy page URL instead.
 - Use openStatus closed for explicit expiry/closure. Do not treat an old undated search snippet as fresh.
 - description and evidence must be faithful page excerpts; do not synthesize missing requirements.
 - Leave unknown fields empty.`;

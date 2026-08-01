@@ -89,6 +89,31 @@ describe("persistent vacancy-source expansion", () => {
     expect(checkpointAsCandidate(reloaded).job.sourceKind).toBe("job_list");
   });
 
+  it("attaches the marketplace parent to every emitted concrete vacancy", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vacancy-source-parent-"));
+    const inventory = new VacancySourceInventory(root, "candidate-1");
+    const emitted = await runVacancySource({
+      browser: {} as Browser,
+      codex: {} as CodexExecClient,
+      cwd: process.cwd(),
+      workspace: { candidateId: "candidate-1" } as JobSearchWorkspace,
+      phase2Evidence: {} as Phase2EvidenceContext,
+      inventory,
+      source,
+      maxPages: 1,
+      targetCandidates: 1,
+      expandBatch: async () => ({
+        candidates: [child("nested")],
+        inspected: 1,
+      }),
+    });
+    expect(emitted[0].job.sourceGroup).toMatchObject({
+      name: "Example Careers",
+      url: "https://jobs.example.test/careers",
+      sourceClass: "employer_career",
+    });
+  });
+
   it("continues the saved frontier on the next run", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "vacancy-source-resume-"));
     const inventory = new VacancySourceInventory(root, "candidate-1");

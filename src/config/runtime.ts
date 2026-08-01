@@ -1,7 +1,9 @@
 export type AuthMode = "local" | "supabase";
+export type SearchVersion = "v1" | "v2";
 
 export interface RuntimeConfiguration {
   authMode: AuthMode;
+  searchVersion: SearchVersion;
   databaseUrl?: string;
   applicationDatabaseUrl?: string;
   publicOrigin?: string;
@@ -44,6 +46,7 @@ export function runtimeConfiguration(
 
   return {
     authMode,
+    searchVersion: environment.ROLEGAIN_SEARCH_VERSION === "v2" ? "v2" : "v1",
     databaseUrl,
     applicationDatabaseUrl,
     publicOrigin: clean(environment.ROLEGAIN_PUBLIC_ORIGIN),

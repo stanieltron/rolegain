@@ -35,7 +35,7 @@ Rules:
 - Use closed_job/openStatus closed only when the current page explicitly says applications are closed, the job is filled, or the concrete vacancy/application route is gone. A stale valid-through date alone must not override a currently visible concrete vacancy with an active Apply route.
 - Use unknown rather than guessing when the page is blocked or insufficient.
 - description must contain the actual vacancy content, not navigation, cookie banners, company marketing, benefits-only text, or a search-result list.
-- applyUrl must be one of the captured URLs or empty.
+- applyUrl must be an absolute captured HTTP(S) URL or empty. If applying ultimately uses mailto: or another non-web action, leave applyUrl empty so the vacancy page remains the application-stage entry point.
 - publishedAt and validThrough must be copied only from explicit page dates or left empty.
 - confidence is an integer from 0 to 100.
 - sourceText must be a faithful excerpt present in the supplied captured page.

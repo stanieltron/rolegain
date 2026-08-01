@@ -68,6 +68,54 @@ describe("deterministic LLM result gateway", () => {
     expect(result.output).toEqual({ jobs: [job] });
   });
 
+  it("keeps a discovery wave when one vacancy applies by email", () => {
+    const emailApplication = {
+      jobUrl: "https://jobs.example.test/email-role",
+      applyUrl: "mailto:careers@example.test",
+    };
+    const regularApplication = {
+      jobUrl: "https://jobs.example.test/web-role",
+      applyUrl: "https://jobs.example.test/web-role/apply",
+    };
+    const result = evaluateResultGateway({
+      callId: "search.web-discovery",
+      finalText: JSON.stringify({ jobs: [emailApplication, regularApplication] }),
+      outputSchema: objectSchema,
+      prompt: "Find current jobs.",
+    });
+
+    expect(result.report.accepted).toBe(true);
+    expect(result.report.adjustments).toContainEqual(
+      expect.objectContaining({
+        code: "NON_HTTP_APPLY_URL_REPLACED",
+        path: "$.jobs[0].applyUrl",
+        before: "mailto:careers@example.test",
+        after: emailApplication.jobUrl,
+      }),
+    );
+    expect(result.output).toEqual({
+      jobs: [
+        { ...emailApplication, applyUrl: emailApplication.jobUrl },
+        regularApplication,
+      ],
+    });
+  });
+
+  it("removes a non-web apply action from vacancy verification", () => {
+    const result = evaluateResultGateway({
+      callId: "search.vacancy-verification",
+      finalText: JSON.stringify({ applyUrl: "mailto:careers@example.test" }),
+      outputSchema: objectSchema,
+      prompt: "Verify the vacancy page.",
+    });
+
+    expect(result.report.accepted).toBe(true);
+    expect(result.output).toEqual({ applyUrl: "" });
+    expect(result.report.adjustments).toContainEqual(
+      expect.objectContaining({ code: "NON_HTTP_APPLY_URL_REPLACED" }),
+    );
+  });
+
   it("drops ungrounded chunk evidence so coverage can repair the omission", () => {
     const result = evaluateResultGateway({
       callId: "evidence.chunk-analysis",

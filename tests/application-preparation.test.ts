@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ApplicationDraft } from "../src/contracts/job-search.js";
 import {
   APPLICATION_OPEN_CONTROL_NAME,
+  applicationFieldSetLooksCredible,
   auditApplicationFieldMapping,
   applicationControlSelector,
   canonicalFieldKey,
@@ -73,6 +74,8 @@ describe("application preparation safeguards", () => {
   it("opens direct and outbound employer application controls without treating submit as navigation", () => {
     for (const label of [
       "Apply for this Job",
+      "Apply here",
+      "I'm interested",
       "Visit job opening page",
       "Go to job page",
       "Apply on employer website",
@@ -107,6 +110,38 @@ describe("application preparation safeguards", () => {
         application({ formSchema: undefined }),
       ),
     ).toBe(false);
+  });
+
+  it("does not mistake a job-board search box or newsletter email for an application", () => {
+    const field = (label: string, inputType = "text") => ({
+      label,
+      externalName: label.toLowerCase().replace(/\s+/g, "-"),
+      tag: "input",
+      inputType,
+      placeholder: "",
+      required: false,
+      options: [],
+      hasCombobox: false,
+      allowsManualEntry: false,
+    });
+    expect(
+      applicationFieldSetLooksCredible([
+        field("Search job titles or companies"),
+        field("Location search"),
+      ]),
+    ).toBe(false);
+    expect(applicationFieldSetLooksCredible([field("Email", "email")])).toBe(
+      false,
+    );
+    expect(
+      applicationFieldSetLooksCredible([
+        field("Full name"),
+        field("Email", "email"),
+      ]),
+    ).toBe(true);
+    expect(
+      applicationFieldSetLooksCredible([field("Upload Resume/CV", "file")]),
+    ).toBe(true);
   });
 
   it("extracts Ashby custom questions once, including required button and checkbox groups", async () => {

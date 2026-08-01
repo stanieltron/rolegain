@@ -51,6 +51,12 @@ export async function runVacancySource(
 
   checkpoint.pendingVacancies ??= [];
   const emitCandidate = async (candidate: LiveCandidate) => {
+    candidate.job.sourceGroup ??= {
+      id: `source-${checkpoint.sourceId}`,
+      name: checkpoint.sourceName,
+      url: checkpoint.sourceUrl,
+      sourceClass: checkpoint.sourceClass,
+    };
     const normalized = normalizeOpportunityUrl(candidate.job.jobUrl);
     if (
       checkpoint.seenVacancyUrls.some(

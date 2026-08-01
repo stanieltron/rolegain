@@ -3,8 +3,10 @@ import type { SearchPipelineItem } from "../src/contracts/job-search.js";
 import {
   applicationOutcomeState,
   isApplicationAttempt,
+  pipelineDisplayStage,
   settlePipelineItemForDisplay,
   sortApplicationAttempts,
+  sortPipelineRows,
 } from "../src/ui/pipeline-items.js";
 
 const item = (
@@ -65,5 +67,37 @@ describe("pipeline application classification", () => {
         (candidate) => candidate.id,
       ),
     ).toEqual(["ready", "active", "failed"]);
+  });
+
+  it("shows each job only in the furthest pipeline stage it reached", () => {
+    expect(
+      pipelineDisplayStage(
+        item({ validation: "failed", match: "waiting", application: "waiting" }),
+      ),
+    ).toBe("validation");
+    expect(pipelineDisplayStage(item({ application: "bench" }))).toBe("match");
+    expect(
+      pipelineDisplayStage(
+        item({ application: "failed", applicationVerification: "failed" }),
+      ),
+    ).toBe("application");
+  });
+
+  it("sorts by current run, then success, then ascending job number", () => {
+    const rows = [
+      item({ id: "old-success", jobNumber: 1, match: "passed" }),
+      item({ id: "current-failed", jobNumber: 4, match: "failed" }),
+      item({ id: "current-success-3", jobNumber: 3, match: "passed" }),
+      item({ id: "current-success-2", jobNumber: 2, match: "passed" }),
+    ];
+    expect(
+      sortPipelineRows(rows, new Set(["current-failed", "current-success-3", "current-success-2"]), "match")
+        .map((candidate) => candidate.id),
+    ).toEqual([
+      "current-success-2",
+      "current-success-3",
+      "current-failed",
+      "old-success",
+    ]);
   });
 });

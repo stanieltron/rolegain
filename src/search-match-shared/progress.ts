@@ -7,6 +7,7 @@ export function progressItem(candidate: LiveCandidate) {
     company: candidate.company,
     title: candidate.job.title,
     sourceUrl: candidate.job.jobUrl,
+    sourceGroup: candidate.job.sourceGroup,
   };
 }
 
@@ -17,5 +18,6 @@ export function progressItemFromOpportunity(opportunity: JobOpportunity) {
     company: opportunity.company,
     title: opportunity.title,
     sourceUrl: opportunity.sourceUrl,
+    sourceGroup: opportunity.sourceGroup,
   };
 }

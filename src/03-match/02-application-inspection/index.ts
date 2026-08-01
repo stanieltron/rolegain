@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { type Browser, type Page } from "playwright";
+import { type Browser, type Locator, type Page } from "playwright";
 import type { ApplicationDraft, FormField, JobOpportunity, JobResearchFailure, JobSearchWorkspace } from "../../contracts/job-search.js";
 import type { CodexExecClient } from "../../codex-runtime/client.js";
 import { assertPublicHttpUrl } from "../../infrastructure/public-http.js";
@@ -154,7 +154,9 @@ export async function inspectLiveApplication(
   formValidated: boolean;
   schemaAudit: ApplicationSchemaAudit;
 }> {
-  const page = await browser.newPage({ serviceWorkers: "block" });
+  const initialPage = await browser.newPage({ serviceWorkers: "block" });
+  let page = initialPage;
+  const openedPages = new Set<Page>([initialPage]);
   try {
     await assertPublicHttpUrl(new URL(candidate.job.applyUrl));
     await guardPublicPage(page);
@@ -170,16 +172,30 @@ export async function inspectLiveApplication(
     await waitForRenderedApplicationControls(page, 4_000);
     if (!(await hasLikelyApplicationForm(page))) {
       const openedApplication = await openApplicationControl(page);
-      if (openedApplication)
+      if (openedApplication) {
+        page = openedApplication;
+        openedPages.add(page);
         await waitForRenderedApplicationControls(page, 5_000);
+      }
+      if (!(await hasLikelyApplicationForm(page))) {
+        const embeddedApplication = await openEmbeddedApplicationFrame(page);
+        if (embeddedApplication) {
+          page = embeddedApplication;
+          openedPages.add(page);
+          await waitForRenderedApplicationControls(page, 5_000);
+        }
+      }
       if (!(await hasLikelyApplicationForm(page)) && codex) {
         const openedWithAgent = await openApplicationControlWithAgent(
           page,
           codex,
           cwd,
         );
-        if (openedWithAgent)
+        if (openedWithAgent) {
+          page = openedWithAgent;
+          openedPages.add(page);
           await waitForRenderedApplicationControls(page, 5_000);
+        }
       }
     }
     const result = (await page.evaluate(`(() => {
@@ -334,14 +350,21 @@ export async function inspectLiveApplication(
             fields,
           )
         : [];
-    const issues = [...new Set([...deterministicIssues, ...agentIssues])];
+    // The independent agent is useful for detecting suspicious mappings, but
+    // semantic representation differences (URL as text, radio as select,
+    // optional EEO aliases) must not reject a structurally complete employer
+    // form. Deterministic one-to-one structural coverage remains the gate.
+    const issues = [...new Set(deterministicIssues)];
     const schemaAudit: ApplicationSchemaAudit = {
       observedQuestionCount: result.entries.length,
       mappedQuestionCount: fields.length,
       fingerprint: applicationSchemaFingerprint(result.entries),
       issues,
-      verifiedByAgent: Boolean(codex && deterministicIssues.length === 0),
+      verifiedByAgent: Boolean(
+        codex && deterministicIssues.length === 0 && agentIssues.length === 0,
+      ),
     };
+    const credibleEmployerForm = applicationFieldSetLooksCredible(result.entries);
     return {
       compensation:
         extractCompensation(result.text) ||
@@ -350,11 +373,16 @@ export async function inspectLiveApplication(
       fields,
       adapter: adapterForUrl(page.url()),
       applicationUrl: page.url(),
-      formValidated: fields.length > 0 && issues.length === 0,
+      formValidated:
+        credibleEmployerForm && fields.length > 0 && issues.length === 0,
       schemaAudit,
     };
   } finally {
-    await page.close().catch(() => undefined);
+    await Promise.all(
+      [...openedPages].map((openedPage) =>
+        openedPage.close().catch(() => undefined),
+      ),
+    );
   }
 }
 
@@ -399,6 +427,7 @@ export async function openApplicationControlWithAgent(
   codex: CodexExecClient,
   cwd: string,
 ) {
+  let activePage = page;
   const runtime = await codex.start();
   const model =
     process.env.ROLEGAIN_FAST_MODEL ||
@@ -413,10 +442,15 @@ export async function openApplicationControlWithAgent(
     approvalPolicy: APPLICATION_NAVIGATION_COMMAND.approvalPolicy,
     developerInstructions: APPLICATION_NAVIGATION_INSTRUCTIONS,
   });
-  for (let step = 0; step < 6; step += 1) {
-    if (await hasLikelyApplicationForm(page)) return true;
-    const observation = await observeApplicationPage(page);
-    if (!observation.controls.length) return false;
+  for (let step = 0; step < 10; step += 1) {
+    if (await hasLikelyApplicationForm(activePage)) return activePage;
+    const embeddedApplication = await openEmbeddedApplicationFrame(activePage);
+    if (embeddedApplication) {
+      activePage = embeddedApplication;
+      if (await hasLikelyApplicationForm(activePage)) return activePage;
+    }
+    const observation = await observeApplicationPage(activePage);
+    if (!observation.controls.length) return undefined;
     const result = await codex.runTurn({
       threadId: thread.id,
       cwd,
@@ -427,33 +461,33 @@ export async function openApplicationControlWithAgent(
       outputSchema: applicationPageActionSchema,
       prompt: buildApplicationNavigationInput({
         step,
-        maximumSteps: 6,
+        maximumSteps: 10,
         observation,
       }),
     });
     const parsed = JSON.parse(result.finalText) as ApplicationNavigationDecision;
-    if (parsed.action === "stop") return false;
+    if (parsed.action === "stop") return undefined;
     if (parsed.action === "scroll") {
-      await page.mouse.wheel(0, 700);
+      await activePage.mouse.wheel(0, 900);
     } else if (parsed.action === "wait") {
-      await page.waitForTimeout(750);
+      await activePage.waitForTimeout(750);
     } else {
       const control = observation.controls.find(
         (item) => item.id === parsed.controlId,
       );
-      if (!control || isUnsafeApplicationAction(control)) return false;
-      const locator = page.locator(
+      if (!control || isUnsafeApplicationAction(control)) return undefined;
+      const locator = activePage.locator(
         `[data-agent-action-id="${cssEscape(parsed.controlId)}"]`,
       );
-      if ((await locator.count()) !== 1) return false;
-      await locator.click({ timeout: 5_000 }).catch(() => undefined);
+      if ((await locator.count()) !== 1) return undefined;
+      activePage = await clickAndCaptureApplicationPage(activePage, locator);
     }
-    await page
+    await activePage
       .waitForLoadState("domcontentloaded", { timeout: 5_000 })
       .catch(() => undefined);
-    await page.waitForTimeout(350);
+    await activePage.waitForTimeout(350);
   }
-  return hasLikelyApplicationForm(page);
+  return (await hasLikelyApplicationForm(activePage)) ? activePage : undefined;
 }
 
 export async function observeApplicationPage(page: Page) {
@@ -1034,6 +1068,8 @@ export async function extractShadowPiercingFormControls(page: Page): Promise<
       .nth(index)
       .evaluate((element) => {
         const control = element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+        if (["hidden", "submit", "button", "reset", "image"].includes(control.type))
+          return undefined;
         const clean = (value: unknown) =>
           String(value || "")
             .replace(/\s+/g, " ")
@@ -1117,9 +1153,31 @@ export async function extractShadowPiercingFormControls(page: Page): Promise<
   return entries;
 }
 
-export const APPLICATION_OPEN_CONTROL_NAME = /^(?:apply|apply now|apply for (?:this|the) job|apply on (?:the )?(?:company|employer) (?:site|website)|start application|open application|continue to application|visit job opening page|go to job page|view job opening|postuler|candidater|je postule|envoyer (?:ma|une) candidature|d[ée]poser (?:ma|une) candidature)$/i;
+export function applicationFieldSetLooksCredible(
+  entries: ObservedApplicationField[],
+) {
+  const hasFile = entries.some((entry) => entry.inputType === "file");
+  const identity = entries
+    .map((entry) => `${entry.label} ${entry.externalName} ${entry.inputType}`)
+    .join(" ")
+    .toLowerCase();
+  const hasCandidateIdentity =
+    hasFile ||
+    entries.some((entry) => entry.inputType === "email" || entry.inputType === "tel") ||
+    /\b(?:full name|first name|last name|phone|resume|curriculum|cv|cover letter|linkedin|github|portfolio)\b/.test(
+      identity,
+    );
+  const searchOnly = entries.every((entry) =>
+    /search|filter|job titles?|companies|location search|keywords?/.test(
+      `${entry.label} ${entry.externalName}`.toLowerCase(),
+    ),
+  );
+  return !searchOnly && hasCandidateIdentity && (entries.length >= 2 || hasFile);
+}
 
-export async function openApplicationControl(page: Page): Promise<boolean> {
+export const APPLICATION_OPEN_CONTROL_NAME = /^(?:apply|apply here|apply now|apply today|view and apply|i(?:'|’)?m interested|apply for (?:this|the)?\s*(?:job|role|position|opening)|apply on (?:the )?(?:company|employer) (?:site|website)|start application|open application|continue to application|visit job opening page|go to job page|view job opening|postuler|candidater|je postule|envoyer (?:ma|une) candidature|d[ée]poser (?:ma|une) candidature)$/i;
+
+export async function openApplicationControl(page: Page): Promise<Page | undefined> {
   const name = APPLICATION_OPEN_CONTROL_NAME;
   const link = page.getByRole("link", { name }).first();
   const button = page.getByRole("button", { name }).first();
@@ -1141,14 +1199,65 @@ export async function openApplicationControl(page: Page): Promise<boolean> {
       } catch (error) {
         if (!/Download is starting/i.test(String(error))) throw error;
       }
-    } else await link.click();
+    } else return clickAndCaptureApplicationPage(page, link);
   } else {
-    if ((await button.count()) === 0) return false;
-    await button.click();
+    if ((await button.count()) === 0) return undefined;
+    page = await clickAndCaptureApplicationPage(page, button);
   }
   await page.waitForLoadState("domcontentloaded", { timeout: 10_000 }).catch(() => undefined);
   await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
-  return true;
+  return page;
+}
+
+async function clickAndCaptureApplicationPage(
+  page: Page,
+  locator: Locator,
+): Promise<Page> {
+  const popupPromise = page
+    .waitForEvent("popup", { timeout: 2_000 })
+    .catch(() => undefined);
+  await locator.click({ timeout: 5_000 });
+  const popup = await popupPromise;
+  if (!popup) return page;
+  await popup
+    .waitForLoadState("domcontentloaded", { timeout: 10_000 })
+    .catch(() => undefined);
+  await assertPublicHttpUrl(new URL(popup.url()));
+  await guardPublicPage(popup);
+  return popup;
+}
+
+export async function openEmbeddedApplicationFrame(
+  page: Page,
+): Promise<Page | undefined> {
+  const frameUrl = await page.evaluate(() => {
+    const frames = [...document.querySelectorAll("iframe[src]")]
+      .map((frame) => {
+        const identity = `${frame.getAttribute("title") || ""} ${frame.getAttribute("name") || ""} ${frame.id} ${frame.className} ${frame.getAttribute("src") || ""}`.toLowerCase();
+        let score = 0;
+        if (/apply|application|candidate|recruit|greenhouse|ashby|lever|workable|smartrecruiters/.test(identity)) score += 10;
+        if (/job|career|form/.test(identity)) score += 3;
+        if (/youtube|vimeo|map|cookie|chat/.test(identity)) score -= 10;
+        return { src: frame.getAttribute("src") || "", score };
+      })
+      .filter((item) => item.src && item.score > 0)
+      .sort((left, right) => right.score - left.score);
+    return frames[0]?.src || "";
+  });
+  if (!frameUrl) return undefined;
+  const target = new URL(frameUrl, page.url());
+  await assertPublicHttpUrl(target);
+  if (target.href === page.url()) return undefined;
+  try {
+    await page.goto(target.href, {
+      waitUntil: "domcontentloaded",
+      timeout: 20_000,
+    });
+  } catch (error) {
+    if (!/Download is starting/i.test(String(error))) return undefined;
+  }
+  await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+  return page;
 }
 
 export function mapLiveField(
@@ -1190,17 +1299,18 @@ export function mapLiveField(
           mapped.value,
         )
       : mapped.value;
+  const cvUpload = type === "file" && canonicalKey === "cv";
   return {
     id: `${canonicalKey}-${index + 1}`,
     canonicalKey,
     externalName: entry.externalName,
     label,
     type,
-    value: type === "file" ? cvName(workspace) : candidateValue,
+    value: cvUpload ? cvName(workspace) : type === "file" ? "" : candidateValue,
     required: entry.required,
-    source: type === "file" ? "cv" : mapped.source,
+    source: cvUpload ? "cv" : type === "file" ? "generated" : mapped.source,
     confidence:
-      type === "file" ? 100 : candidateValue ? mapped.confidence : 0,
+      cvUpload ? 100 : type === "file" ? 0 : candidateValue ? mapped.confidence : 0,
     options: entry.options,
   };
 }
@@ -1226,9 +1336,11 @@ export function applicationFromLiveForm(
       field.evidence = `Derived from the verified vacancy title: ${job.title}`;
     }
     if (field.canonicalKey === "cover_letter") {
-      field.value = coverLetter;
-      field.source = "generated";
-      field.confidence = 85;
+      if (field.type !== "file") {
+        field.value = coverLetter;
+        field.source = "generated";
+        field.confidence = 85;
+      }
     }
     if (field.canonicalKey === "website" && !field.value) {
       const website = workspace.sources.find(

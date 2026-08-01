@@ -6,6 +6,7 @@ import type { JobSearchWorkspace } from "../src/contracts/job-search.js";
 import { workflowBlocksEnqueue } from "../src/backend/workflows/workflow-queue.js";
 import { JobSearchService } from "../src/backend/control-flow/service.js";
 import {
+  hasResumablePausedWork,
   interruptedResumeControl,
   workflowIsActive,
 } from "../src/server/job-search-routes.js";
@@ -111,5 +112,17 @@ describe("workflow stop and resume state", () => {
       stage: "looking",
       activity: "Continuing the stopped workflow from saved progress.",
     });
+  });
+
+  it("routes a regular start action through continuation when search is paused", () => {
+    const workspace = runningSearchWorkspace();
+    workspace.backgroundExecution = {
+      state: "stopped",
+      resumeSearch: "prepare",
+    };
+    expect(hasResumablePausedWork(workspace)).toBe(true);
+
+    workspace.backgroundExecution = { state: "stopped" };
+    expect(hasResumablePausedWork(workspace)).toBe(false);
   });
 });

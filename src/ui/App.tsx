@@ -74,9 +74,9 @@ import {
 import { useAuthActions } from "./auth.js";
 import {
   applicationOutcomeState,
-  isApplicationAttempt,
+  pipelineDisplayStage,
   settlePipelineItemForDisplay,
-  sortApplicationAttempts,
+  sortPipelineRows,
 } from "./pipeline-items.js";
 import type {
   BetaStatus,
@@ -244,6 +244,47 @@ function preparedVerifiedApplications(workspace: JobSearchWorkspace) {
   return workspace.applications.filter((application) =>
     Boolean(application.addedBy),
   );
+}
+
+function marketplaceSourceGroups(
+  items: JobSearchWorkspace["jobHistory"],
+  currentItemIds: ReadonlySet<string>,
+) {
+  const groups = new Map<
+    string,
+    {
+      source: NonNullable<JobSearchWorkspace["jobHistory"][number]["sourceGroup"]>;
+      items: JobSearchWorkspace["jobHistory"];
+      current: boolean;
+    }
+  >();
+  for (const item of items) {
+    if (!item.sourceGroup) continue;
+    const existing = groups.get(item.sourceGroup.id) ?? {
+      source: item.sourceGroup,
+      items: [],
+      current: false,
+    };
+    existing.items.push(item);
+    existing.current ||= currentItemIds.has(item.id);
+    groups.set(item.sourceGroup.id, existing);
+  }
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      items: [...group.items].sort(
+        (left, right) =>
+          (left.jobNumber ?? Number.MAX_SAFE_INTEGER) -
+          (right.jobNumber ?? Number.MAX_SAFE_INTEGER),
+      ),
+    }))
+    .sort((left, right) => {
+      if (left.current !== right.current) return left.current ? -1 : 1;
+      return (
+        (left.items[0]?.jobNumber ?? Number.MAX_SAFE_INTEGER) -
+        (right.items[0]?.jobNumber ?? Number.MAX_SAFE_INTEGER)
+      );
+    });
 }
 
 interface ViewProps {
@@ -2860,13 +2901,18 @@ function FindApplicationsProgress({
       progress.stage === "ready" || progress.stage === "failed",
     ),
   );
-  const allValidItems = displayItems.filter(
-    (item) => item.validation === "passed" || item.match !== "waiting",
+  const discoveryOnlyItems = displayItems.filter(
+    (item) =>
+      pipelineDisplayStage(item) === "validation" &&
+      item.validationDisposition !== "source_page",
   );
-  const applicationAttemptItems = allValidItems.filter(isApplicationAttempt);
-  const matchOnlyItems = allValidItems.filter(
-    (item) => !isApplicationAttempt(item),
+  const matchOnlyItems = displayItems.filter(
+    (item) => pipelineDisplayStage(item) === "match",
   );
+  const applicationAttemptItems = displayItems.filter(
+    (item) => pipelineDisplayStage(item) === "application",
+  );
+  const sourceGroups = marketplaceSourceGroups(displayItems, currentItemIds);
   const newValidCount = matchOnlyItems.filter((item) =>
     currentItemIds.has(item.id),
   ).length;
@@ -2913,18 +2959,19 @@ function FindApplicationsProgress({
         <PipelineColumn
           step="1"
           title="Discover & verify"
-          count={`${displayItems.length} total · ${items.length} current`}
-          items={displayItems}
+          count={`${discoveryOnlyItems.length} remaining`}
+          items={discoveryOnlyItems}
           currentItemIds={currentItemIds}
           phase="validation"
           placeholders={discoverySlots}
+          sourceGroups={sourceGroups}
         />
         <span className="pipeline-arrow" aria-hidden="true">→</span>
         <PipelineColumn
           step="2"
           title="Match & rank"
           count={`${matchOnlyItems.length} total · ${newValidCount} current`}
-          items={[...matchOnlyItems].sort((a, b) => (b.fit ?? -1) - (a.fit ?? -1))}
+          items={matchOnlyItems}
           currentItemIds={currentItemIds}
           phase="match"
         />
@@ -2933,10 +2980,9 @@ function FindApplicationsProgress({
           step="3"
           title="Application preparation"
           count={`${preparedItems.length} ready · ${failedApplicationCount} failed${activeApplicationCount ? ` · ${activeApplicationCount} active` : ""}`}
-          items={sortApplicationAttempts(applicationAttemptItems)}
+          items={applicationAttemptItems}
           currentItemIds={currentItemIds}
           phase="application_outcome"
-          failedAtBottom
           currentRunEmptyMessage={preparedCurrentRunEmptyMessage}
         />
       </div>
@@ -3053,8 +3099,8 @@ function PipelineColumn({
   currentItemIds,
   phase,
   placeholders = 0,
-  failedAtBottom = false,
   currentRunEmptyMessage,
+  sourceGroups = [],
 }: {
   step: string;
   title: string;
@@ -3063,17 +3109,18 @@ function PipelineColumn({
   currentItemIds: Set<string>;
   phase: PipelinePhase;
   placeholders?: number;
-  failedAtBottom?: boolean;
   currentRunEmptyMessage?: string;
+  sourceGroups?: ReturnType<typeof marketplaceSourceGroups>;
 }) {
-  const bottomFailures = failedAtBottom
-    ? items.filter((item) => applicationOutcomeState(item) === "failed")
-    : [];
-  const mainItems = failedAtBottom
-    ? items.filter((item) => applicationOutcomeState(item) !== "failed")
-    : items;
-  const newest = mainItems.filter((item) => currentItemIds.has(item.id));
-  const older = mainItems.filter((item) => !currentItemIds.has(item.id));
+  const displayStage =
+    phase === "validation"
+      ? "validation"
+      : phase === "match"
+        ? "match"
+        : "application";
+  const sortedItems = sortPipelineRows(items, currentItemIds, displayStage);
+  const newest = sortedItems.filter((item) => currentItemIds.has(item.id));
+  const older = sortedItems.filter((item) => !currentItemIds.has(item.id));
   const renderItem = (
     item: NonNullable<
       NonNullable<JobSearchWorkspace["searchProgress"]>["items"]
@@ -3144,10 +3191,32 @@ function PipelineColumn({
             <span className="pipeline-area-empty">No previous jobs at this stage.</span>
           )}
         </section>
-        {bottomFailures.length > 0 && (
-          <section className="pipeline-previous-batches pipeline-failed-at-bottom">
-            <span className="pipeline-previous-label">Failed attempts</span>
-            {bottomFailures.map(renderItem)}
+        {sourceGroups.length > 0 && (
+          <section className="pipeline-source-groups">
+            <span className="pipeline-previous-label">Job marketplaces</span>
+            {sourceGroups.map((group) => (
+              <section className="pipeline-source-group" key={group.source.id}>
+                <article className="pipeline-job pipeline-source-parent">
+                  <span className="pipeline-state-icon"><Globe2 size={13} /></span>
+                  <a href={group.source.url} target="_blank" rel="noreferrer">
+                    <strong>{group.source.name}</strong>
+                    <span>{group.items.length} concrete vacancies found</span>
+                  </a>
+                </article>
+                {group.items.map((item) => (
+                  <article className="pipeline-job pipeline-source-child" key={`${group.source.id}-${item.id}`}>
+                    <span className="pipeline-source-branch" aria-hidden="true">↳</span>
+                    <a href={item.sourceUrl || undefined} target="_blank" rel="noreferrer">
+                      <strong>
+                        <span className="inline-job-number">{jobNumberLabel(item.jobNumber)}</span>
+                        {item.title || "Vacancy"}
+                      </strong>
+                      <span>{item.company || "Employer pending"}</span>
+                    </a>
+                  </article>
+                ))}
+              </section>
+            ))}
           </section>
         )}
       </div>

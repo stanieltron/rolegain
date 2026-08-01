@@ -206,9 +206,9 @@ const serviceFor = (root: string) =>
 
 describe("job-search lifecycle", () => {
   it("stops deep discovery once there is a ranked replacement bench", () => {
-    expect(validatedDiscoveryTarget(20, 5)).toBe(7);
-    expect(validatedDiscoveryTarget(8, 5)).toBe(7);
-    expect(validatedDiscoveryTarget(20, 1)).toBe(3);
+    expect(validatedDiscoveryTarget(20, 5)).toBe(13);
+    expect(validatedDiscoveryTarget(8, 5)).toBe(8);
+    expect(validatedDiscoveryTarget(20, 1)).toBe(4);
   });
 
   it("discovers only after validating an insufficient scored bench", () => {
@@ -229,7 +229,7 @@ describe("job-search lifecycle", () => {
         firstBatch: false,
         refillRound: 0,
       }),
-    ).toBe(4);
+    ).toBe(6);
     expect(
       discoveryLimitAfterBenchValidation({
         remainingApplications: 5,
@@ -494,6 +494,46 @@ describe("job-search lifecycle", () => {
       changed: false,
       needsFetch: false,
     });
+  });
+
+  it("reuses an equivalent www website source instead of staging a duplicate", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-profile-www-"));
+    const service = new JobSearchService(root);
+    await service.initialize();
+    const workspace = await service.get();
+    workspace.profile.website = "stanislavvozarik.com";
+    workspace.sources.push({
+      id: "manual-website",
+      kind: "webpage",
+      name: "www.stanislavvozarik.com",
+      url: "https://www.stanislavvozarik.com/",
+      content: "Already ingested portfolio evidence.",
+      status: "ready",
+      analysisRequired: false,
+      insights: [],
+      addedAt: new Date().toISOString(),
+    });
+    workspace.sources.push({
+      id: "stale-managed-website",
+      kind: "portfolio",
+      name: "Personal website",
+      url: "https://stanislavvozarik.com/",
+      profileField: "website",
+      content: "",
+      status: "processing",
+      insights: [],
+      addedAt: new Date().toISOString(),
+    });
+
+    expect(stageProfileEvidenceSources(workspace, ["website"])).toEqual({
+      changed: true,
+      needsFetch: false,
+    });
+    expect(
+      workspace.sources.filter((source) =>
+        /stanislavvozarik\.com/.test(source.url || ""),
+      ),
+    ).toEqual([expect.objectContaining({ id: "manual-website", status: "ready" })]);
   });
 
   it("ingests a profile website before treating it as candidate evidence", async () => {
@@ -1372,7 +1412,7 @@ describe("job-search lifecycle", () => {
     const result = await service.prepareApplications();
 
     expect(researchCalls).toBe(2);
-    expect(researchLimits).toEqual([20, 12]);
+    expect(researchLimits).toEqual([26, 16]);
     expect(result.applications).toHaveLength(8);
     expect(
       result.applications.filter((application) => application.addedBy === "agent"),

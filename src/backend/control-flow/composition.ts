@@ -95,7 +95,12 @@ export async function createRolegainDependencies(
   await artifacts.initialize();
   const codex = createLlmClient(root);
   codex.beforeTurn = () => platform.assertCodexEnabled();
-  const researcher = new LiveOpportunityResearcher(codex, root, dataRoot);
+  const researcher = new LiveOpportunityResearcher(
+    codex,
+    root,
+    dataRoot,
+    configuration.searchVersion,
+  );
   const writer = new CodexCoverLetterWriter(codex, root, dataRoot);
   const jobSearch = new JobSearchService(
     dataRoot,

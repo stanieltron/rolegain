@@ -505,7 +505,7 @@ async function runFullUserFlow(input: {
   await prepareIntake(service);
   await service.finishIntake();
   await service.updateSearchConfig({
-    discoveryTarget: Math.max(20, input.target * 4),
+    discoveryTarget: Math.max(26, Math.ceil(input.target * 5.2)),
     applicationTarget: input.target,
   });
   workspace = await service.prepareApplications(undefined, input.target);

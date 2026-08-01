@@ -221,7 +221,7 @@ function normalizeWorkspace(workspace: JobSearchWorkspace): JobSearchWorkspace {
   workspace.searchValidationIssues ??= [];
   workspace.searchReadyOpportunities ??= [];
   workspace.seenJobUrls ??= [];
-  workspace.searchConfig ??= { discoveryTarget: 20, applicationTarget: 5 };
+  workspace.searchConfig ??= { discoveryTarget: 26, applicationTarget: 5 };
   workspace.applications = (workspace.applications ?? []).map(
     (application) => ({
       ...application,
