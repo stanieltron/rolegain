@@ -10,8 +10,11 @@
   "include": [
     "src/**/*.ts",
     "scripts/start-api-server.ts",
+    "scripts/start-api-server-v2.ts",
     "scripts/start-search-v2.ts",
+    "scripts/start-v2.ts",
     "scripts/start-worker.ts",
+    "scripts/start-worker-v2.ts",
     "scripts/login-codex.ts",
     "scripts/migrate-database.ts"
   ],

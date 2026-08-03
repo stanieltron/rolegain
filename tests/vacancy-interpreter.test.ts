@@ -5,7 +5,7 @@ import {
   validateListingVacancyLead,
   validateVacancyInterpretation,
   type VacancyPageSnapshot,
-} from "../src/02-search/03-vacancy-validation/interpreter.js";
+} from "../src/02-search/v1/03-vacancy-validation/interpreter.js";
 
 function snapshot(
   overrides: Partial<VacancyPageSnapshot["structured"]> = {},

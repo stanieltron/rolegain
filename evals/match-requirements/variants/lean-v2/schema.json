@@ -1,0 +1,58 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["jobId", "requirements"],
+  "properties": {
+    "jobId": { "type": "string" },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "category",
+          "requirement",
+          "status",
+          "matchClass",
+          "confidence",
+          "gapSeverity",
+          "explanation",
+          "evidence"
+        ],
+        "properties": {
+          "kind": { "type": "string", "enum": ["required", "preferred"] },
+          "category": {
+            "type": "string",
+            "enum": ["responsibility", "mandatory", "preferred", "constraint"]
+          },
+          "requirement": { "type": "string" },
+          "status": { "type": "string", "enum": ["matched", "partial", "missing"] },
+          "matchClass": {
+            "type": "string",
+            "enum": ["explicit", "strong_adjacent", "weak_adjacent", "unsupported", "contradicted"]
+          },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "gapSeverity": {
+            "type": "string",
+            "enum": ["none", "learnable", "substantial", "blocking"]
+          },
+          "explanation": { "type": "string" },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["claimId", "sourceId", "excerpt"],
+              "properties": {
+                "claimId": { "type": "string" },
+                "sourceId": { "type": "string" },
+                "excerpt": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

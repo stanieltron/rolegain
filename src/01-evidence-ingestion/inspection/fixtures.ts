@@ -3,9 +3,9 @@ import type {
   CandidateAnalysisResult,
   ChunkReadingResult,
 } from "../types.js";
-import type { SourceChunkNotes } from "../02-chunk-reader/llm-calls/01-chunk-analysis/output.js";
+import type { SourceChunkNotes } from "../v1/02-chunk-reader/llm-calls/01-chunk-analysis/output.js";
 import type { EvidenceSynthesisOutput } from "../03-synthesis/llm-calls/01-evidence-synthesis/output.js";
-import type { ChunkCoverageVerification } from "../02-chunk-reader/llm-calls/02-coverage-verification/output.js";
+import type { ChunkCoverageVerification } from "../v1/02-chunk-reader/llm-calls/02-coverage-verification/output.js";
 
 export const MOCK_CV_TEXT = [
   "Mira Example",

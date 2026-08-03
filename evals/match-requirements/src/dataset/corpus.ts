@@ -49,9 +49,14 @@ const foundationalCorpus: MatchRequirementsEvalCase[] = [
         requirement: "Strong professional TypeScript experience is required.",
         aliases: [["typescript", "experience"]],
         category: "mandatory",
-        allowedMatchClasses: ["explicit", "strong_adjacent"],
+        allowedMatchClasses: [
+          "explicit",
+          "strong_adjacent",
+          "weak_adjacent",
+          "unsupported",
+        ],
         allowedClaimKeys: ["workflow-platform"],
-        rationale: "The implementation proves professional TypeScript use, while the strength qualifier permits cautious adjacent grading.",
+        rationale: "The implementation proves TypeScript use, but the bounded claim does not independently establish that the work was professional.",
       },
       {
         id: "kubernetes-preferred",

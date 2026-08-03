@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   deterministicListingVacancyLeads,
   preferVisibleActiveVacancy,
-} from "../src/02-search/03-vacancy-validation/index.js";
-import type { VacancyPageSnapshot } from "../src/02-search/03-vacancy-validation/interpreter.js";
+} from "../src/02-search/v1/03-vacancy-validation/index.js";
+import type { VacancyPageSnapshot } from "../src/02-search/v1/03-vacancy-validation/interpreter.js";
 import type { LiveCandidate } from "../src/search-match-shared/types.js";
 
 function listingSnapshot(links: VacancyPageSnapshot["links"]): VacancyPageSnapshot {

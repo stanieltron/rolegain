@@ -1,4 +1,4 @@
-import type { AssessmentVerification } from "../../../../src/03-match/01-requirement-matching/index.js";
+import type { AssessmentVerification } from "../../../../src/03-match/shared/01-requirement-matching/index.js";
 import type { AssessmentChallenge } from "./assessment-challenges.js";
 
 export interface VerifierEvalGrade {

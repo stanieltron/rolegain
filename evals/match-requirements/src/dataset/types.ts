@@ -11,7 +11,7 @@ import type {
 } from "../../../../src/contracts/job-search.js";
 import type { CanonicalClaimCitation } from "../../../../src/search-match-shared/evidence-context.js";
 
-export const MATCH_REQUIREMENTS_CORPUS_VERSION = "3.0.0";
+export const MATCH_REQUIREMENTS_CORPUS_VERSION = "3.1.0";
 
 export type MatchEvalFamily =
   | "direct"

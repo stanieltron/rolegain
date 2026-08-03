@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   verifyAndRepairAssessments,
   type AgentRequirementAssessment,
-} from "../../src/03-match/01-requirement-matching/index.js";
+} from "../../src/03-match/shared/01-requirement-matching/index.js";
 import type { JobOpportunity } from "../../src/contracts/job-search.js";
 import type { CodexExecClient } from "../../src/codex-runtime/client.js";
 import {

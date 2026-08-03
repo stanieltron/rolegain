@@ -11,6 +11,8 @@ import type {
 import type { CodexExecClient } from "../src/codex-runtime/client.js";
 import { persistCanonicalEvidenceRun } from "../src/01-evidence-ingestion/04-verification/evidence-model.js";
 import { LiveOpportunityResearcher } from "../src/03-match/opportunity-researcher.js";
+import { matchOpportunities } from "../src/03-match/shared/01-requirement-matching/index.js";
+import { runtimeConfiguration } from "../src/config/runtime.js";
 import {
   canonicalCitationIsValid,
   canonicalOpportunityAlignment,
@@ -23,6 +25,13 @@ import {
 } from "../src/search-match-shared/evidence-context.js";
 
 describe("canonical Phase 2 evidence", () => {
+  it("keeps matching v1 as the default and selects v2 explicitly", () => {
+    expect(runtimeConfiguration({}).matchVersion).toBe("v1");
+    expect(
+      runtimeConfiguration({ ROLEGAIN_MATCH_VERSION: "v2" }).matchVersion,
+    ).toBe("v2");
+  });
+
   it("builds separate search lanes and retrieves claim-level evidence per job", async () => {
     const fixture = await canonicalFixture();
     const context = await loadPhase2EvidenceContext(
@@ -275,6 +284,79 @@ describe("canonical Phase 2 evidence", () => {
       { callId: "match.requirements", model: "gpt-5.6-terra" },
       { callId: "match.verification", model: "gpt-5.6-luna" },
     ]);
+  });
+
+  it("runs matching v2 as one lean call without tier-2 or verifier stages", async () => {
+    const fixture = await canonicalFixture();
+    const job = opportunity(
+      "job-ai",
+      "AI Agent Infrastructure Engineer",
+      "Requires TypeScript worker orchestration and verifier gates.",
+    );
+    const context = await loadPhase2EvidenceContext(
+      fixture.root,
+      fixture.workspace,
+    );
+    const citation = retrieveCanonicalClaimLedger(context!, [job])[0].evidence.find(
+      (item) => item.capability === "agent control planes",
+    )!;
+    const callIds: string[] = [];
+    let schemaRequired: readonly string[] = [];
+    const codex = {
+      start: async () => ({
+        authenticated: true,
+        model: "test-model",
+        models: [{ id: "test-model" }],
+      }),
+      startThread: async ({ callId }: { callId: string }) => {
+        callIds.push(callId);
+        return { id: callId };
+      },
+      runTurn: async ({ outputSchema }: { outputSchema: { properties: { requirements: { items: { required: readonly string[] } } } } }) => {
+        schemaRequired = outputSchema.properties.requirements.items.required;
+        return {
+          finalText: JSON.stringify({
+            jobId: job.id,
+            requirements: [
+              {
+                kind: "required",
+                category: "mandatory",
+                requirement: "TypeScript worker orchestration",
+                status: "matched",
+                matchClass: "explicit",
+                confidence: 0.95,
+                gapSeverity: "none",
+                explanation: "The canonical claim directly supports the requirement.",
+                evidence: [
+                  {
+                    claimId: citation.claimId,
+                    sourceId: citation.sourceId,
+                    excerpt: citation.excerpt,
+                  },
+                ],
+              },
+            ],
+          }),
+        };
+      },
+    } as unknown as CodexExecClient;
+
+    const result = await matchOpportunities({
+      codex,
+      cwd: fixture.root,
+      dataRoot: fixture.root,
+      workspace: fixture.workspace,
+      opportunities: [job],
+      version: "v2",
+    });
+
+    expect(callIds).toEqual(["match.requirements"]);
+    expect(schemaRequired).not.toContain("normalizedCapability");
+    const assessed = Array.isArray(result) ? result : result.opportunities;
+    expect(assessed[0].requirementMatches[0]).toMatchObject({
+      matchClass: "explicit",
+      status: "matched",
+    });
   });
 
   it("does not allow a weak canonical claim to produce a full match", async () => {

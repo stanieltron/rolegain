@@ -7,7 +7,7 @@ import type {
 } from "../contracts/job-search.js";
 import { normalizeExtractedText, repairMojibake } from "../infrastructure/text-encoding.js";
 import { selectedWorkModes, willingWorkLocations } from "./work-preferences.js";
-import { classifySearchValidationFailure } from "../02-search/03-vacancy-validation/failure-classification.js";
+import { classifySearchValidationFailure } from "../02-search/v1/03-vacancy-validation/failure-classification.js";
 import type { DiscoveredJob, LiveCandidate } from "./types.js";
 
 export function normalizeOpportunityUrl(value: string) {

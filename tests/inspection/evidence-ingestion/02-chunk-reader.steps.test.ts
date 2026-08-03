@@ -9,13 +9,13 @@ import {
   normalizeChunkNotes,
   prepareCandidateSourceChunks,
   readCandidateSourceChunks,
-} from "../../../src/01-evidence-ingestion/02-chunk-reader/index.js";
+} from "../../../src/01-evidence-ingestion/v1/02-chunk-reader/index.js";
 import {
   analyzeChunkOnce,
   readAndVerifyChunk,
   verifyChunkCoverageOnce,
-} from "../../../src/01-evidence-ingestion/02-chunk-reader/recovery/run-reader-with-coverage.js";
-import { applyChunkRepairPatch } from "../../../src/01-evidence-ingestion/02-chunk-reader/repair/apply-chunk-repair.js";
+} from "../../../src/01-evidence-ingestion/v1/02-chunk-reader/recovery/run-reader-with-coverage.js";
+import { applyChunkRepairPatch } from "../../../src/01-evidence-ingestion/v1/02-chunk-reader/repair/apply-chunk-repair.js";
 import {
   mockChunkNotes,
   mockCoverage,

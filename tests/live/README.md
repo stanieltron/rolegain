@@ -11,6 +11,23 @@ a vacancy was removed or an employer blocked automated access.
 `mock` means **synthetic input to the selected stage**. It does not mean a
 mocked Codex call. Every LLM boundary exercised by a live stage is real.
 
+## Version selection
+
+Live-stage commands use the same environment selectors as production and
+default to v1. To exercise the complete v2 stack in a shell, export all three
+before running the test:
+
+```bash
+export ROLEGAIN_EVIDENCE_VERSION=v2
+export ROLEGAIN_SEARCH_VERSION=v2
+export ROLEGAIN_MATCH_VERSION=v2
+npm run test:live:flow -- --target 1
+```
+
+Set one selector alone only for a deliberate component comparison. The product
+launchers `npm run dev:v2`, `npm run start:v2`, and
+`npm run dev:diagnostic:v2` always enable all three together.
+
 ## Files to start from
 
 | File | Purpose |
@@ -20,7 +37,7 @@ mocked Codex call. Every LLM boundary exercised by a live stage is real.
 | `src/backend/control-flow/live-runner.ts` | Stage input resolution, execution, assertions, and artifacts |
 | `src/server/app.ts` | Shared `createRolegainDependencies()` composition root used by UI and live tests |
 | `src/backend/control-flow/llm-call-catalog.ts` | Catalog of every production LLM call |
-| `src/01-evidence-ingestion/`, `src/02-search/ and src/03-match/`, `src/04-application-preparation/` | Production pipelines and stages |
+| `src/01-evidence-ingestion/`, `src/02-search/`, `src/02-search/v2/`, `src/03-match/`, `src/04-application-preparation/` | Production pipelines and stages |
 
 ## Prerequisites
 
@@ -247,7 +264,7 @@ readCandidateSourceChunks()
 Implementation:
 
 ```text
-src/01-evidence-ingestion/02-chunk-reader/index.ts
+src/01-evidence-ingestion/v1/02-chunk-reader/index.ts
 ```
 
 The default chunk size is 20,000 characters with 2,000-character overlap.
@@ -583,8 +600,8 @@ Implementations:
 
 ```text
 src/03-match/opportunity-researcher.ts
-src/02-search/01-discovery/index.ts
-src/02-search/03-vacancy-validation/index.ts
+src/02-search/v1/01-discovery/index.ts
+src/02-search/v1/03-vacancy-validation/index.ts
 ```
 
 ### Run
@@ -640,7 +657,7 @@ Input modes:
 - `previous`: real discovery output;
 - explicit path: any compatible discovery artifact;
 - `mock`: checked synthetic live-marked job plus deterministic evidence, while
-  all matching/verifier model calls remain real.
+  every model call used by the selected matching version remains real.
 
 ### Production flow used
 
@@ -648,16 +665,15 @@ Input modes:
 LiveOpportunityResearcher.assess()
 → matchOpportunities()
 → match.requirements per job
-→ match.tier2-evidence for unresolved requirements
-→ match.verification in a fresh context
-→ match.repair once for verifier failures
+→ v1: Tier 2, fresh verification, and bounded repair when needed
+→ v2: calibrated one-pass matrix without semantic verifier/repair calls
 → deterministic score and persistence
 ```
 
 Implementation:
 
 ```text
-src/03-match/01-requirement-matching/index.ts
+src/03-match/shared/01-requirement-matching/index.ts
 ```
 
 ### Run
@@ -849,7 +865,7 @@ upload built-in live CV
 → finish intake
 → JobSearchService.prepareApplications()
 → adaptive discovery and validation
-→ requirement matching and verification
+→ selected v1 or v2 requirement matching flow
 → employer-form inspection
 → application drafting and verification
 → requested number of agent-prepared applications
@@ -1003,9 +1019,10 @@ jq '[
 ]' "$RESULT_ROOT/04-canonical-evidence.json"
 ```
 
-For one small CV and one small webpage, expect two Reader/coverage pairs followed
-by one Synthesis call. Larger sources produce one pair per chunk. A failed
-coverage gate can add one targeted retry pair for that chunk.
+With evidence v1, one small CV and one small webpage produce two Reader/coverage
+pairs followed by one Synthesis call; failed coverage may add a targeted repair
+round. Evidence v2 uses one lean reader call per chunk, plus only a
+grounding-rejection retry when necessary, followed by the same Synthesis call.
 
 ## Running the stages serially
 

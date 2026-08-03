@@ -14,6 +14,8 @@ schema, retrieval, verifier, repair step, or dataset labels.
 
 ```text
 evals/match-requirements/
+  v1/
+  v2/
   ADJUDICATION.md
   DATASET.md
   README.md
@@ -45,13 +47,15 @@ Generated run artifacts and mutable variant state live under
   specificity, and targeted findings.
 - `match.repair.component`: runs verifier plus one bounded `match.repair`
   attempt against seeded defective matrices and grades repaired output.
-- `match.full-flow`: runs the production chain: first pass, Tier 2, independent
-  verification, bounded repair, fresh verification, deterministic citation
-  filtering, and final mapping.
+- `match.full-flow`: runs the selected production chain. V1 includes first pass,
+  Tier 2, independent verification, bounded repair, and fresh verification. V2
+  uses its calibrated first pass only. Both retain deterministic citation
+  filtering and final mapping. Set the version environment explicitly when
+  comparing full-flow runs.
 
 ## Dataset
 
-The synthetic v3 corpus contains 52 cases and 108 atomic gold requirements.
+The synthetic v3.1 corpus contains 52 cases and 110 atomic gold requirements.
 Families cover direct support, honest missing evidence, adjacent capabilities,
 scope/ownership, duration/quantity, evidence quality, extraction errors,
 adversarial vacancy text, citation integrity, and knowledge routing for broad
@@ -67,11 +71,24 @@ until independent human adjudication is complete. See `DATASET.md` and
 Run the full production eval:
 
 ```sh
-npm run eval:match-requirements -- \
+npm run eval:match-requirements:v1 -- \
   --models gpt-5.4-mini,gpt-5.4 \
   --trials 3 \
   --concurrency 6
 ```
+
+Run the benchmark-selected v2 component and full-flow suites with:
+
+```sh
+npm run eval:match-requirements:v2 -- \
+  --models gpt-5.4-mini,gpt-5.4 \
+  --trials 3 \
+  --concurrency 6
+```
+
+The v2 default excludes Tier-2, verification, and repair component suites
+because they are not part of the v2 production path. Supply `--suites`
+explicitly only when auditing those shared calls independently.
 
 Run one component suite:
 

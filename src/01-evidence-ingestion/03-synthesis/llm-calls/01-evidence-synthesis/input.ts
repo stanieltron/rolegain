@@ -1,5 +1,5 @@
 import type { JobSearchWorkspace } from "../../../../contracts/job-search.js";
-import type { SourceChunkNotes } from "../../../02-chunk-reader/llm-calls/01-chunk-analysis/output.js";
+import type { SourceChunkNotes } from "../../../v1/02-chunk-reader/llm-calls/01-chunk-analysis/output.js";
 
 export interface EvidenceSynthesisInput {
   workspace: JobSearchWorkspace;

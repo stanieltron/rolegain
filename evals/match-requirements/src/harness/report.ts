@@ -14,7 +14,7 @@ export function renderMatchEvalReport(
     `Completed: ${summary.completedAt}  `,
     `Trials: ${summary.totalTrials}`,
     `Cases: ${summary.dataset.cases}; gold rows: ${summary.dataset.goldRows}; human-reviewed: ${pct(summary.dataset.humanReviewedRate)}`,
-    `Requested trials per case: ${summary.execution.requestedTrials}; runtime: ${summary.execution.runtimeVersion} (${summary.execution.runtimeCompatible ? "compatible" : "incompatible"})`,
+    `Requested trials per case: ${summary.execution.requestedTrials}; matching: ${summary.execution.pipelineVersion}; runtime: ${summary.execution.runtimeVersion} (${summary.execution.runtimeCompatible ? "compatible" : "incompatible"})`,
     "",
     "| Model | Suite | Pass (95% CI) | Pass all trials | Accepted | Mean wall | Mean tokens | Calls | Recall | Precision | Row accuracy | Citation precision |",
     "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",

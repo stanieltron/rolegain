@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifySearchValidationFailure,
   normalizeSearchValidationFailure,
-} from "../src/02-search/03-vacancy-validation/failure-classification.js";
+} from "../src/02-search/v1/03-vacancy-validation/failure-classification.js";
 
 describe("search-stage verification classification", () => {
   it.each([

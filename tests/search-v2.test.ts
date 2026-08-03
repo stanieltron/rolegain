@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { runtimeConfiguration } from "../src/config/runtime.js";
 import { searchImplementationFor } from "../src/search-discovery.js";
-import { searchV2Configuration } from "../src/02-search-v2/config.js";
+import { searchV2Configuration } from "../src/02-search/v2/config.js";
 import {
   extractSignals,
   inaccessibleDecision,
-} from "../src/02-search-v2/harness/capture.js";
-import { buildClassificationPrompt } from "../src/02-search-v2/harness/prompts.js";
-import { validatedDiscoveryTargetV2 } from "../src/02-search-v2/index.js";
+} from "../src/02-search/v2/harness/capture.js";
+import { buildClassificationPrompt } from "../src/02-search/v2/harness/prompts.js";
+import { validatedDiscoveryTargetV2 } from "../src/02-search/v2/index.js";
 import type {
   SearchV2Capture,
   SearchV2Lead,
-} from "../src/02-search-v2/contracts.js";
+} from "../src/02-search/v2/contracts.js";
 
 describe("search v2", () => {
   it("is explicitly selectable without changing the v1 default", () => {

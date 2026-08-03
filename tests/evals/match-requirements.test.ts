@@ -22,7 +22,7 @@ describe("match-requirements eval corpus", () => {
         (total, testCase) => total + testCase.expected.length,
         0,
       ),
-    ).toBe(108);
+    ).toBe(110);
     for (const testCase of matchRequirementsCorpus) {
       const claimKeys = testCase.claims.map((item) => item.key);
       expect(new Set(claimKeys).size).toBe(claimKeys.length);
@@ -250,5 +250,59 @@ describe("match-requirements eval corpus", () => {
       "operate-high-volume",
       "measured-production-scale",
     ]);
+  });
+
+  it("does not reuse one generated row for multiple gold requirements", () => {
+    const testCase = matchRequirementsCorpus.find(
+      (item) => item.id === "extraction-duplicate-wording",
+    )!;
+    const grade = gradeMatchRequirements({
+      testCase,
+      claimIdByKey: { evidence: "claim-1" },
+      rows: [
+        {
+          requirement: "SQL query-writing experience for analytics reporting",
+          category: "responsibility",
+          status: "matched",
+          matchClass: "explicit",
+          evidence: [
+            {
+              claimId: "claim-1",
+              sourceId: "source-1",
+              excerpt: testCase.claims[0].quote,
+            },
+          ],
+        },
+      ],
+    });
+    expect(grade.requirementRecall).toBe(0.5);
+    expect(grade.passed).toBe(false);
+  });
+
+  it("rejects a correct claim id paired with an inexact excerpt", () => {
+    const testCase = matchRequirementsCorpus.find(
+      (item) => item.id === "citation-exact-excerpt",
+    )!;
+    const grade = gradeMatchRequirements({
+      testCase,
+      claimIdByKey: { evidence: "claim-1", distractor: "claim-2" },
+      rows: [
+        {
+          requirement: testCase.expected[0].requirement,
+          category: "responsibility",
+          status: "matched",
+          matchClass: "explicit",
+          evidence: [
+            {
+              claimId: "claim-1",
+              sourceId: "source-1",
+              excerpt: testCase.claims[1].quote,
+            },
+          ],
+        },
+      ],
+    });
+    expect(grade.rows[0].evidencePassed).toBe(false);
+    expect(grade.citationPrecision).toBe(0);
   });
 });

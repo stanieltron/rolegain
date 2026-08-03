@@ -13,6 +13,7 @@ export function summarizeMatchEvalResults(
     suites: MatchEvalSuite[];
     runtimeVersion: string;
     runtimeCompatible: boolean;
+    pipelineVersion: "v1" | "v2";
   },
 ) {
   const groups = new Map<string, MatchEvalTrialResult[]>();

@@ -12,11 +12,11 @@ import type {
   RoleFamilyDraft,
   SearchVocabularyDraft,
 } from "../contracts/evidence.js";
-import type { SourceChunkNotes } from "./02-chunk-reader/llm-calls/01-chunk-analysis/output.js";
+import type { SourceChunkNotes } from "./v1/02-chunk-reader/llm-calls/01-chunk-analysis/output.js";
 import type {
   ChunkReadJob,
   ChunkReadResult,
-} from "./02-chunk-reader/recovery/run-reader-with-coverage.js";
+} from "./v1/02-chunk-reader/recovery/run-reader-with-coverage.js";
 
 export interface CandidateAnalysisResult {
   threadId: string;

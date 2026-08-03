@@ -8,9 +8,9 @@ seniority/scope/duration claims, and repair regressions.
 
 ## Composition
 
-- Version: `3.0.0`
+- Version: `3.1.0`
 - Cases: 52
-- Atomic gold requirements: 108
+- Atomic gold requirements: 110
 - Development/test split: 26/26
 - Sources: synthetic candidate claims, evidence-wiki routes, and vacancy text
 - Personal data: none

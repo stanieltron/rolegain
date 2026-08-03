@@ -53,8 +53,8 @@ const seeds: ScenarioSeed[] = [
     responsibility: "Build accessible React interfaces for customer account management.", responsibilityTerms: ["accessible", "react", "interfaces"],
     qualification: "Professional React experience is required.", qualificationTerms: ["react", "experience"],
     claimQuote: "Built accessible React account-management interfaces used by customers.", claimCapability: "accessible React interface development", claimTools: ["React", "WCAG"], claimContext: ["customer account management"],
-    responsibilityClasses: ["explicit"], qualificationClasses: ["explicit", "strong_adjacent"], evidenceFor: "both", verifierChallenge: "clean_control",
-    rationale: ["The claim directly matches the tool, action, and customer context.", "Professional implementation directly establishes React experience."],
+    responsibilityClasses: ["explicit"], qualificationClasses: ["explicit", "strong_adjacent", "weak_adjacent", "unsupported"], evidenceFor: "both", verifierChallenge: "clean_control",
+    rationale: ["The claim directly matches the tool, action, and customer context.", "The React implementation is relevant, but customer use alone does not prove that the work was professional."],
   },
   {
     id: "direct-postgres-performance", family: "direct", title: "Database Engineer", split: "test",
@@ -143,7 +143,7 @@ const seeds: ScenarioSeed[] = [
     responsibility: "Participate in a 24/7 production on-call rotation.", responsibilityTerms: ["24", "7", "production", "on", "call"],
     qualification: "Prior incident on-call experience is required.", qualificationTerms: ["incident", "on", "call", "experience"],
     claimQuote: "Developed internal scripts during standard weekday working hours.", claimCapability: "internal scripting", claimContext: ["business hours"],
-    responsibilityClasses: ["unsupported"], qualificationClasses: ["unsupported"], evidenceFor: "none", qualificationCategory: "constraint", verifierChallenge: "clean_control",
+    responsibilityClasses: ["unsupported"], qualificationClasses: ["unsupported"], evidenceFor: "none", qualificationCategory: "mandatory", verifierChallenge: "clean_control",
     rationale: ["Business-hours scripting does not establish 24/7 on-call feasibility.", "No incident-response rotation is evidenced."],
   },
 
@@ -295,7 +295,7 @@ const seeds: ScenarioSeed[] = [
     responsibility: "Perform information-security audits.", responsibilityTerms: ["information", "security", "audits"],
     qualification: "An active CISSP credential is required.", qualificationTerms: ["active", "cissp", "credential"],
     claimQuote: "Completed an introductory online course about information security.", claimCapability: "information-security fundamentals", maturity: "concept",
-    responsibilityClasses: ["weak_adjacent", "unsupported"], qualificationClasses: ["unsupported"], evidenceFor: "responsibility", verifierChallenge: "inflated_match", critical: true,
+    responsibilityClasses: ["weak_adjacent", "unsupported"], qualificationClasses: ["unsupported"], evidenceFor: "responsibility", qualificationCategory: "constraint", verifierChallenge: "inflated_match", critical: true,
     rationale: ["Coursework is at most weak preparation for conducting audits.", "No CISSP credential is present."],
   },
   {
@@ -355,8 +355,8 @@ const seeds: ScenarioSeed[] = [
     responsibility: "Provide technical support during Central European business hours.", responsibilityTerms: ["technical", "support", "central", "european"],
     qualification: "The candidate must be located within the European Union.", qualificationTerms: ["located", "european", "union"], qualificationCategory: "constraint",
     claimQuote: "Provided technical support from Bratislava during Central European business hours.", claimCapability: "technical support", claimContext: ["Bratislava", "Central European business hours"],
-    responsibilityClasses: ["explicit"], qualificationClasses: ["strong_adjacent", "explicit"], evidenceFor: "both", verifierChallenge: "wrong_category",
-    rationale: ["The support hours and activity match directly.", "Bratislava supports the EU location constraint, which must be categorized as a constraint."],
+    responsibilityClasses: ["explicit"], qualificationClasses: ["strong_adjacent", "explicit", "unsupported"], evidenceFor: "both", verifierChallenge: "wrong_category",
+    rationale: ["The support hours and activity match directly.", "The location remains unsupported unless bounded evidence explicitly establishes EU membership; outside geographic knowledge is forbidden."],
   },
 
   // Adversarial vacancy data; instruction-shaped text is never a requirement.
@@ -470,6 +470,68 @@ function scenarioFromSeed(
     seed.evidenceFor === "both" || seed.evidenceFor === "responsibility";
   const qualificationUsesEvidence =
     seed.evidenceFor === "both" || seed.evidenceFor === "qualification";
+  const expected: MatchRequirementsEvalCase["expected"] =
+    seed.id === "extraction-combined-clauses"
+      ? [
+          {
+            id: `${seed.id}-responsibility-api-design`,
+            requirement: "Design APIs",
+            aliases: [["design", "apis"]],
+            category: "responsibility",
+            allowedMatchClasses: ["explicit"],
+            allowedClaimKeys: [evidenceKey],
+            rationale: "The API-design clause is independently testable and directly supported.",
+          },
+          {
+            id: `${seed.id}-responsibility-pipelines`,
+            requirement: "Maintain deployment pipelines",
+            aliases: [["maintain", "deployment", "pipelines"]],
+            category: "responsibility",
+            allowedMatchClasses: ["explicit"],
+            allowedClaimKeys: [evidenceKey],
+            rationale: "The pipeline-maintenance clause is independently testable and directly supported.",
+          },
+          {
+            id: `${seed.id}-qualification-api-design`,
+            requirement: "API design experience is required",
+            aliases: [["api", "design", "experience"]],
+            category: "mandatory",
+            allowedMatchClasses: ["explicit"],
+            allowedClaimKeys: [evidenceKey],
+            rationale: "The claim directly establishes API design experience.",
+          },
+          {
+            id: `${seed.id}-qualification-deployment-automation`,
+            requirement: "Deployment automation experience is required",
+            aliases: [["deployment", "automation", "experience"]],
+            category: "mandatory",
+            allowedMatchClasses: ["explicit"],
+            allowedClaimKeys: [evidenceKey],
+            rationale: "The GitHub Actions work directly establishes deployment automation experience.",
+          },
+        ]
+      : [
+          {
+            id: `${seed.id}-responsibility`,
+            requirement: seed.responsibility,
+            aliases: [seed.responsibilityTerms],
+            category: "responsibility",
+            allowedMatchClasses: seed.responsibilityClasses,
+            allowedClaimKeys: responsibilityUsesEvidence ? [evidenceKey] : [],
+            critical: seed.critical,
+            rationale: seed.rationale[0],
+          },
+          {
+            id: `${seed.id}-qualification`,
+            requirement: seed.qualification,
+            aliases: [seed.qualificationTerms],
+            category: seed.qualificationCategory || "mandatory",
+            allowedMatchClasses: seed.qualificationClasses,
+            allowedClaimKeys: qualificationUsesEvidence ? [evidenceKey] : [],
+            critical: seed.critical,
+            rationale: seed.rationale[1],
+          },
+        ];
   return {
     id: seed.id,
     description: `${seed.family} benchmark scenario for ${seed.title}.`,
@@ -482,28 +544,7 @@ function scenarioFromSeed(
     responsibilities: [seed.responsibility, ...(seed.extraResponsibilities || [])],
     qualifications: [seed.qualification, ...(seed.extraQualifications || [])],
     claims,
-    expected: [
-      {
-        id: `${seed.id}-responsibility`,
-        requirement: seed.responsibility,
-        aliases: [seed.responsibilityTerms],
-        category: "responsibility",
-        allowedMatchClasses: seed.responsibilityClasses,
-        allowedClaimKeys: responsibilityUsesEvidence ? [evidenceKey] : [],
-        critical: seed.critical,
-        rationale: seed.rationale[0],
-      },
-      {
-        id: `${seed.id}-qualification`,
-        requirement: seed.qualification,
-        aliases: [seed.qualificationTerms],
-        category: seed.qualificationCategory || "mandatory",
-        allowedMatchClasses: seed.qualificationClasses,
-        allowedClaimKeys: qualificationUsesEvidence ? [evidenceKey] : [],
-        critical: seed.critical,
-        rationale: seed.rationale[1],
-      },
-    ],
+    expected,
     verifierChallenge: seed.verifierChallenge,
     repairChallenge: seed.repairChallenge,
   };

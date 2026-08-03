@@ -4,7 +4,7 @@ export {
   acquireEvidence,
   type EvidenceInput,
 } from "./01-evidence-acquisition/flow.js";
-import { readCandidateSourceChunks } from "./02-chunk-reader/index.js";
+import { readCandidateSourceChunks } from "./v1/02-chunk-reader/index.js";
 import { synthesizeCandidateEvidence } from "./03-synthesis/index.js";
 import { verifyAndPersistEvidence } from "./04-verification/index.js";
 import type {

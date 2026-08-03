@@ -19,6 +19,9 @@ FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
+ENV ROLEGAIN_EVIDENCE_VERSION=v2
+ENV ROLEGAIN_SEARCH_VERSION=v2
+ENV ROLEGAIN_MATCH_VERSION=v2
 
 COPY package.json package-lock.json ./
 RUN apt-get update \
@@ -30,7 +33,7 @@ RUN apt-get update \
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/migrations ./migrations
 COPY --from=build /app/.agents ./.agents
-COPY --from=build /app/src/02-search/browser/application-form-autofill.js ./src/02-search/browser/application-form-autofill.js
+COPY --from=build /app/src/02-search/v1/browser/application-form-autofill.js ./src/02-search/v1/browser/application-form-autofill.js
 
 EXPOSE 4317
 CMD ["node", "dist/server/src/server/index.js"]

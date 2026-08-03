@@ -6,13 +6,14 @@ import type {
   JobSearchWorkspace,
 } from "../contracts/job-search.js";
 import { CodexExecClient } from "../codex-runtime/client.js";
-import type { SearchVersion } from "../config/runtime.js";
+import type { MatchVersion, SearchVersion } from "../config/runtime.js";
 import {
   searchImplementationFor,
   type SearchImplementation,
 } from "../search-discovery.js";
-import { revalidateOpportunities } from "../02-search/03-vacancy-validation/index.js";
-import { matchOpportunities } from "./01-requirement-matching/index.js";
+import { revalidateOpportunities } from "../02-search/v1/03-vacancy-validation/index.js";
+import { matchOpportunitiesV1 } from "./v1/index.js";
+import { matchOpportunitiesV2 } from "./v2/index.js";
 import { inspectOpportunityApplications } from "./02-application-inspection/index.js";
 import { streamSearchToMatch } from "./orchestration/search-to-match-stream.js";
 import { BrowserPool } from "../search-match-shared/browser-pool.js";
@@ -38,6 +39,8 @@ export interface OpportunityResearchResult {
 export class LiveOpportunityResearcher implements OpportunityResearchProvider {
   private readonly browsers = new BrowserPool();
   private readonly search: SearchImplementation;
+  private readonly match: typeof matchOpportunitiesV1;
+  private readonly matchVersion: MatchVersion;
 
   constructor(
     private readonly codex?: CodexExecClient,
@@ -46,8 +49,15 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
     searchVersion: SearchVersion = process.env.ROLEGAIN_SEARCH_VERSION === "v2"
       ? "v2"
       : "v1",
+    matchVersion: MatchVersion = process.env.ROLEGAIN_MATCH_VERSION === "v2"
+      ? "v2"
+      : "v1",
   ) {
     this.search = searchImplementationFor(searchVersion);
+    this.match = matchVersion === "v2"
+      ? matchOpportunitiesV2
+      : matchOpportunitiesV1;
+    this.matchVersion = matchVersion;
   }
 
   cancelAll() {
@@ -124,6 +134,7 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
       browsers: this.browsers,
       workspace,
       search: this.search,
+      matchVersion: this.matchVersion,
       options,
     });
   }
@@ -133,7 +144,7 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
     opportunities: JobOpportunity[],
     onProgress?: OpportunityProgressReporter,
   ) {
-    return matchOpportunities({
+    return this.match({
       codex: this.codex,
       cwd: this.cwd,
       dataRoot: this.dataRoot,

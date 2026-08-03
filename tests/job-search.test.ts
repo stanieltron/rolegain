@@ -28,13 +28,13 @@ import {
   parseCompensationRanges,
   reconcileRemoteLocation,
 } from "../src/search-match-shared/opportunity.js";
-import { validatedDiscoveryTarget } from "../src/02-search/01-discovery/index.js";
+import { validatedDiscoveryTarget } from "../src/02-search/v1/01-discovery/index.js";
 import { discoveryWorkIntent } from "../src/search-match-shared/search-intent.js";
-import { greenhouseJobApiUrl } from "../src/02-search/03-vacancy-validation/index.js";
+import { greenhouseJobApiUrl } from "../src/02-search/v1/03-vacancy-validation/index.js";
 import {
   calculateRequirementFit,
   requirementIsExplicitQualification,
-} from "../src/03-match/01-requirement-matching/index.js";
+} from "../src/03-match/shared/01-requirement-matching/index.js";
 import {
   normalizeExtractedText,
   repairMojibake,

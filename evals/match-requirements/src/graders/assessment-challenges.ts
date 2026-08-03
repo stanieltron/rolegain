@@ -1,4 +1,4 @@
-import type { AgentRequirementAssessment } from "../../../../src/03-match/01-requirement-matching/index.js";
+import type { AgentRequirementAssessment } from "../../../../src/03-match/shared/01-requirement-matching/index.js";
 import type { CanonicalClaimCitation } from "../../../../src/search-match-shared/evidence-context.js";
 import type {
   ExpectedRequirement,

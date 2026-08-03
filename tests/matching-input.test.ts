@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { JobOpportunity } from "../src/contracts/job-search.js";
-import { vacanciesForMatching } from "../src/03-match/01-requirement-matching/llm-calls/01-requirement-matching/input.js";
+import { vacanciesForMatching } from "../src/03-match/shared/01-requirement-matching/llm-calls/01-requirement-matching/input.js";
 
 describe("requirement-matching vacancy input", () => {
   it("falls back to the complete employer description when section headings are absent", () => {

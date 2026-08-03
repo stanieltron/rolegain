@@ -1,7 +1,7 @@
 export const MATCH_REQUIREMENTS_RELEASE_THRESHOLDS = {
   dataset: {
     minimumCases: 52,
-    minimumGoldRows: 108,
+    minimumGoldRows: 110,
     humanReviewedRate: 1,
   },
   execution: {

@@ -42,6 +42,11 @@ ROLEGAIN_AUTH_MODE=supabase
 ROLEGAIN_PUBLIC_ORIGIN=https://app.example.com
 ROLEGAIN_OBJECT_STORAGE=enabled
 
+# Choose all-v1 or all-v2 consistently across web and worker processes.
+ROLEGAIN_EVIDENCE_VERSION=v2
+ROLEGAIN_SEARCH_VERSION=v2
+ROLEGAIN_MATCH_VERSION=v2
+
 DATABASE_URL=postgresql://...
 SUPABASE_URL=https://....supabase.co
 SUPABASE_PUBLISHABLE_KEY=...
@@ -84,11 +89,18 @@ $env:ROLEGAIN_PROCESS_JOBS="false"
 npm run start:production
 ```
 
+Use `npm run start:production:v2` instead to set all three pipeline versions to
+v2 in that web process.
+
 Run one or more worker instances:
 
 ```powershell
 npm run start:worker:production
 ```
+
+Use `npm run start:worker:production:v2` for the complete v2 worker. Web and
+worker processes must use the same three version selections; a launcher cannot
+change another process's environment.
 
 Workers serialize jobs for the same user while allowing different users to run
 concurrently. Configure provider-level concurrency conservatively before

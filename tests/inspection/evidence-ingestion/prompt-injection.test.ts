@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   detectPromptInjectionSignals,
   serializeUntrustedSource,
-} from "../../../src/01-evidence-ingestion/02-chunk-reader/prompt-injection/index.js";
-import { buildInput as buildReaderInput } from "../../../src/01-evidence-ingestion/02-chunk-reader/llm-calls/01-chunk-analysis/input.js";
-import { buildInput as buildRepairInput } from "../../../src/01-evidence-ingestion/02-chunk-reader/llm-calls/03-chunk-repair/input.js";
+} from "../../../src/01-evidence-ingestion/v1/02-chunk-reader/prompt-injection/index.js";
+import { buildInput as buildReaderInput } from "../../../src/01-evidence-ingestion/v1/02-chunk-reader/llm-calls/01-chunk-analysis/input.js";
+import { buildInput as buildRepairInput } from "../../../src/01-evidence-ingestion/v1/02-chunk-reader/llm-calls/03-chunk-repair/input.js";
 import { mockWorkspaceWithCv } from "../../../src/01-evidence-ingestion/inspection/fixtures.js";
 
 describe("CV prompt-injection boundary", () => {

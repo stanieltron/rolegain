@@ -4,20 +4,30 @@ import { CodexExecClient } from "../src/codex-runtime/client.js";
 import { runEvidenceEvals } from "../src/01-evidence-ingestion/evals/runner.js";
 
 const projectRoot = process.cwd();
+const version = process.argv[2] === "v2" ? "v2" : "v1";
 const codex = new CodexExecClient(projectRoot);
 try {
   const results = await runEvidenceEvals({
     codex,
     projectRoot,
+    version,
     trials: Number.parseInt(process.env.ROLEGAIN_EVAL_TRIALS || "3", 10),
   });
-  const directory = path.join(projectRoot, ".test-artifacts", "evidence-evals");
+  const directory = path.join(
+    projectRoot,
+    ".test-artifacts",
+    "evidence-evals",
+    version,
+  );
   await mkdir(directory, { recursive: true });
   const output = path.join(
     directory,
     `${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
   );
-  await writeFile(output, JSON.stringify({ createdAt: new Date().toISOString(), results }, null, 2));
+  await writeFile(
+    output,
+    JSON.stringify({ createdAt: new Date().toISOString(), version, results }, null, 2),
+  );
   console.log(output);
   if (results.some((result) => {
     const value = result as { error?: string; grade?: { passed: boolean } };

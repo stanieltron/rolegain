@@ -5,7 +5,7 @@ import type { CodexExecClient } from "../../codex-runtime/client.js";
 import { assertPublicHttpUrl } from "../../infrastructure/public-http.js";
 import { compatibleCandidateValue } from "../../search-match-shared/candidate-facts.js";
 import { repairMojibake } from "../../infrastructure/text-encoding.js";
-import { guardPublicPage } from "../../02-search/03-vacancy-validation/index.js";
+import { guardPublicPage } from "../../02-search/v1/03-vacancy-validation/index.js";
 import type { BrowserPool } from "../../search-match-shared/browser-pool.js";
 import {
   adapterForUrl,

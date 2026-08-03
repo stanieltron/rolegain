@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { evidenceEvalCorpus } from "../../../src/01-evidence-ingestion/evals/corpus.js";
-import { detectPromptInjectionSignals } from "../../../src/01-evidence-ingestion/02-chunk-reader/prompt-injection/index.js";
-import { chunkSourceWithLocators } from "../../../src/01-evidence-ingestion/02-chunk-reader/index.js";
+import { detectPromptInjectionSignals } from "../../../src/01-evidence-ingestion/v1/02-chunk-reader/prompt-injection/index.js";
+import { chunkSourceWithLocators } from "../../../src/01-evidence-ingestion/v1/02-chunk-reader/index.js";
 
 describe("evidence model-behavior eval corpus", () => {
   it("keeps every expected quotation inside its immutable source", () => {

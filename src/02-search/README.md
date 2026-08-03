@@ -12,14 +12,12 @@ application forms; those belong to `03-match`.
 
 ## Architecture
 
-| Folder | Responsibility | Execution |
+| Folder | Responsibility | Public surface |
 |---|---|---|
-| [`01-discovery/`](./01-discovery/README.md) | Run bounded web-search waves and classify each result as a concrete vacancy or a vacancy source | Hybrid |
-| [`02-vacancy-source-expansion/`](./02-vacancy-source-expansion/README.md) | Resume persistent listing cursors and emit concrete child vacancies | Hybrid branch |
-| [`03-vacancy-validation/`](./03-vacancy-validation/README.md) | Open each concrete vacancy, freeze the page, verify it, and enforce hard constraints | Hybrid |
-| [`browser/`](./browser/README.md) | Shared browser-side scripts used during search and form inspection | Deterministic |
+| [`v1/`](./v1/README.md) | Adaptive discovery, resumable source expansion, extraction, and independent verification | `index.ts`, `contracts.ts`, `schemas.ts`, `README.md` |
+| [`v2/`](./v2/README.md) | Independent capture-first discovery and batched frozen-page classification | `index.ts`, `contracts.ts`, `schemas.ts`, `README.md` |
 
-`02-vacancy-source-expansion` is a branch, not a mandatory step for every
+V1's `02-vacancy-source-expansion` is a branch, not a mandatory step for every
 candidate. Concrete vacancy leads go directly to validation. Vacancy-source
 leads first resume their source checkpoint, emit child vacancy leads, and every
 child enters the same validation queue.
@@ -42,10 +40,10 @@ validates them without running web discovery.
 
 | Call id | Location | Purpose |
 |---|---|---|
-| `search.web-discovery` | `01-discovery/llm-calls/01-web-search/` | One call per bounded search wave |
-| `search.source-navigation` | `02-vacancy-source-expansion/browser-agent/llm-calls/01-source-navigation/` | Bounded navigation decisions for interactive vacancy sources |
-| `search.listing-extraction` | `03-vacancy-validation/llm-calls/01-listing-extraction/` | Extract concrete vacancies from captured listing pages |
-| `search.vacancy-verification` | `03-vacancy-validation/llm-calls/02-vacancy-verification/` | Verify a frozen vacancy snapshot before it can enter match |
+| `search.web-discovery` | `v1/01-discovery/llm-calls/01-web-search/` | V1 bounded discovery wave; v2 exposes its discovery schema from `v2/schemas.ts` |
+| `search.source-navigation` | `v1/02-vacancy-source-expansion/browser-agent/llm-calls/01-source-navigation/` | V1 bounded navigation decisions |
+| `search.listing-extraction` | `v1/03-vacancy-validation/llm-calls/01-listing-extraction/` | V1 listing extraction |
+| `search.vacancy-verification` | `v1/03-vacancy-validation/llm-calls/02-vacancy-verification/` | V1 frozen-vacancy verification; v2 uses frozen capture classification |
 
 ## Handoff
 
@@ -53,3 +51,11 @@ Search hands validated `JobOpportunity[]`, failures, seen URLs, and the exact
 evidence-run id to [`03-match`](../03-match/README.md). Match may consume those
 opportunities in a serialized artifact or stream them from validation through a
 bounded orchestrator.
+
+## Version selection
+
+Search v1 remains the default for `npm run dev` and `npm start`. The complete
+`npm run dev:v2` / `npm run start:v2` launchers select
+[search v2](./v2/README.md), evidence ingestion v2, and matching v2
+together. Set only `ROLEGAIN_SEARCH_VERSION=v2` when intentionally comparing
+search implementations while leaving the other pipelines unchanged.

@@ -26,6 +26,9 @@ export function gradeMatchRequirements(input: {
   const reverseClaimKeys = new Map(
     Object.entries(input.claimIdByKey).map(([key, value]) => [value, key]),
   );
+  const claimQuoteByKey = new Map(
+    input.testCase.claims.map((claim) => [claim.key, normalizeExcerpt(claim.quote)]),
+  );
   const used = new Set<number>();
   let totalCitations = 0;
   let validCitations = 0;
@@ -63,12 +66,20 @@ export function gradeMatchRequirements(input: {
       return Boolean(
         key &&
           expected.allowedClaimKeys.includes(key) &&
+          normalizeExcerpt(item.excerpt) === claimQuoteByKey.get(key) &&
           actualClass !== "unsupported" &&
           actualClass !== "contradicted",
       );
     }).length;
+    const citationsAreExact = row.evidence.every((item) => {
+      const key = item.claimId && reverseClaimKeys.get(item.claimId);
+      return Boolean(
+        key && normalizeExcerpt(item.excerpt) === claimQuoteByKey.get(key),
+      );
+    });
     const evidencePassed =
       unknownClaimIds.length === 0 &&
+      citationsAreExact &&
       actualClaimKeys.every((key) => expected.allowedClaimKeys.includes(key)) &&
       (expected.allowedClaimKeys.length > 0 || row.evidence.length === 0) &&
       (actualClass === "unsupported" || actualClass === "contradicted"
@@ -136,6 +147,7 @@ function bestCandidate(
   used: Set<number>,
 ) {
   const candidates = rows.flatMap((row, index) => {
+    if (used.has(index)) return [];
     const text = normalize(`${row.requirement} ${row.normalizedCapability || ""}`);
     const matchingAliases = aliases.filter((alias) =>
       alias.every((term) => hasTerm(text, normalize(term))),
@@ -147,11 +159,14 @@ function bestCandidate(
       index,
       score:
         longest * 10 +
-        (row.category === expectedCategory ? 5 : 0) +
-        (used.has(index) ? 0 : 1),
+        (row.category === expectedCategory ? 5 : 0),
     }];
   });
   return candidates.sort((left, right) => right.score - left.score)[0];
+}
+
+function normalizeExcerpt(value: string) {
+  return value.trim().replace(/\s+/g, " ");
 }
 
 function hasTerm(text: string, term: string) {

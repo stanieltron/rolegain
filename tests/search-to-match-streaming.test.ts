@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { BoundedExecutor } from "../src/03-match/orchestration/bounded-executor.js";
 import { runBoundedStreamingPipeline } from "../src/03-match/orchestration/streaming-pipeline.js";
-import { reverseVerifyOneMatch } from "../src/03-match/01-requirement-matching/reverse-verification/index.js";
-import { runOneSearch } from "../src/02-search/01-discovery/run-one-search.js";
-import { validateOneVacancy } from "../src/02-search/03-vacancy-validation/validate-one/index.js";
-import { matchOneOpportunity } from "../src/03-match/01-requirement-matching/match-one/index.js";
+import { reverseVerifyOneMatch } from "../src/03-match/shared/01-requirement-matching/reverse-verification/index.js";
+import { runOneSearch } from "../src/02-search/v1/01-discovery/run-one-search.js";
+import { validateOneVacancy } from "../src/02-search/v1/03-vacancy-validation/validate-one/index.js";
+import { matchOneOpportunity } from "../src/03-match/shared/01-requirement-matching/match-one/index.js";
 import type { CodexExecClient } from "../src/codex-runtime/client.js";
 import type { JobOpportunity } from "../src/contracts/job-search.js";
 

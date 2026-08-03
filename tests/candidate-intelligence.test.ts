@@ -7,7 +7,7 @@ import { CodexCandidateAnalyzer } from "../src/01-evidence-ingestion/evidence-in
 import {
   chunkSource,
   mapConcurrentOrdered,
-} from "../src/01-evidence-ingestion/02-chunk-reader/index.js";
+} from "../src/01-evidence-ingestion/v1/02-chunk-reader/index.js";
 import type {
   StartThreadOptions,
   StartTurnOptions,

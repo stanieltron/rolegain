@@ -76,6 +76,40 @@ HTTP and UI concerns do not appear in those pipeline inputs. The server maps
 HTTP requests to control-flow commands; the UI only reads API state and sends
 user commands.
 
+## Pipeline version selection
+
+Evidence ingestion, search, and requirement matching each have independent v1
+and v2 selectors:
+
+```text
+ROLEGAIN_EVIDENCE_VERSION
+ROLEGAIN_SEARCH_VERSION
+ROLEGAIN_MATCH_VERSION
+```
+
+All default to v1. The supported `npm run dev:v2`, `npm run start:v2`,
+`npm run start:production:v2`, `npm run dev:api:v2`, `npm run start:api:v2`, and
+`npm run dev:diagnostic:v2` launchers set all three to v2 before composition
+starts. `npm run start:worker:v2` and
+`npm run start:worker:production:v2` do the same for a separate workflow
+process. Operators may set one selector alone for controlled component
+comparisons, but a command carrying the `:v2` suffix always means the complete
+v2 stack.
+
+Each version is an explicit package below its owning pipeline:
+
+```text
+01-evidence-ingestion/{v1,v2}/
+02-search/{v1,v2}/
+03-match/{v1,v2}/
+```
+
+Every package exposes `index.ts`, `contracts.ts`, `schemas.ts`, and `README.md`.
+Code shared by both algorithms remains outside the version packages (or under
+`03-match/shared`) so v1 and v2 cannot silently diverge through copied
+deterministic logic. Runtime composition imports the public version entry
+points; evals import the corresponding version schemas.
+
 ## Model execution
 
 Each model boundary uses the process-selected transport. The default starts a

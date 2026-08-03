@@ -46,6 +46,7 @@ export async function createRolegainApp(
       projectRoot,
       "src",
       "02-search",
+      "v1",
       "browser",
       "application-form-autofill.js",
     ),

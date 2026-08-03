@@ -1,5 +1,6 @@
 import path from "node:path";
-import { CodexCandidateAnalyzer } from "../../01-evidence-ingestion/evidence-ingestion.js";
+import { CodexCandidateAnalyzerV1 } from "../../01-evidence-ingestion/v1/index.js";
+import { CodexCandidateAnalyzerV2 } from "../../01-evidence-ingestion/v2/index.js";
 import { LiveOpportunityResearcher } from "../../03-match/opportunity-researcher.js";
 import { CodexCoverLetterWriter } from "../../04-application-preparation/application-preparation.js";
 import { CodexExecClient } from "../../codex-runtime/client.js";
@@ -100,11 +101,14 @@ export async function createRolegainDependencies(
     root,
     dataRoot,
     configuration.searchVersion,
+    configuration.matchVersion,
   );
   const writer = new CodexCoverLetterWriter(codex, root, dataRoot);
   const jobSearch = new JobSearchService(
     dataRoot,
-    new CodexCandidateAnalyzer(codex, root),
+    configuration.evidenceIngestionVersion === "v2"
+      ? new CodexCandidateAnalyzerV2(codex, root)
+      : new CodexCandidateAnalyzerV1(codex, root),
     researcher,
     writer,
     undefined,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluateResultGateway } from "../../src/codex-runtime/result-gateway.js";
-import { outputSchema } from "../../src/03-match/01-requirement-matching/llm-calls/02-tier2-matching/output.js";
+import { outputSchema } from "../../src/03-match/shared/01-requirement-matching/llm-calls/02-tier2-matching/output.js";
 
 describe("singular per-job Tier-2 output contract", () => {
   it("accepts multiple unresolved requirements under one job", () => {

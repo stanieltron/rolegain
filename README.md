@@ -12,17 +12,18 @@ run alone or composed by the backend control flow.
 src/
 |-- 01-evidence-ingestion/       # evidence sources -> canonical evidence
 |   |-- 01-evidence-acquisition/ # deterministic
-|   |-- 02-chunk-reader/         # hybrid; owns its llm-calls/
 |   |-- 03-synthesis/            # LLM; owns its llm-calls/
 |   |-- 04-verification/         # canonical ledger + evidence knowledge base
+|   |-- v1/                      # reader + coverage + repair; complete contracts/schemas
+|   |-- v2/                      # lean reader; complete contracts/schemas
 |   `-- evidence-ingestion.ts    # top-level executable facade
 |-- 02-search/                   # evidence -> validated live jobs
-|   |-- 01-discovery/            # hybrid
-|   |-- 02-vacancy-source-expansion/ # hybrid resumable source branch
-|   |-- 03-vacancy-validation/   # hybrid
-|   `-- browser/                 # browser-side helpers
+|   |-- v1/                      # adaptive discovery + verification package
+|   `-- v2/                      # independent capture-first package
 |-- 03-match/                    # validated jobs -> matched jobs and mapped forms
-|   |-- 01-requirement-matching/ # hybrid
+|   |-- v1/                      # verified multi-call matcher package
+|   |-- v2/                      # calibrated one-pass matcher package
+|   |-- shared/                  # deterministic matching mechanics and call programs
 |   |-- 02-application-inspection/ # hybrid
 |   |-- orchestration/           # bounded streaming composition
 |   `-- opportunity-researcher.ts      # product facade composing search and match
@@ -86,11 +87,33 @@ artifact storage and per-user token tracking, see
 For development, run `npm run dev`. This starts the API on port 4317 and the UI
 on port 5173 using Codex CLI.
 
+Run the complete benchmark-selected v2 stack with:
+
+```powershell
+npm run dev:v2
+# or, without the Vite UI:
+npm run start:v2
+```
+
+These commands enable evidence ingestion v2, search v2, and matching v2 in the
+same process. V1 remains the default for `npm run dev` and `npm start`. For
+component-level experiments, set `ROLEGAIN_EVIDENCE_VERSION`,
+`ROLEGAIN_SEARCH_VERSION`, or `ROLEGAIN_MATCH_VERSION` independently instead.
+
+Each pipeline version has the same public package surface: `index.ts`,
+`contracts.ts`, `schemas.ts`, and `README.md`. Version-specific eval commands
+include `npm run eval:evidence:v1`, `npm run eval:evidence:v2`,
+`npm run eval:match-requirements:v1`, and
+`npm run eval:match-requirements:v2`.
+
 To run the same flows through an OpenAI-compatible Chat Completions API:
 
 ```powershell
 npm run dev:api
 ```
+
+Use `npm run dev:api:v2` for the same API transport with evidence, search, and
+matching v2 enabled together.
 
 `dev:api` loads the gitignored `.env`; copy provider values from
 `.env.example` and replace `ROLEGAIN_API_KEY`. `ROLEGAIN_API_BASE_URL` must be

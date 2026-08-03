@@ -23,9 +23,10 @@ const concurrency = integerArg(args.concurrency, 6);
 const cases = splitList(args.cases);
 const suites = splitList(args.suites) as MatchEvalSuite[] | undefined;
 const splits = splitList(args.split) as Array<"development" | "test"> | undefined;
+const version = args.version === "v2" ? "v2" : "v1";
 
 process.stdout.write(
-  `Running ${models.join(" vs ")} with ${trials} trial(s), concurrency ${concurrency}\n`,
+  `Running matching ${version}: ${models.join(" vs ")} with ${trials} trial(s), concurrency ${concurrency}\n`,
 );
 const result = await runMatchRequirementsEval({
   cwd,
@@ -35,6 +36,7 @@ const result = await runMatchRequirementsEval({
   caseIds: cases,
   suites,
   splits,
+  version,
   includeRepairChallenges: !args["no-repair-challenges"],
   outputRoot: typeof args.output === "string" ? args.output : undefined,
 });

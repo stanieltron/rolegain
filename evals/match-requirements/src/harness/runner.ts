@@ -6,20 +6,25 @@ import {
   type CodexRunObservation,
 } from "../../../../src/codex-runtime/client.js";
 import type { LlmConfigurationSet } from "../../../../src/codex-runtime/llm-call-config.js";
-import { matchOneOpportunity } from "../../../../src/03-match/01-requirement-matching/match-one/index.js";
+import type { MatchVersion } from "../../../../src/config/runtime.js";
+import { matchOneOpportunity } from "../../../../src/03-match/shared/01-requirement-matching/match-one/index.js";
 import {
   escalateUnresolvedRequirements,
   verifyAssessments,
   verifyAndRepairAssessments,
   type AgentRequirementAssessment,
-} from "../../../../src/03-match/01-requirement-matching/index.js";
+} from "../../../../src/03-match/shared/01-requirement-matching/index.js";
 import {
   buildInput as buildRequirementMatchingInput,
   command as REQUIREMENT_MATCHING_COMMAND,
   outputSchema as opportunityAssessmentsSchema,
   rolePrompt as REQUIREMENT_MATCHING_ROLE_PROMPT,
   type RequirementAssessmentOutput,
-} from "../../../../src/03-match/01-requirement-matching/llm-calls/01-requirement-matching/index.js";
+} from "../../../../src/03-match/shared/01-requirement-matching/llm-calls/01-requirement-matching/index.js";
+import {
+  leanRequirementOutputSchema,
+  leanRequirementRolePrompt,
+} from "../../../../src/03-match/v2/contract.js";
 import {
   loadPhase2EvidenceContext,
   retrieveCanonicalClaimLedger,
@@ -70,10 +75,12 @@ export interface MatchEvalOptions {
   suites?: MatchEvalSuite[];
   includeRepairChallenges?: boolean;
   outputRoot?: string;
+  version?: MatchVersion;
 }
 
 export interface MatchEvalTrialResult {
   configurationId: string;
+  version: MatchVersion;
   model: string;
   suite: MatchEvalSuite;
   caseId: string;
@@ -115,6 +122,7 @@ const observations = new AsyncLocalStorage<CodexRunObservation[]>();
 
 export async function runMatchRequirementsEval(options: MatchEvalOptions) {
   validateOptions(options);
+  const version = options.version ?? "v1";
   const selectedCases = selectCases(options.caseIds, options.splits);
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const outputRoot = path.resolve(
@@ -124,6 +132,7 @@ export async function runMatchRequirementsEval(options: MatchEvalOptions) {
         ".agent-runtime",
         "match-requirements",
         "runs",
+        version,
         timestamp,
       ),
   );
@@ -144,9 +153,11 @@ export async function runMatchRequirementsEval(options: MatchEvalOptions) {
 
   const jobs: EvalJob[] = [];
   const configurationId = options.configuration?.id || "production-default";
-  const suites = new Set<MatchEvalSuite>(
-    options.suites || DEFAULT_MATCH_EVAL_SUITES,
-  );
+  const suites = new Set<MatchEvalSuite>(options.suites || (
+    version === "v2"
+      ? ["match.requirements.component", "match.full-flow"]
+      : DEFAULT_MATCH_EVAL_SUITES
+  ));
   for (const model of options.models) {
     for (let trial = 1; trial <= options.trials; trial += 1) {
       for (const testCase of selectedCases) {
@@ -219,7 +230,7 @@ export async function runMatchRequirementsEval(options: MatchEvalOptions) {
 
   let completed = 0;
   const results = await mapConcurrent(jobs, options.concurrency, async (job) => {
-    const result = await runJob(codex, options.cwd, outputRoot, job);
+    const result = await runJob(codex, options.cwd, outputRoot, job, version);
     completed += 1;
     process.stdout.write(
       `[${completed}/${jobs.length}] ${job.model} ${job.suite} ${job.testCase.id} ` +
@@ -234,6 +245,7 @@ export async function runMatchRequirementsEval(options: MatchEvalOptions) {
     suites: [...new Set(results.map((item) => item.suite))],
     runtimeVersion: runtime.version,
     runtimeCompatible: runtime.compatible,
+    pipelineVersion: version,
   });
   const releaseGate = evaluateReleaseGates(summary);
   await writeJson(path.join(outputRoot, "summary.json"), summary);
@@ -256,6 +268,7 @@ async function runJob(
   cwd: string,
   outputRoot: string,
   job: EvalJob,
+  version: MatchVersion,
 ): Promise<MatchEvalTrialResult> {
   const slug = safeName(job.model);
   const artifactDirectory = path.join(
@@ -296,6 +309,7 @@ async function runJob(
           dataRoot,
           prepared,
           model: job.model,
+          version,
         });
         grade = gradeAgentAssessment(
           job.testCase,
@@ -337,6 +351,7 @@ async function runJob(
           workspace: prepared.workspace,
           opportunity: prepared.opportunity,
           model: job.model,
+          version,
         });
         const opportunity = result.opportunities.find(
           (item) => item.id === prepared.opportunity.id,
@@ -426,6 +441,7 @@ async function runJob(
       : pipelineAccepted && grade.passed);
   const result: MatchEvalTrialResult = {
     configurationId: job.configurationId,
+    version,
     model: calls[0]?.model || job.model,
     suite: job.suite,
     caseId: job.testCase.id,
@@ -460,6 +476,7 @@ async function runMatchRequirementsComponent(input: {
   dataRoot: string;
   prepared: PreparedMatchEvalCase;
   model: string;
+  version: MatchVersion;
 }) {
   const phase2Evidence = await loadPhase2EvidenceContext(
     input.dataRoot,
@@ -482,7 +499,9 @@ async function runMatchRequirementsComponent(input: {
     sandbox: "read-only",
     model: input.model,
     approvalPolicy: REQUIREMENT_MATCHING_COMMAND.approvalPolicy,
-    developerInstructions: REQUIREMENT_MATCHING_ROLE_PROMPT,
+    developerInstructions: input.version === "v2"
+      ? leanRequirementRolePrompt
+      : REQUIREMENT_MATCHING_ROLE_PROMPT,
   });
   const result = await input.codex.runTurn({
     threadId: thread.id,
@@ -501,10 +520,14 @@ async function runMatchRequirementsComponent(input: {
     }),
     cwd: input.cwd,
     sandbox: REQUIREMENT_MATCHING_COMMAND.sandbox,
-    outputSchema: opportunityAssessmentsSchema,
+    outputSchema: input.version === "v2"
+      ? leanRequirementOutputSchema
+      : opportunityAssessmentsSchema,
     model: input.model,
     approvalPolicy: REQUIREMENT_MATCHING_COMMAND.approvalPolicy,
-    effort: REQUIREMENT_MATCHING_COMMAND.effort,
+    effort: input.version === "v2"
+      ? "low"
+      : REQUIREMENT_MATCHING_COMMAND.effort,
     timeoutMs: REQUIREMENT_MATCHING_COMMAND.timeoutMs,
   });
   const assessment = JSON.parse(
@@ -712,6 +735,8 @@ function validateOptions(options: MatchEvalOptions) {
     throw new Error("trials must be a positive integer");
   if (!Number.isInteger(options.concurrency) || options.concurrency < 1)
     throw new Error("concurrency must be a positive integer");
+  if (options.version !== undefined && options.version !== "v1" && options.version !== "v2")
+    throw new Error(`Unknown matching version: ${String(options.version)}`);
   const allowedSuites = new Set<MatchEvalSuite>([
     ...DEFAULT_MATCH_EVAL_SUITES,
   ]);

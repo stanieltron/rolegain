@@ -57,4 +57,4 @@ background stages.
 ## Next stage
 
 The endpoint saves this workspace, returns HTTP 202, and queues
-[02 — Chunk Reader](../../02-chunk-reader/README.md).
+[02 — Chunk Reader](../../v1/02-chunk-reader/README.md).

@@ -11,7 +11,7 @@ import {
   safeExtension,
 } from "../../01-evidence-ingestion/01-evidence-acquisition/cv/upload-cv.js";
 import type { CandidateAnalyzer } from "../../01-evidence-ingestion/types.js";
-import { EvidenceNeedsReviewError } from "../../01-evidence-ingestion/02-chunk-reader/recovery/index.js";
+import { EvidenceNeedsReviewError } from "../../01-evidence-ingestion/v1/02-chunk-reader/recovery/index.js";
 import {
   readSupplementalEvidence,
 } from "../../01-evidence-ingestion/01-evidence-acquisition/additional-evidence/read-source.js";
@@ -54,7 +54,7 @@ import type {
   OpportunityResearchProvider,
   OpportunityProgressUpdate,
 } from "../../search-match-shared/types.js";
-import { VacancySourceInventory } from "../../02-search/02-vacancy-source-expansion/inventory/index.js";
+import { VacancySourceInventory } from "../../02-search/v1/02-vacancy-source-expansion/inventory/index.js";
 import type { CoverLetterWriter } from "../../04-application-preparation/types.js";
 import { renderTailoredCvDocx } from "../../04-application-preparation/06-cv-tailoring/document.js";
 import {
@@ -72,7 +72,7 @@ import {
   readCurrentEvidenceModel,
 } from "../../01-evidence-ingestion/04-verification/evidence-model.js";
 import { repairDerivedNarrativeReadiness } from "../../01-evidence-ingestion/04-verification/profile-evidence/index.js";
-import { normalizeSearchValidationFailure } from "../../02-search/03-vacancy-validation/failure-classification.js";
+import { normalizeSearchValidationFailure } from "../../02-search/v1/03-vacancy-validation/failure-classification.js";
 import {
   FileWorkspaceStore,
   type WorkspaceStore,

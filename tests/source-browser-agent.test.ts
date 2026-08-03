@@ -10,14 +10,14 @@ import type { LiveCandidate } from "../src/search-match-shared/types.js";
 import type {
   SourceBrowserAgentState,
   VacancySourcePage,
-} from "../src/02-search/02-vacancy-source-expansion/contracts.js";
+} from "../src/02-search/v1/02-vacancy-source-expansion/contracts.js";
 import {
   isSafeSourceContinuationControl,
   shouldUseSourceBrowserAgent,
-} from "../src/02-search/02-vacancy-source-expansion/browser-agent/policy.js";
-import { appendReplayStep } from "../src/02-search/02-vacancy-source-expansion/browser-agent/run/index.js";
-import { VacancySourceInventory } from "../src/02-search/02-vacancy-source-expansion/inventory/index.js";
-import { runVacancySource } from "../src/02-search/02-vacancy-source-expansion/run/index.js";
+} from "../src/02-search/v1/02-vacancy-source-expansion/browser-agent/policy.js";
+import { appendReplayStep } from "../src/02-search/v1/02-vacancy-source-expansion/browser-agent/run/index.js";
+import { VacancySourceInventory } from "../src/02-search/v1/02-vacancy-source-expansion/inventory/index.js";
+import { runVacancySource } from "../src/02-search/v1/02-vacancy-source-expansion/run/index.js";
 
 const sourceUrl = "https://jobs.example.test/careers";
 const source: LiveCandidate = {

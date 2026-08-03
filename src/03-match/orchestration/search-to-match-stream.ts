@@ -4,11 +4,13 @@ import type {
   JobSearchWorkspace,
 } from "../../contracts/job-search.js";
 import type { CodexExecClient } from "../../codex-runtime/client.js";
+import type { MatchVersion } from "../../config/runtime.js";
 import {
   searchImplementationFor,
   type SearchImplementation,
 } from "../../search-discovery.js";
-import { matchOneOpportunity } from "../01-requirement-matching/match-one/index.js";
+import { matchOneOpportunityV1 } from "../v1/index.js";
+import { matchOneOpportunityV2 } from "../v2/index.js";
 import type { BrowserPool } from "../../search-match-shared/browser-pool.js";
 import { matchingConcurrency } from "../../search-match-shared/parallel.js";
 import { failureFromOpportunity } from "../../search-match-shared/opportunity.js";
@@ -23,6 +25,7 @@ export interface SearchToMatchStreamInput {
   browsers: BrowserPool;
   workspace: JobSearchWorkspace;
   search?: SearchImplementation;
+  matchVersion?: MatchVersion;
   options?: {
     excludeApplyUrls?: string[];
     limit?: number;
@@ -44,6 +47,11 @@ export async function streamSearchToMatch(input: SearchToMatchStreamInput) {
   const search = input.search ?? searchImplementationFor(
     process.env.ROLEGAIN_SEARCH_VERSION === "v2" ? "v2" : "v1",
   );
+  const matchOne = (input.matchVersion ?? (
+    process.env.ROLEGAIN_MATCH_VERSION === "v2" ? "v2" : "v1"
+  )) === "v2"
+    ? matchOneOpportunityV2
+    : matchOneOpportunityV1;
   const streamed = await runBoundedStreamingPipeline<
     JobOpportunity,
     MatchTerminalResult,
@@ -70,7 +78,7 @@ export async function streamSearchToMatch(input: SearchToMatchStreamInput) {
         state: "running",
       });
       try {
-        const matched = await matchOneOpportunity({
+        const matched = await matchOne({
           codex: input.codex,
           cwd: input.cwd,
           dataRoot: input.dataRoot,

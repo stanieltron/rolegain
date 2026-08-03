@@ -174,7 +174,7 @@ function completeSummary(): EvalSummary {
     },
     dataset: {
       cases: 52,
-      goldRows: 108,
+      goldRows: 110,
       humanReviewedRate: 1,
       suiteCases: {
         "match.requirements.component": 52,

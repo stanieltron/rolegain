@@ -5,7 +5,7 @@ import {
   normalizeChunkNotes,
   prepareCandidateSourceChunks,
   type PreparedCandidateChunks,
-} from "../../01-evidence-ingestion/02-chunk-reader/index.js";
+} from "../../01-evidence-ingestion/v1/02-chunk-reader/index.js";
 import {
   analyzeChunkOnce,
   readAndVerifyChunk,
@@ -16,8 +16,8 @@ import {
   type ChunkReadJob,
   type ChunkReadResult,
   type ChunkRepairResult,
-} from "../../01-evidence-ingestion/02-chunk-reader/recovery/run-reader-with-coverage.js";
-import { applyChunkRepairPatch } from "../../01-evidence-ingestion/02-chunk-reader/repair/apply-chunk-repair.js";
+} from "../../01-evidence-ingestion/v1/02-chunk-reader/recovery/run-reader-with-coverage.js";
+import { applyChunkRepairPatch } from "../../01-evidence-ingestion/v1/02-chunk-reader/repair/apply-chunk-repair.js";
 import type { JobSearchWorkspace } from "../../contracts/job-search.js";
 import type { ChunkReadingResult } from "../../01-evidence-ingestion/types.js";
 import type { EvidenceInput } from "../../01-evidence-ingestion/evidence-ingestion.js";

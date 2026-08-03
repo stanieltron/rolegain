@@ -8,13 +8,13 @@ import type { JobSearchWorkspace } from "../src/contracts/job-search.js";
 import {
   classifySearchLead,
   type VacancySourceCheckpoint,
-} from "../src/02-search/02-vacancy-source-expansion/contracts.js";
+} from "../src/02-search/v1/02-vacancy-source-expansion/contracts.js";
 import {
   VacancySourceInventory,
   checkpointAsCandidate,
   checkpointNeedsHeadRefresh,
-} from "../src/02-search/02-vacancy-source-expansion/inventory/index.js";
-import { runVacancySource } from "../src/02-search/02-vacancy-source-expansion/run/index.js";
+} from "../src/02-search/v1/02-vacancy-source-expansion/inventory/index.js";
+import { runVacancySource } from "../src/02-search/v1/02-vacancy-source-expansion/run/index.js";
 import type { Phase2EvidenceContext } from "../src/search-match-shared/evidence-context.js";
 import type { LiveCandidate } from "../src/search-match-shared/types.js";
 

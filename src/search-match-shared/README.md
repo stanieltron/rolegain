@@ -1,6 +1,6 @@
 # Search-and-match shared modules
 
-[Back to Search](../README.md)
+[Back to repository](../../README.md)
 
 These modules contain deterministic behavior genuinely used by more than one
 numbered stage. Stage-specific orchestration remains in its owning stage.

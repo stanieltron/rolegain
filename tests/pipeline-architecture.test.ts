@@ -13,7 +13,7 @@ const pipelineRoots = [
   "04-application-preparation",
 ] as const;
 
-const modelBoundaryRoots = [...pipelineRoots, "02-search-v2"] as const;
+const modelBoundaryRoots = [...pipelineRoots, "02-search/v2"] as const;
 
 describe("inspectable pipeline architecture", () => {
   it("keeps every LLM call as the same independently tweakable mini-program", async () => {

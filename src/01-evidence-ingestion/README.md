@@ -14,7 +14,8 @@ The pipeline is organized as four numbered stage folders:
 | Folder | Responsibility | Execution |
 |---|---|---|
 | [`01-evidence-acquisition/`](./01-evidence-acquisition/README.md) | Install a CV or add and deduplicate supplemental evidence | Deterministic |
-| [`02-chunk-reader/`](./02-chunk-reader/README.md) | Split sources, extract evidence per chunk, verify coverage, repair omissions, and join results | Hybrid: deterministic code plus bounded LLM calls |
+| [`v1/02-chunk-reader/`](./v1/02-chunk-reader/README.md) | V1: split sources, extract evidence per chunk, verify coverage, repair omissions, and join results | Hybrid: deterministic code plus bounded LLM calls |
+| [`v2/`](./v2/README.md) | V2: lean atomic extraction with deterministic grounding checks | Hybrid |
 | [`03-synthesis/`](./03-synthesis/README.md) | Reduce all verified source readings into a candidate-wide interpretation | One LLM call |
 | [`04-verification/`](./04-verification/README.md) | Audit exact quotations and profile provenance, persist ledgers and a layered knowledge base, and calculate readiness | Deterministic and fail-closed |
 
@@ -22,6 +23,27 @@ The request phase ends after `acquireEvidence()`. The application can return
 HTTP 202 while the queued phase runs `buildCandidateEvidence()`. Inside that
 queued phase, `CodexCandidateAnalyzer.analyze()` owns Stage 02 and Stage 03;
 `verifyAndPersistEvidence()` then owns Stage 04.
+
+### Selectable ingestion versions
+
+`ROLEGAIN_EVIDENCE_VERSION=v1` (the default) keeps the original reader →
+coverage → bounded repair flow. `ROLEGAIN_EVIDENCE_VERSION=v2` selects the
+[benchmark-backed lean reader](./v2/README.md): one atomic extraction call per
+uncached chunk, six-way concurrency by default, the same deterministic result
+gateway, then the existing join, synthesis, and canonical verification. V2 uses
+a separate checkpoint namespace, so switching versions does not mix cached
+reader outputs. Keep v1 available for comparison and rollback until v2 is
+promoted to the default.
+
+The bundled `npm run dev:v2`, `npm run start:v2`, and
+`npm run dev:diagnostic:v2` commands select evidence ingestion v2, search v2,
+and matching v2 together. The environment variable above remains available for
+isolated ingestion experiments.
+
+The detailed Stage 02 transaction, diagrams, programs, and call inventory below
+describe v1. V2 replaces only that reader transaction and then rejoins the same
+Stage 03 synthesis and Stage 04 canonical verification boundaries; its complete
+contract and benchmark are documented in [v2/README.md](./v2/README.md).
 
 Stage boundaries use the contracts in [`types.ts`](./types.ts):
 
@@ -643,19 +665,21 @@ npm run test:evidence:steps
 Run the live multi-trial behavior corpus. This consumes model calls:
 
 ```bash
-npm run eval:evidence
+npm run eval:evidence:v1
+npm run eval:evidence:v2
 ```
 
 Set `ROLEGAIN_EVAL_TRIALS=1` through `5` to override the default trial
-count. Eval artifacts are written below `.test-artifacts/evidence-evals/`.
+count. Eval artifacts are written below
+`.test-artifacts/evidence-evals/<version>/`.
 
 ## LLM calls
 
 | Call id | Folder | Cardinality |
 |---|---|---|
-| `evidence.chunk-analysis` | `02-chunk-reader/llm-calls/01-chunk-analysis/` | One isolated call per chunk and attempt |
-| `evidence.chunk-coverage` | `02-chunk-reader/llm-calls/02-coverage-verification/` | One independent check after each extraction or repair |
-| `evidence.chunk-repair` | `02-chunk-reader/llm-calls/03-chunk-repair/` | One targeted delta per failed coverage attempt, within the recovery limit |
+| `evidence.chunk-analysis` | `v1/02-chunk-reader/llm-calls/01-chunk-analysis/` or the v2 schema in `v2/schemas.ts` | One isolated extraction call per chunk and attempt |
+| `evidence.chunk-coverage` | `v1/02-chunk-reader/llm-calls/02-coverage-verification/` | V1 independent coverage check |
+| `evidence.chunk-repair` | `v1/02-chunk-reader/llm-calls/03-chunk-repair/` | V1 targeted repair within the recovery limit |
 | `evidence.synthesis` | `03-synthesis/llm-calls/01-evidence-synthesis/` | One reducer call per analysis run |
 
 ## Invariants

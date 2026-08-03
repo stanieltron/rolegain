@@ -1,6 +1,6 @@
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { readCandidateSourceChunks } from "../../01-evidence-ingestion/02-chunk-reader/index.js";
+import { readCandidateSourceChunks } from "../../01-evidence-ingestion/v1/02-chunk-reader/index.js";
 import { synthesizeCandidateEvidence } from "../../01-evidence-ingestion/03-synthesis/index.js";
 import { verifyAndPersistEvidence } from "../../01-evidence-ingestion/04-verification/index.js";
 import type {
