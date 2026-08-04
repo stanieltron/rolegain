@@ -29,6 +29,7 @@ Rolegain keeps its existing React UI and pipeline code. Commercial mode adds:
 7. Configure the Gemini API key, OpenAI-compatible base URL and model. Live
    discovery and company research reuse that key through Gemini's native Google
    Search endpoint.
+8. Optional: create a Resend API key for administrator workflow-failure alerts.
 
 Google login does not require Gmail permissions. Do not request Gmail scopes;
 Rolegain only needs identity, email and profile.
@@ -56,6 +57,11 @@ SUPABASE_STORAGE_BUCKET=rolegain-private
 ROLEGAIN_ADMIN_USERNAME=...
 ROLEGAIN_ADMIN_PASSWORD=...
 ROLEGAIN_ADMIN_SESSION_SECRET=... # at least 32 random characters
+
+# Optional administrator workflow-failure alerts (worker service only).
+RESEND_API_KEY=...
+ROLEGAIN_ERROR_EMAIL_TO=admin@example.com
+ROLEGAIN_ERROR_EMAIL_FROM=Rolegain alerts <onboarding@resend.dev>
 
 VITE_ROLEGAIN_AUTH_MODE=supabase
 VITE_SUPABASE_URL=https://....supabase.co
@@ -169,6 +175,10 @@ Deploy the web and worker as separate Railway services from the same repository:
 - worker command: `node dist/server/scripts/start-worker.js`;
 - worker variables: `ROLEGAIN_LLM_TRANSPORT=codex`,
   `ROLEGAIN_CODEX_HOME=/data/codex`;
+- optional worker alert variables: `RESEND_API_KEY`,
+  `ROLEGAIN_ERROR_EMAIL_TO`, and `ROLEGAIN_ERROR_EMAIL_FROM`. Alerts contain a
+  bounded, sanitized error summary and link to `/admin`; email failures never
+  fail or delay the user workflow;
 - ordinary application queries automatically use Supabase's shared transaction
   pooler on port 6543 when `DATABASE_URL` is a shared session-pooler URL on
   port 5432. `ROLEGAIN_TRANSACTION_DATABASE_URL` can override the derived URL;
@@ -191,3 +201,10 @@ Complete the displayed device-code flow in the browser. The resulting Codex
 credentials remain in the private worker volume. This pilot mode is intended
 for a small controlled beta; switch the worker to the API transport before
 scaling it as a general public service.
+
+Workflow Retry and Continue are scoped to the authenticated user. If a
+`key_strict_fifo` job reaches pg-boss's terminal failed state, retrying the same
+operation reactivates that job in place. Starting a different operation removes
+only that user's stale terminal pg-boss record; the Rolegain workflow row stays
+available as audit history. This prevents one failed job from permanently
+blocking that user's queue without affecting other users.

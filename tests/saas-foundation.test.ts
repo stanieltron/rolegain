@@ -106,6 +106,20 @@ describe("commercial SaaS foundation", () => {
       runtimeConfiguration({ ROLEGAIN_AUTH_MODE: "supabase" }),
     ).toThrow("DATABASE_URL is required");
   });
+
+  it("loads optional workflow error-email configuration", () => {
+    expect(
+      runtimeConfiguration({
+        RESEND_API_KEY: "re_test",
+        ROLEGAIN_ERROR_EMAIL_TO: "admin@example.com",
+        ROLEGAIN_ERROR_EMAIL_FROM: "Rolegain <alerts@example.com>",
+      }),
+    ).toMatchObject({
+      resendApiKey: "re_test",
+      errorEmailTo: "admin@example.com",
+      errorEmailFrom: "Rolegain <alerts@example.com>",
+    });
+  });
 });
 
 class SharedMemoryWorkspaceStore implements WorkspaceStore {

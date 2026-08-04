@@ -33,6 +33,7 @@ import {
 import type { Pool } from "pg";
 import { PlatformControl } from "../admin/platform-control.js";
 import { appendDiagnosticEvent } from "../../diagnostics/run-log.js";
+import { createWorkflowFailureNotifier } from "../notifications/workflow-error-email.js";
 
 const defaultProjectRoot = process.cwd();
 
@@ -142,6 +143,14 @@ export async function createRolegainDependencies(
           artifacts,
           platform,
           configuration.processJobs,
+          createWorkflowFailureNotifier({
+            apiKey: configuration.resendApiKey,
+            to: configuration.errorEmailTo,
+            from: configuration.errorEmailFrom,
+            adminUrl: configuration.publicOrigin
+              ? `${configuration.publicOrigin.replace(/\/$/, "")}/admin`
+              : undefined,
+          }),
         )
       : undefined;
   if (workflows) await workflows.start(configuration.processJobs);

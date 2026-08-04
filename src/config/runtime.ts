@@ -20,6 +20,9 @@ export interface RuntimeConfiguration {
   adminUsername?: string;
   adminPassword?: string;
   adminSessionSecret?: string;
+  resendApiKey?: string;
+  errorEmailTo?: string;
+  errorEmailFrom?: string;
 }
 
 export function runtimeConfiguration(
@@ -70,6 +73,9 @@ export function runtimeConfiguration(
     adminUsername: clean(environment.ROLEGAIN_ADMIN_USERNAME),
     adminPassword: clean(environment.ROLEGAIN_ADMIN_PASSWORD),
     adminSessionSecret: clean(environment.ROLEGAIN_ADMIN_SESSION_SECRET),
+    resendApiKey: clean(environment.RESEND_API_KEY),
+    errorEmailTo: clean(environment.ROLEGAIN_ERROR_EMAIL_TO),
+    errorEmailFrom: clean(environment.ROLEGAIN_ERROR_EMAIL_FROM),
   };
 }
 

@@ -731,7 +731,6 @@ async function resumePausedWorkIfPresent(
   if (control?.state !== "stopped") return false;
   const hasResumableWork = hasResumablePausedWork(workspace);
   if (!hasResumableWork) {
-    dependencies.codex.resumeTurns();
     await dependencies.jobSearch.continueBackgroundWork(userId, false);
     return false;
   }
@@ -757,7 +756,6 @@ async function resumeBackgroundExecution(
   dependencies: RouteDependencies,
   userId: string,
 ) {
-  dependencies.codex.resumeTurns();
   if (!dependencies.workflows)
     return dependencies.jobSearch.continueBackgroundWork(userId);
 

@@ -3,7 +3,10 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { JobSearchWorkspace } from "../src/contracts/job-search.js";
-import { workflowBlocksEnqueue } from "../src/backend/workflows/workflow-queue.js";
+import {
+  workflowBlocksEnqueue,
+  workflowIdentityMatches,
+} from "../src/backend/workflows/workflow-queue.js";
 import { JobSearchService } from "../src/backend/control-flow/service.js";
 import {
   hasResumablePausedWork,
@@ -37,6 +40,28 @@ describe("workflow stop and resume state", () => {
         cancellation_requested_at: null,
       }),
     ).toBe(true);
+  });
+
+  it("retries only the failed workflow matching the user's requested operation", () => {
+    expect(
+      workflowIdentityMatches(
+        { type: "analyze", resource_key: null },
+        "analyze",
+      ),
+    ).toBe(true);
+    expect(
+      workflowIdentityMatches(
+        { type: "tailor-cv", resource_key: "application-a" },
+        "tailor-cv",
+        "application-b",
+      ),
+    ).toBe(false);
+    expect(
+      workflowIdentityMatches(
+        { type: "prepare", resource_key: null },
+        "analyze",
+      ),
+    ).toBe(false);
   });
 
   it("treats cancellation-requested workflows as inactive", () => {

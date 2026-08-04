@@ -9,6 +9,7 @@ import {
   BETA_BATCH_SIZE,
   type PlatformControl,
 } from "../admin/platform-control.js";
+import type { WorkflowFailureNotifier } from "../notifications/workflow-error-email.js";
 
 const QUEUE = "rolegain-workflows";
 export const DEFAULT_WORKFLOW_QUEUE_POOL_SIZE = 1;
@@ -65,6 +66,7 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
     private readonly artifacts: ArtifactArchive,
     private readonly platform: PlatformControl,
     processJobs = false,
+    private readonly notifyFailure: WorkflowFailureNotifier = async () => undefined,
   ) {
     this.boss = new PgBoss({
       connectionString,
@@ -117,6 +119,12 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
     );
     if (existing.rows[0] && workflowBlocksEnqueue(existing.rows[0]))
       return asWorkflowRun(existing.rows[0]);
+    const recovered = await this.recoverFailedWorkflow(
+      userId,
+      type,
+      options.resourceId,
+    );
+    if (recovered) return recovered;
     const reservesBetaBatch =
       isApplicationBatch(type) && options.reserveBetaBatch !== false;
     if (reservesBetaBatch) await this.platform.reserveBatch(userId);
@@ -277,9 +285,79 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
           name: "workflow_failed",
           metadata: { type: payload.type },
         }).catch(() => undefined);
+        const userEmail = await this.service
+          .get(payload.userId)
+          .then((workspace) => workspace.profile.email || undefined)
+          .catch(() => undefined);
+        await this.notifyFailure({
+          runId: payload.runId,
+          userId: payload.userId,
+          userEmail,
+          workflowType: payload.type,
+          resourceId: payload.resourceId,
+          error: message,
+          occurredAt: new Date().toISOString(),
+        }).catch((notificationError) => {
+          console.error(
+            `Rolegain workflow failure email could not be sent for ${payload.runId}`,
+            notificationError,
+          );
+        });
         throw error;
       }
     });
+  }
+
+  /**
+   * A failed key_strict_fifo job remains the key owner in pg-boss and would
+   * otherwise prevent every later job for this user from becoming active.
+   * Retry the matching workflow in place; remove only terminal queue records
+   * belonging to this user when the user is starting a different workflow.
+   * The Rolegain workflow rows remain intact as the audit history.
+   */
+  private async recoverFailedWorkflow(
+    userId: string,
+    type: WorkflowType,
+    resourceId?: string,
+  ): Promise<WorkflowRun | undefined> {
+    const failed = await this.pool.query<FailedWorkflowRow>(
+      `select id, type, resource_key, queue_job_id
+       from rolegain_workflow_runs
+       where user_id = $1
+         and status = 'failed'
+         and queue_job_id is not null
+       order by created_at desc`,
+      [userId],
+    );
+    const matching = failed.rows.find(
+      (row) => workflowIdentityMatches(row, type, resourceId),
+    );
+
+    for (const row of failed.rows) {
+      if (row.id === matching?.id) continue;
+      await this.boss.deleteJob(QUEUE, row.queue_job_id);
+    }
+    if (!matching) return undefined;
+
+    await this.platform.assertCodexEnabled();
+    await this.platform.assertLlmAllowance(userId);
+    const retry = await this.boss.retry(QUEUE, matching.queue_job_id);
+    if (commandAffected(retry) === 0) {
+      await this.boss.deleteJob(QUEUE, matching.queue_job_id);
+      return undefined;
+    }
+    await this.pool.query(
+      `update rolegain_workflow_runs
+       set status = 'queued', error = null, started_at = null,
+           completed_at = null, cancellation_requested_at = null
+       where id = $1`,
+      [matching.id],
+    );
+    await this.platform.recordEvent(userId, {
+      name: "workflow_started",
+      metadata: { type, retry: true },
+    });
+    return this.byId(matching.id);
   }
 
   private async execute(payload: WorkflowPayload) {
@@ -364,6 +442,39 @@ interface WorkflowRunRow {
   started_at: Date | null;
   completed_at: Date | null;
   cancellation_requested_at: Date | null;
+}
+
+interface FailedWorkflowRow {
+  id: string;
+  type: WorkflowType;
+  resource_key: string | null;
+  queue_job_id: string;
+}
+
+function normalizedResourceKey(value: string | null | undefined) {
+  return value || "";
+}
+
+export function workflowIdentityMatches(
+  row: { type: WorkflowType; resource_key?: string | null },
+  type: WorkflowType,
+  resourceId?: string,
+) {
+  return (
+    row.type === type &&
+    normalizedResourceKey(row.resource_key) === normalizedResourceKey(resourceId)
+  );
+}
+
+function commandAffected(response: unknown) {
+  if (
+    response &&
+    typeof response === "object" &&
+    "affected" in response &&
+    typeof response.affected === "number"
+  )
+    return response.affected;
+  return 0;
 }
 
 function asWorkflowRun(row: WorkflowRunRow): WorkflowRun {
