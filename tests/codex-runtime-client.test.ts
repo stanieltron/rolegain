@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CodexExecClient,
+  codexExecEventError,
   isPromptOnlyRole,
   llmCallToolViolation,
   loginStatusIsAuthenticated,
@@ -11,6 +12,18 @@ describe("prompt-only Codex roles", () => {
   it("does not mistake 'Not logged in' for an authenticated session", () => {
     expect(loginStatusIsAuthenticated("Logged in using ChatGPT")).toBe(true);
     expect(loginStatusIsAuthenticated("Not logged in")).toBe(false);
+  });
+
+  it("preserves JSONL runtime failures that Codex emits on stdout", () => {
+    expect(codexExecEventError({
+      type: "error",
+      message: "invalid_json_schema: Missing startDate",
+    })).toBe("invalid_json_schema: Missing startDate");
+    expect(codexExecEventError({
+      type: "turn.failed",
+      error: { message: "request rejected" },
+    })).toBe("request rejected");
+    expect(codexExecEventError({ type: "turn.started" })).toBeUndefined();
   });
 
   it("gates every new thread while global background execution is stopped", async () => {

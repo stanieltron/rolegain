@@ -377,6 +377,7 @@ export class CodexExecClient {
     let usage: JsonObject = {};
     let codexThreadId = "";
     let stderrText = "";
+    let runtimeErrorText = "";
     let policyViolation = "";
     const events = createWriteStream(eventsPath, { flags: "a" });
     const stderr = createWriteStream(stderrPath, { flags: "a" });
@@ -384,6 +385,8 @@ export class CodexExecClient {
       events.write(`${line}\n`);
       const parsed = parseJsonObject(line);
       if (!parsed) return;
+      const runtimeError = codexExecEventError(parsed);
+      if (runtimeError) runtimeErrorText = runtimeError.slice(-8_000);
       const violation = llmCallToolViolation(
         context.callId,
         resolvedConfig.role,
@@ -426,8 +429,9 @@ export class CodexExecClient {
       );
       if (policyViolation) throw new Error(policyViolation);
       if (exit.code !== 0) {
+        const failureDetail = runtimeErrorText.trim() || stderrText.trim();
         throw new Error(
-          `Codex exec failed (code ${exit.code}, signal ${exit.signal || "none"})${stderrText.trim() ? `: ${stderrText.trim()}` : ""}; trace: ${eventsPath}`,
+          `Codex exec failed (code ${exit.code}, signal ${exit.signal || "none"})${failureDetail ? `: ${failureDetail}` : ""}; trace: ${eventsPath}`,
         );
       }
       const finalText = await readFile(resultPath, "utf8");
@@ -622,6 +626,19 @@ export function resolveCodexHome() {
 
 export function loginStatusIsAuthenticated(status: string) {
   return /\blogged in using\b/i.test(status) && !/\bnot logged in\b/i.test(status);
+}
+
+/** Extracts failures emitted on Codex's JSONL stdout before a non-zero exit. */
+export function codexExecEventError(event: JsonObject) {
+  if (event.type !== "error" && event.type !== "turn.failed") return undefined;
+  if (typeof event.message === "string" && event.message.trim())
+    return event.message.trim();
+  if (typeof event.error === "string" && event.error.trim())
+    return event.error.trim();
+  const nested = asObject(event.error);
+  return typeof nested.message === "string" && nested.message.trim()
+    ? nested.message.trim()
+    : undefined;
 }
 
 export function isPromptOnlyRole(role: string) {

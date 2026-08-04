@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export interface WorkflowFailureAlert {
   runId: string;
   userId: string;
@@ -45,23 +47,25 @@ export function createWorkflowFailureNotifier(
       safeError,
       ...(options.adminUrl ? ["", `Admin: ${options.adminUrl}`] : []),
     ].join("\n");
+    const body = JSON.stringify({
+      from: options.from || DEFAULT_FROM,
+      to: [options.to],
+      subject,
+      text: details,
+      tags: [
+        { name: "category", value: emailTagValue(category) },
+        { name: "workflow", value: emailTagValue(alert.workflowType) },
+      ],
+    });
+    const bodyHash = createHash("sha256").update(body).digest("hex").slice(0, 32);
     const response = await request(RESEND_EMAIL_ENDPOINT, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${options.apiKey}`,
         "Content-Type": "application/json",
-        "Idempotency-Key": `workflow-failed/${alert.runId}`,
+        "Idempotency-Key": `workflow-failed/${alert.runId}/${bodyHash}`,
       },
-      body: JSON.stringify({
-        from: options.from || DEFAULT_FROM,
-        to: [options.to],
-        subject,
-        text: details,
-        tags: [
-          { name: "category", value: emailTagValue(category) },
-          { name: "workflow", value: emailTagValue(alert.workflowType) },
-        ],
-      }),
+      body,
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {

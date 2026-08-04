@@ -73,6 +73,9 @@ describe("evidence ingestion v2", () => {
                       ownership: "primary",
                       quote: "Implemented durable workflow recovery for failed jobs.",
                       limitations: [],
+                      startDate: "",
+                      endDate: "",
+                      outcomes: [],
                     },
                   ],
                 }
@@ -117,6 +120,9 @@ describe("evidence ingestion v2", () => {
           ownership: "primary",
           quote: "Implemented durable workflow recovery for failed jobs.",
           limitations: [],
+          startDate: "",
+          endDate: "",
+          outcomes: [],
         },
       ],
     };
@@ -138,4 +144,41 @@ describe("evidence ingestion v2", () => {
       prompt,
     }).report.defects.some((defect) => defect.code === "SOURCE_TEXT_NOT_IN_INPUT")).toBe(true);
   });
+
+  it("keeps every strict object property required for OpenAI structured output", () => {
+    const missing = strictSchemaMissingRequiredProperties(leanChunkOutputSchema);
+    expect(missing).toEqual([]);
+  });
 });
+
+function strictSchemaMissingRequiredProperties(
+  schema: unknown,
+  path = "$",
+): string[] {
+  if (!schema || typeof schema !== "object") return [];
+  const value = schema as Record<string, unknown>;
+  const missing: string[] = [];
+  if (value.type === "object" && isRecord(value.properties)) {
+    const required = new Set(
+      Array.isArray(value.required)
+        ? value.required.filter((item): item is string => typeof item === "string")
+        : [],
+    );
+    for (const key of Object.keys(value.properties)) {
+      if (!required.has(key)) missing.push(`${path}.properties.${key}`);
+      missing.push(
+        ...strictSchemaMissingRequiredProperties(
+          value.properties[key],
+          `${path}.properties.${key}`,
+        ),
+      );
+    }
+  }
+  if (value.items)
+    missing.push(...strictSchemaMissingRequiredProperties(value.items, `${path}.items`));
+  return missing;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
