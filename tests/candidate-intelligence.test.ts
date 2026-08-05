@@ -16,6 +16,57 @@ import { CodexExecClient } from "../src/codex-runtime/client.js";
 import { JobSearchService } from "../src/backend/control-flow/service.js";
 
 describe("candidate intelligence", () => {
+  it("defers website acquisition until the worker analysis step", async () => {
+    let reads = 0;
+    const reader = async (input: { kind: "webpage"; name: string; url?: string }) => {
+      reads += 1;
+      return {
+        kind: input.kind,
+        name: input.name,
+        url: input.url,
+        content: "Page: Example\n\nDeep evidence from the rendered website.",
+        contentHash: "rendered-site-hash",
+      };
+    };
+    const analyzer: CandidateAnalyzer = {
+      analyze: async (workspace) => ({
+        threadId: "thread-deferred-url",
+        profile: workspace.profile,
+        sourceInsights: workspace.sources.map((source) => ({
+          sourceId: source.id,
+          knowledgeMarkdown: `Notes for ${source.name}`,
+          insights: [],
+        })),
+      }),
+    };
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-deferred-url-"));
+    const service = new JobSearchService(
+      root,
+      analyzer,
+      undefined,
+      undefined,
+      reader as never,
+    );
+    await service.initialize();
+
+    const staged = await service.addSource(
+      { kind: "webpage", name: "Example", url: "https://example.com" },
+      undefined,
+      { deferUrlAcquisition: true },
+    );
+    expect(reads).toBe(0);
+    expect(staged.sources[0]).toMatchObject({
+      status: "processing",
+      content: "",
+      analysisRequired: true,
+    });
+
+    const analyzed = await service.analyzeCandidate();
+    expect(reads).toBe(1);
+    expect(analyzed.sources[0].content).toContain("Deep evidence");
+    expect(analyzed.sources[0].status).toBe("ready");
+  });
+
   it("covers the complete source when splitting evidence into model-sized chunks", () => {
     const lines = Array.from(
       { length: 4_000 },

@@ -17,6 +17,7 @@ import {
 } from "../../01-evidence-ingestion/01-evidence-acquisition/additional-evidence/read-source.js";
 import {
   evidenceUrlsMatch,
+  stageSupplementalUrl,
 } from "../../01-evidence-ingestion/01-evidence-acquisition/additional-evidence/add-evidence.js";
 export { evidenceUrlsMatch };
 import {
@@ -382,18 +383,23 @@ export class JobSearchService {
   async addSource(
     input: EvidenceInput,
     candidateId = CANDIDATE_ID,
+    options: { deferUrlAcquisition?: boolean } = {},
   ): Promise<JobSearchWorkspace> {
     const workspace = await this.get(candidateId);
     const replacedCvs =
       input.kind === "cv"
         ? workspace.sources.filter((source) => source.kind === "cv")
         : [];
-    await acquireEvidence({
-      dataRoot: this.root,
-      workspace,
-      source: input,
-      analyzeWithLlm: Boolean(this.analyzer),
-    });
+    if (input.kind !== "cv" && input.url && options.deferUrlAcquisition)
+      stageSupplementalUrl({ workspace, source: { ...input, url: input.url } });
+    else
+      await acquireEvidence({
+        dataRoot: this.root,
+        workspace,
+        source: input,
+        analyzeWithLlm: Boolean(this.analyzer),
+        reader: this.profileSourceIngestor,
+      });
     if (input.kind === "cv")
       for (const application of workspace.applications)
         delete application.tailoredCv;
@@ -442,6 +448,37 @@ export class JobSearchService {
     ) {
       await this.synchronizeProfileSources(candidateId, false);
       workspace = await this.getCandidate(candidateId);
+    }
+    const pendingUrls = workspace.sources.filter(
+      (source) =>
+        !source.profileField &&
+        source.status === "processing" &&
+        Boolean(source.url) &&
+        !source.content?.trim(),
+    );
+    for (const pending of pendingUrls) {
+      this.assertBackgroundExecutionRunning(candidateId);
+      try {
+        await acquireEvidence({
+          dataRoot: this.root,
+          workspace,
+          source: {
+            kind: pending.kind === "cv" ? "webpage" : pending.kind,
+            name: pending.name,
+            url: pending.url!,
+          },
+          analyzeWithLlm: Boolean(this.analyzer),
+          reader: this.profileSourceIngestor,
+        });
+      } catch (error) {
+        pending.status = "analysis_failed";
+        pending.analysisRequired = false;
+        pending.error = error instanceof Error ? error.message : String(error);
+      }
+    }
+    if (pendingUrls.length) {
+      recalculate(workspace);
+      await this.saveCandidate(workspace);
     }
     if (this.analyzer) {
       invalidateEvidenceAnalysis(workspace);

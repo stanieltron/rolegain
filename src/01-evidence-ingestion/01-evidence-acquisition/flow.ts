@@ -1,6 +1,9 @@
 import type { JobSearchWorkspace } from "../../contracts/job-search.js";
 import { addSupplementalEvidence } from "./additional-evidence/add-evidence.js";
-import type { SupplementalEvidenceInput } from "./additional-evidence/read-source.js";
+import {
+  readSupplementalEvidence,
+  type SupplementalEvidenceInput,
+} from "./additional-evidence/read-source.js";
 import { uploadCv } from "./cv/upload-cv.js";
 
 export type EvidenceInput =
@@ -19,6 +22,7 @@ export async function acquireEvidence(input: {
   workspace: JobSearchWorkspace;
   source: EvidenceInput;
   analyzeWithLlm: boolean;
+  reader?: typeof readSupplementalEvidence;
 }) {
   if (input.source.kind === "cv") {
     await uploadCv(input.dataRoot, input.workspace, input.source);
@@ -30,5 +34,6 @@ export async function acquireEvidence(input: {
     workspace: input.workspace,
     source: input.source,
     analyzeWithLlm: input.analyzeWithLlm,
+    reader: input.reader,
   });
 }

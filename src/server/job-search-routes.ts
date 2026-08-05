@@ -325,6 +325,7 @@ export async function routeRequest(
         deferAnalysis: dependencies.workflows ? true : body.deferAnalysis,
       } as never,
       userId,
+      { deferUrlAcquisition: Boolean(dependencies.workflows && body.url) },
     );
     await dependencies.artifacts.snapshot(userId);
     if (body.deferAnalysis !== true) {

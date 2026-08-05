@@ -23,11 +23,12 @@ export async function addSupplementalEvidence(input: {
   workspace: JobSearchWorkspace;
   source: SupplementalEvidenceInput;
   analyzeWithLlm: boolean;
+  reader?: typeof readSupplementalEvidence;
 }) {
   const { dataRoot, workspace, source: sourceInput, analyzeWithLlm } = input;
 
   // 1. Read the URL, text, or uploaded document into normalized text + hash.
-  const acquired = await readSupplementalEvidence(sourceInput);
+  const acquired = await (input.reader ?? readSupplementalEvidence)(sourceInput);
 
   // 2. Add only content that is not already present. A URL whose content has
   // changed updates its existing source instead of creating a second source.
@@ -99,6 +100,44 @@ export async function addSupplementalEvidence(input: {
   }
 
   return { workspace, source: primarySource, duplicate: !changed };
+}
+
+/**
+ * Persist a URL without opening it. Commercial deployments use this in the
+ * lightweight web process, then let the Chromium-equipped worker acquire it.
+ */
+export function stageSupplementalUrl(input: {
+  workspace: JobSearchWorkspace;
+  source: SupplementalEvidenceInput & { url: string };
+}) {
+  const { workspace, source: inputSource } = input;
+  let source = workspace.sources.find((candidate) =>
+    evidenceUrlsMatch(candidate.url, inputSource.url),
+  );
+  const pending: Omit<CandidateSource, "id" | "addedAt"> = {
+    kind: inputSource.kind,
+    name: inputSource.name,
+    url: inputSource.url,
+    content: "",
+    contentHash: "",
+    status: "processing",
+    analysisRequired: true,
+    insights: [],
+  };
+  if (source) Object.assign(source, pending, { error: undefined, knowledgePath: undefined });
+  else {
+    source = {
+      id: randomUUID(),
+      ...pending,
+      addedAt: new Date().toISOString(),
+    };
+    workspace.sources.push(source);
+  }
+  markCandidateEvidenceForRebuild(workspace);
+  source.status = "processing";
+  source.analysisRequired = true;
+  workspace.profileSetupStep = 2;
+  return { workspace, source, duplicate: false };
 }
 
 function flatten(source: SupplementalEvidence): SupplementalEvidence[] {
