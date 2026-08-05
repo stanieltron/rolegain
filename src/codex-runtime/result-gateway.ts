@@ -122,6 +122,7 @@ export function evaluateResultGateway(input: {
   if (input.callId === "search.web-discovery") {
     checks.push("duplicate-normalization");
     sanitizeDuplicateRows(output, "jobs", "jobUrl", adjustments);
+    sanitizeDuplicateRows(output, "jobs", "url", adjustments);
   }
 
   if (input.callId === "evidence.chunk-coverage") {
@@ -632,13 +633,32 @@ function validateCallSpecificInvariants(
       validateRepairReferences(root, defects);
       break;
     case "search.web-discovery":
+      uniqueValues(root.jobs, "jobUrl", "$.jobs", defects);
+      uniqueValues(root.jobs, "url", "$.jobs", defects);
+      validateHttpUrls(
+        root.jobs,
+        ["jobUrl", "url", "applyUrl"],
+        "$.jobs",
+        defects,
+      );
+      break;
     case "search.listing-extraction":
       uniqueValues(root.jobs, "jobUrl", "$.jobs", defects);
       validateHttpUrls(root.jobs, ["jobUrl", "applyUrl"], "$.jobs", defects);
       break;
-    case "search.vacancy-verification":
-      validateHttpUrls([root], ["applyUrl"], "$", defects, true);
+    case "search.vacancy-verification": {
+      const rows = Array.isArray(root.results) ? root.results : [root];
+      if (Array.isArray(root.results))
+        uniqueValues(root.results, "id", "$.results", defects);
+      validateHttpUrls(
+        rows,
+        ["applyUrl"],
+        Array.isArray(root.results) ? "$.results" : "$",
+        defects,
+        true,
+      );
       break;
+    }
     case "search.source-navigation":
       validateNavigationDecision(root, true, defects);
       break;
@@ -929,8 +949,11 @@ function sanitizeSearchApplicationUrls(
 ) {
   const root = isObject(output) ? output : undefined;
   if (!root) return;
-  const rows =
-    callId === "search.vacancy-verification"
+  const batchedVerification =
+    callId === "search.vacancy-verification" && Array.isArray(root.results);
+  const rows = batchedVerification
+    ? asArray(root.results).filter(isObject)
+    : callId === "search.vacancy-verification"
       ? [root]
       : asArray(root.jobs).filter(isObject);
   rows.forEach((row, index) => {
@@ -945,7 +968,9 @@ function sanitizeSearchApplicationUrls(
     adjustments.push({
       code: "NON_HTTP_APPLY_URL_REPLACED",
       path:
-        callId === "search.vacancy-verification"
+        batchedVerification
+          ? `$.results[${index}].applyUrl`
+          : callId === "search.vacancy-verification"
           ? "$.applyUrl"
           : `$.jobs[${index}].applyUrl`,
       message: fallback

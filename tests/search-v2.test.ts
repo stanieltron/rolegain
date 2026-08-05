@@ -6,8 +6,15 @@ import {
   extractSignals,
   inaccessibleDecision,
 } from "../src/02-search/v2/harness/capture.js";
+import {
+  classifySearchV2Captures,
+  discoverSearchV2Leads,
+} from "../src/02-search/v2/harness/model.js";
 import { buildClassificationPrompt } from "../src/02-search/v2/harness/prompts.js";
 import { validatedDiscoveryTargetV2 } from "../src/02-search/v2/index.js";
+import { mockWorkspaceWithCv } from "../src/01-evidence-ingestion/inspection/fixtures.js";
+import type { CodexExecClient } from "../src/codex-runtime/client.js";
+import type { Phase2EvidenceContext } from "../src/search-match-shared/evidence-context.js";
 import type {
   SearchV2Capture,
   SearchV2Lead,
@@ -99,6 +106,86 @@ describe("search v2", () => {
     expect(validatedDiscoveryTargetV2(20, 5)).toBe(13);
     expect(validatedDiscoveryTargetV2(4, 5)).toBe(4);
   });
+
+  it("registers both v2 model boundaries under the canonical product call ids", async () => {
+    const callIds: string[] = [];
+    const codex = {
+      start: async () => ({
+        authenticated: true,
+        model: "test-model",
+      }),
+      startThread: async (options: { callId?: string; role: string }) => {
+        callIds.push(options.callId || "");
+        return { id: options.role, modelProvider: "openai" };
+      },
+      runTurn: async (options: { threadId: string }) => ({
+        threadId: options.threadId,
+        turnId: `turn-${options.threadId}`,
+        status: "completed" as const,
+        finalText: JSON.stringify(
+          options.threadId === "search-v2-web-discovery"
+            ? {
+                jobs: [{
+                  title: "Protocol Engineer",
+                  company: "Example",
+                  location: "Remote",
+                  workplaceType: "Remote",
+                  employmentType: "Full-time",
+                  url: "https://jobs.example.test/protocol-engineer",
+                  sourceKind: "vacancy",
+                  query: "protocol engineer",
+                  sourceClass: "employer_ats",
+                  snippet: "Protocol engineering role",
+                  compensation: "",
+                }],
+              }
+            : {
+                results: [{
+                  id: "lead-1",
+                  status: "vacancy",
+                  reason: "The expected role is present.",
+                  title: "Distributed Systems Engineer",
+                  company: "Windmill",
+                  location: "Remote",
+                  workplaceType: "Remote",
+                  employmentType: "Full-time",
+                  applyUrl: "https://example.com/jobs/distributed-systems-engineer",
+                  compensation: "",
+                  children: [],
+                }],
+              },
+        ),
+        items: [],
+      }),
+    } as unknown as CodexExecClient;
+    const workspace = mockWorkspaceWithCv();
+    const evidence = {
+      searchLanes: [],
+      searchVocabulary: { negativeTerms: [] },
+    } as unknown as Phase2EvidenceContext;
+
+    await discoverSearchV2Leads({
+      codex,
+      cwd: process.cwd(),
+      workspace,
+      evidence,
+      requested: 1,
+      wave: 0,
+      excludedUrls: [],
+      rejectionFeedback: [],
+    });
+    await classifySearchV2Captures({
+      codex,
+      cwd: process.cwd(),
+      captures: [makeCapture()],
+      configuration: searchV2Configuration({}),
+    });
+
+    expect(callIds).toEqual([
+      "search.web-discovery",
+      "search.vacancy-verification",
+    ]);
+  });
 });
 
 function makeCapture(
@@ -140,7 +227,7 @@ function makeCapture(
       matchingLinks: [],
       relevantLinkCount: 0,
       formCount: 0,
-      hasUsableEvidence: false,
+      hasUsableEvidence: true,
     },
     ...values,
   };

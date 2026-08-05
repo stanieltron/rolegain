@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { JobSearchWorkspace } from "../../../contracts/job-search.js";
 import type { CodexExecClient } from "../../../codex-runtime/client.js";
+import type { LlmCallId } from "../../../codex-runtime/skill-registry.js";
 import type { Phase2EvidenceContext } from "../../../search-match-shared/evidence-context.js";
 import { canonicalOpportunityIsExcluded } from "../../../search-match-shared/evidence-context.js";
 import { isPublicWebUrl, normalizeOpportunityUrl } from "../support/url.js";
@@ -60,6 +61,7 @@ export async function discoverSearchV2Leads(input: {
   const output = await runStructured<RawSearchOutput>({
     codex: input.codex,
     cwd: input.cwd,
+    callId: "search.web-discovery",
     role: "search-v2-web-discovery",
     developerInstructions: SEARCH_V2_DISCOVERY_ROLE,
     prompt: buildSearchPrompt(input),
@@ -120,6 +122,7 @@ export async function classifySearchV2Captures(input: {
         return runStructured<RawClassificationOutput>({
           codex: input.codex,
           cwd: input.cwd,
+          callId: "search.vacancy-verification",
           role: "search-v2-page-classifier",
           developerInstructions: SEARCH_V2_CLASSIFIER_ROLE,
           prompt: buildClassificationPrompt(batch),
@@ -155,6 +158,7 @@ export async function classifySearchV2Captures(input: {
 async function runStructured<T>(input: {
   codex: CodexExecClient;
   cwd: string;
+  callId: LlmCallId;
   role: string;
   developerInstructions: string;
   prompt: string;
@@ -168,6 +172,7 @@ async function runStructured<T>(input: {
     try {
       const thread = await input.codex.startThread({
         cwd: input.cwd,
+        callId: input.callId,
         role: input.role,
         sandbox: "read-only",
         model: input.model,

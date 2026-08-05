@@ -68,6 +68,22 @@ describe("deterministic LLM result gateway", () => {
     expect(result.output).toEqual({ jobs: [job] });
   });
 
+  it("deduplicates and validates search-v2 discovery URLs", () => {
+    const job = { url: "https://jobs.example.test/role-1" };
+    const result = evaluateResultGateway({
+      callId: "search.web-discovery",
+      finalText: JSON.stringify({ jobs: [job, { ...job }] }),
+      outputSchema: objectSchema,
+      prompt: "Find current jobs.",
+    });
+
+    expect(result.report.accepted).toBe(true);
+    expect(result.report.adjustments).toContainEqual(
+      expect.objectContaining({ code: "DUPLICATE_RESULT_DROPPED" }),
+    );
+    expect(result.output).toEqual({ jobs: [job] });
+  });
+
   it("keeps a discovery wave when one vacancy applies by email", () => {
     const emailApplication = {
       jobUrl: "https://jobs.example.test/email-role",
@@ -113,6 +129,34 @@ describe("deterministic LLM result gateway", () => {
     expect(result.output).toEqual({ applyUrl: "" });
     expect(result.report.adjustments).toContainEqual(
       expect.objectContaining({ code: "NON_HTTP_APPLY_URL_REPLACED" }),
+    );
+  });
+
+  it("normalizes batched search-v2 vacancy classification results", () => {
+    const result = evaluateResultGateway({
+      callId: "search.vacancy-verification",
+      finalText: JSON.stringify({
+        results: [
+          { id: "lead-1", applyUrl: "mailto:careers@example.test" },
+          { id: "lead-2", applyUrl: "https://jobs.example.test/role-2" },
+        ],
+      }),
+      outputSchema: objectSchema,
+      prompt: "Classify frozen vacancy captures.",
+    });
+
+    expect(result.report.accepted).toBe(true);
+    expect(result.output).toEqual({
+      results: [
+        { id: "lead-1", applyUrl: "" },
+        { id: "lead-2", applyUrl: "https://jobs.example.test/role-2" },
+      ],
+    });
+    expect(result.report.adjustments).toContainEqual(
+      expect.objectContaining({
+        code: "NON_HTTP_APPLY_URL_REPLACED",
+        path: "$.results[0].applyUrl",
+      }),
     );
   });
 
