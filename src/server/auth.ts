@@ -22,6 +22,40 @@ export interface RequestAuthenticator {
   authenticate(request: IncomingMessage): Promise<AuthenticatedActor>;
 }
 
+export interface UserAccountAdmin {
+  delete(userId: string): Promise<void>;
+}
+
+export function createUserAccountAdmin(
+  configuration: RuntimeConfiguration,
+): UserAccountAdmin {
+  if (configuration.authMode === "local")
+    return { delete: async () => undefined };
+
+  const supabase = createClient(
+    configuration.supabaseUrl!,
+    configuration.supabaseServiceRoleKey!,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false,
+      },
+    },
+  );
+  return {
+    delete: async (userId) => {
+      const { error } = await supabase.auth.admin.deleteUser(userId);
+      if (error && !/not found|does not exist/i.test(error.message))
+        throw new HttpError(
+          502,
+          `The authentication account could not be removed: ${error.message}`,
+          "auth_user_delete_failed",
+        );
+    },
+  };
+}
+
 export function createRequestAuthenticator(
   configuration: RuntimeConfiguration,
 ): RequestAuthenticator {

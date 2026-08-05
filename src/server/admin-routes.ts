@@ -4,11 +4,16 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Pool } from "pg";
 import type { PlatformControl } from "../backend/admin/platform-control.js";
+import type { JobSearchService } from "../backend/control-flow/service.js";
+import type { ArtifactArchive } from "../backend/persistence/artifact-archive.js";
+import { safeUserId } from "../backend/persistence/workspace-store.js";
 import type { WorkflowQueue } from "../backend/workflows/workflow-queue.js";
 import type { RuntimeConfiguration } from "../config/runtime.js";
+import { withUserLock } from "../infrastructure/database.js";
 import { readJson, sendJson } from "./http.js";
-import { HttpError } from "./auth.js";
+import { HttpError, type UserAccountAdmin } from "./auth.js";
 
 const SESSION_SECONDS = 8 * 60 * 60;
 const LOGIN_WINDOW_MS = 15 * 60_000;
@@ -19,6 +24,13 @@ interface LoginWindow {
   attempts: number;
 }
 
+interface AdminUserOperations {
+  jobSearch: JobSearchService;
+  artifacts: ArtifactArchive;
+  accounts: UserAccountAdmin;
+  lockPool?: Pool;
+}
+
 export class AdminRoutes {
   private readonly loginAttempts = new Map<string, LoginWindow>();
 
@@ -26,6 +38,7 @@ export class AdminRoutes {
     private readonly configuration: RuntimeConfiguration,
     private readonly platform: PlatformControl,
     private readonly workflows?: WorkflowQueue,
+    private readonly userOperations?: AdminUserOperations,
   ) {}
 
   matches(pathname: string) {
@@ -103,7 +116,7 @@ export class AdminRoutes {
         response,
         200,
         await this.platform.setUserApplicationLimit(
-          decodeURIComponent(userLimitMatch[1]),
+          parseUserId(userLimitMatch[1]),
           typeof body.limit === "number" ? body.limit : Number.NaN,
         ),
       );
@@ -123,14 +136,52 @@ export class AdminRoutes {
         response,
         202,
         await this.workflows.enqueue(
-          decodeURIComponent(validationReplayMatch[1]),
+          parseUserId(validationReplayMatch[1]),
           "revalidate-search",
           { reserveBetaBatch: false },
         ),
       );
       return;
     }
+    const resetStatisticsMatch = pathname.match(
+      /^\/api\/admin\/users\/([^/]+)\/reset-statistics$/,
+    );
+    if (request.method === "POST" && resetStatisticsMatch) {
+      const userId = parseUserId(resetStatisticsMatch[1]);
+      await this.withUserLock(userId, () =>
+        this.platform.resetUserStatistics(userId)
+      );
+      sendJson(response, 200, { userId, statisticsReset: true });
+      return;
+    }
+    const removeUserMatch = pathname.match(
+      /^\/api\/admin\/users\/([^/]+)$/,
+    );
+    if (request.method === "DELETE" && removeUserMatch) {
+      if (!this.userOperations)
+        throw new HttpError(
+          503,
+          "User removal is not configured",
+          "user_removal_not_configured",
+        );
+      const userId = parseUserId(removeUserMatch[1]);
+      await this.workflows?.cancel(userId);
+      await this.withUserLock(userId, async () => {
+        await this.workflows?.purgeUserJobs(userId);
+        await this.userOperations!.artifacts.delete(userId);
+        await this.userOperations!.jobSearch.deleteUserCompletely(userId);
+        await this.platform.removeUserRecords(userId);
+        await this.userOperations!.accounts.delete(userId);
+      });
+      sendJson(response, 200, { userId, removed: true });
+      return;
+    }
     throw new HttpError(404, "Admin route not found", "not_found");
+  }
+
+  private async withUserLock<T>(userId: string, work: () => Promise<T>) {
+    if (!this.userOperations?.lockPool) return work();
+    return withUserLock(this.userOperations.lockPool, userId, work);
   }
 
   private assertConfigured() {
@@ -225,6 +276,14 @@ function safeEqual(left: string, right: string) {
     createHash("sha256").update(left).digest(),
     createHash("sha256").update(right).digest(),
   );
+}
+
+function parseUserId(value: string) {
+  try {
+    return safeUserId(decodeURIComponent(value));
+  } catch {
+    throw new HttpError(400, "Invalid user identifier", "invalid_user_id");
+  }
 }
 
 function adminCookie(token: string, secure: boolean) {

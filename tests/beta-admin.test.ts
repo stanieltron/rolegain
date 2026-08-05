@@ -75,6 +75,36 @@ describe("closed beta controls", () => {
     await platform.setCodexEnabled(true);
     await expect(platform.assertCodexEnabled()).resolves.toBeUndefined();
   });
+
+  it("resets user statistics without removing the configured allowance", async () => {
+    const platform = new PlatformControl();
+    await platform.setUserApplicationLimit("user-a", 25);
+    await platform.reserveBatch("user-a");
+    await platform.recordApplications("user-a", ["application-1"]);
+    await platform.recordEvent("user-a", { name: "job_source_opened" });
+
+    await platform.resetUserStatistics("user-a");
+
+    expect(await platform.betaStatus("user-a")).toMatchObject({
+      applicationLimit: 25,
+      applicationsUsed: 0,
+      batchesStarted: 0,
+    });
+    expect((await platform.adminOverview()).users[0]).toMatchObject({
+      id: "user-a",
+      events: {},
+    });
+  });
+
+  it("removes all in-memory records for a user", async () => {
+    const platform = new PlatformControl();
+    await platform.setUserApplicationLimit("user-a", 25);
+    await platform.recordEvent("user-a", { name: "view_profile" });
+
+    await platform.removeUserRecords("user-a");
+
+    expect((await platform.adminOverview()).users).toEqual([]);
+  });
 });
 
 describe.sequential("administrator HTTP surface", () => {
@@ -148,6 +178,33 @@ describe.sequential("administrator HTTP surface", () => {
     expect(await replayWithoutQueue.json()).toMatchObject({
       code: "workflows_not_configured",
     });
+
+    const resetStatistics = await fetch(
+      `${base}/api/admin/users/test-user/reset-statistics`,
+      {
+        method: "POST",
+        headers: { Cookie: cookie },
+      },
+    );
+    expect(resetStatistics.status).toBe(200);
+    expect(await resetStatistics.json()).toEqual({
+      userId: "test-user",
+      statisticsReset: true,
+    });
+
+    const removed = await fetch(`${base}/api/admin/users/test-user`, {
+      method: "DELETE",
+      headers: { Cookie: cookie },
+    });
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toEqual({
+      userId: "test-user",
+      removed: true,
+    });
+    const afterRemoval = await fetch(`${base}/api/admin/overview`, {
+      headers: { Cookie: cookie },
+    });
+    expect((await afterRemoval.json()).users).toEqual([]);
 
     const paused = await fetch(`${base}/api/admin/codex`, {
       method: "POST",

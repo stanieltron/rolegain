@@ -51,6 +51,7 @@ export interface WorkflowQueue {
   ): Promise<WorkflowRun>;
   latest(userId: string): Promise<WorkflowRun | undefined>;
   cancel(userId: string): Promise<void>;
+  purgeUserJobs(userId: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -206,6 +207,18 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
       this.service.stopBackgroundWork(userId),
       this.codex.pauseTurnsForUser(userId),
     ]);
+  }
+
+  async purgeUserJobs(userId: string) {
+    const result = await this.pool.query<{ queue_job_id: string | null }>(
+      `select queue_job_id
+       from rolegain_workflow_runs
+       where user_id = $1 and queue_job_id is not null`,
+      [userId],
+    );
+    for (const row of result.rows)
+      if (row.queue_job_id)
+        await this.boss.deleteJob(QUEUE, row.queue_job_id);
   }
 
   close() {

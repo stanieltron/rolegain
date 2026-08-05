@@ -157,7 +157,7 @@
 
 .admin-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-top: 28px;
 }
@@ -349,6 +349,45 @@
 }
 
 .admin-replay-control em {
+  color: var(--rg-color-danger);
+  font-size: .65rem;
+  font-style: normal;
+}
+
+.admin-user-actions {
+  display: grid;
+  min-width: 132px;
+  gap: 6px;
+}
+
+.admin-user-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: var(--rg-border-width) solid var(--rg-color-border-strong);
+  border-radius: var(--rg-radius-sm);
+  background: var(--rg-color-surface);
+  padding: 6px 8px;
+  color: var(--rg-color-text);
+  font: inherit;
+  font-size: .72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.admin-user-actions .admin-remove-user {
+  border-color: color-mix(in srgb, var(--rg-color-danger) 40%, transparent);
+  background: var(--rg-color-danger-soft);
+  color: var(--rg-color-danger);
+}
+
+.admin-user-actions button:disabled {
+  cursor: default;
+  opacity: .5;
+}
+
+.admin-user-actions em {
   color: var(--rg-color-danger);
   font-size: .65rem;
   font-style: normal;

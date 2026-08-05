@@ -7,8 +7,10 @@ import {
   PauseCircle,
   PlayCircle,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings as SettingsIcon,
+  Trash2,
   Users,
 } from "lucide-react";
 import "./admin.css";
@@ -38,6 +40,7 @@ interface AdminUser {
   searchReadyJobs: number;
   applications: number;
   applied: number;
+  tokens: number;
   beta: BetaStatus;
   events: Record<string, number>;
   latestWorkflow?: {
@@ -56,6 +59,7 @@ interface AdminOverview {
   };
   totals: {
     users: number;
+    tokens: number;
     applications: number;
     jobSourceClicks: number;
   };
@@ -236,6 +240,11 @@ export function AdminApp() {
         />
         <Metric
           icon={Activity}
+          label="LLM tokens used"
+          value={formatNumber(overview?.totals.tokens ?? 0)}
+        />
+        <Metric
+          icon={Activity}
           label="Job link clicks"
           value={overview?.totals.jobSourceClicks ?? 0}
         />
@@ -286,8 +295,10 @@ export function AdminApp() {
                 <th>Progress</th>
                 <th>Jobs</th>
                 <th>Applications</th>
+                <th>Tokens</th>
                 <th>Beta</th>
                 <th>Activity</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -332,6 +343,10 @@ export function AdminApp() {
                     </small>
                   </td>
                   <td>
+                    <strong>{formatNumber(user.tokens)}</strong>
+                    <span>LLM tokens</span>
+                  </td>
+                  <td>
                     <strong>
                       {user.beta.applicationsUsed}/{user.beta.applicationLimit}
                     </strong>
@@ -348,6 +363,9 @@ export function AdminApp() {
                   <td>
                     <strong>{formatDate(user.lastActiveAt)}</strong>
                     <span>Last sign-in {formatDate(user.lastSignInAt)}</span>
+                  </td>
+                  <td>
+                    <UserActions user={user} onUpdated={refresh} />
                   </td>
                 </tr>
               ))}
@@ -543,6 +561,79 @@ function ValidationReplayControl({
   );
 }
 
+function UserActions({
+  user,
+  onUpdated,
+}: {
+  user: AdminUser;
+  onUpdated: () => Promise<void>;
+}) {
+  const [operation, setOperation] = useState<"reset" | "remove">();
+  const [error, setError] = useState("");
+  const label = user.email || user.id;
+
+  const request = async (kind: "reset" | "remove") => {
+    if (kind === "reset") {
+      if (
+        !window.confirm(
+          `Reset statistics for ${label}? This clears analytics, token usage, and beta usage counters. The profile, evidence, jobs, applications, application limit, and release-update preference are kept.`,
+        )
+      )
+        return;
+    } else {
+      if (
+        !window.confirm(
+          `Permanently remove ${label}? All profile data, uploaded files, evidence, jobs, applications, history, statistics, and the login account will be deleted. This cannot be undone.`,
+        )
+      )
+        return;
+    }
+
+    setOperation(kind);
+    setError("");
+    try {
+      const response = await fetch(
+        kind === "reset"
+          ? `/api/admin/users/${encodeURIComponent(user.id)}/reset-statistics`
+          : `/api/admin/users/${encodeURIComponent(user.id)}`,
+        {
+          method: kind === "reset" ? "POST" : "DELETE",
+          credentials: "same-origin",
+        },
+      );
+      if (!response.ok) throw new Error(await responseError(response));
+      await onUpdated();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setOperation(undefined);
+    }
+  };
+
+  return (
+    <div className="admin-user-actions">
+      <button
+        type="button"
+        disabled={Boolean(operation)}
+        onClick={() => void request("reset")}
+      >
+        <RotateCcw size={12} />
+        {operation === "reset" ? "Resetting…" : "Reset statistics"}
+      </button>
+      <button
+        className="admin-remove-user"
+        type="button"
+        disabled={Boolean(operation)}
+        onClick={() => void request("remove")}
+      >
+        <Trash2 size={12} />
+        {operation === "remove" ? "Removing…" : "Remove user"}
+      </button>
+      {error && <em>{error}</em>}
+    </div>
+  );
+}
+
 function progressLabel(user: AdminUser) {
   if (user.applied > 0) return "Applied";
   if (user.applications > 0) return "Application filling";
@@ -572,6 +663,10 @@ function formatDate(value?: string) {
         dateStyle: "medium",
         timeStyle: "short",
       });
+}
+
+function formatNumber(value: number) {
+  return Number.isFinite(value) ? value.toLocaleString() : "0";
 }
 
 async function responseError(response: Response) {

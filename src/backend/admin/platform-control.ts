@@ -329,6 +329,85 @@ export class PlatformControl {
     return this.betaStatus(userId);
   }
 
+  async resetUserStatistics(userId: string) {
+    if (!this.pool) {
+      const current = this.memoryBeta.get(userId);
+      if (current) {
+        current.batchesStarted = 0;
+        current.applications.clear();
+      }
+      for (let index = this.memoryEvents.length - 1; index >= 0; index -= 1)
+        if (this.memoryEvents[index].userId === userId)
+          this.memoryEvents.splice(index, 1);
+      return;
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      await client.query(
+        "delete from rolegain_analytics_events where user_id = $1",
+        [userId],
+      );
+      await client.query(
+        "delete from rolegain_token_usage_receipts where user_id = $1",
+        [userId],
+      );
+      await client.query(
+        "delete from rolegain_user_token_usage where user_id = $1",
+        [userId],
+      );
+      await client.query(
+        "delete from rolegain_beta_applications where user_id = $1",
+        [userId],
+      );
+      await client.query(
+        `insert into rolegain_beta_usage (user_id, batches_started, updated_at)
+         values ($1, 0, now())
+         on conflict (user_id) do update
+         set batches_started = 0, updated_at = now()`,
+        [userId],
+      );
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async removeUserRecords(userId: string) {
+    if (!this.pool) {
+      this.memoryBeta.delete(userId);
+      for (let index = this.memoryEvents.length - 1; index >= 0; index -= 1)
+        if (this.memoryEvents[index].userId === userId)
+          this.memoryEvents.splice(index, 1);
+      return;
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      for (const table of [
+        "rolegain_analytics_events",
+        "rolegain_beta_applications",
+        "rolegain_beta_usage",
+        "rolegain_token_usage_receipts",
+        "rolegain_user_token_usage",
+        "rolegain_workflow_runs",
+        "rolegain_workspaces",
+      ])
+        await client.query(`delete from ${table} where user_id = $1`, [userId]);
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async recordEvent(userId: string, event: AnalyticsEvent) {
     if (!ANALYTICS_EVENTS.has(event.name))
       throw new HttpError(400, "Unknown analytics event", "invalid_event");

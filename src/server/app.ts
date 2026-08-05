@@ -11,6 +11,7 @@ import { routeRequest } from "./job-search-routes.js";
 import { CvValidationError } from "../01-evidence-ingestion/01-evidence-acquisition/cv/upload-cv.js";
 import {
   createRequestAuthenticator,
+  createUserAccountAdmin,
   HttpError,
 } from "./auth.js";
 import { ApiRateLimiter } from "./rate-limit.js";
@@ -35,10 +36,17 @@ export async function createRolegainApp(
   const { root, codex, jobSearch, configuration } = dependencies;
   const authenticator = createRequestAuthenticator(configuration);
   const rateLimiter = new ApiRateLimiter();
+  const accountAdmin = createUserAccountAdmin(configuration);
   const adminRoutes = new AdminRoutes(
     configuration,
     dependencies.platform,
     dependencies.workflows,
+    {
+      jobSearch: dependencies.jobSearch,
+      artifacts: dependencies.artifacts,
+      accounts: accountAdmin,
+      lockPool: dependencies.sessionDatabase,
+    },
   );
   const restoredUsers = new Set<string>();
   const applicationFormAutofillScript = await readFile(

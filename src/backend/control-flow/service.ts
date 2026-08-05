@@ -1629,6 +1629,26 @@ export class JobSearchService {
   async resetUserCompletely(
     candidateId = CANDIDATE_ID,
   ): Promise<JobSearchWorkspace> {
+    await this.deleteUserCompletely(candidateId);
+
+    await Promise.all([
+      mkdir(this.directory, { recursive: true }),
+      mkdir(this.filesDirectory, { recursive: true }),
+      mkdir(this.runsDirectory, { recursive: true }),
+      mkdir(this.sourceSnapshotsDirectory, { recursive: true }),
+      mkdir(this.analysisCheckpointsDirectory, { recursive: true }),
+    ]);
+
+    const workspace = emptyWorkspace(candidateId, {
+      name: "",
+      email: "",
+      location: "",
+    });
+    await this.saveCandidate(workspace);
+    return workspace;
+  }
+
+  async deleteUserCompletely(candidateId = CANDIDATE_ID): Promise<void> {
     if (
       this.activeFindMore.has(candidateId) ||
       this.activeAnalyses.has(candidateId) ||
@@ -1639,7 +1659,6 @@ export class JobSearchService {
       );
 
     await this.candidateWrites.get(candidateId);
-    await this.get(candidateId);
 
     const localFullReset =
       candidateId === CANDIDATE_ID &&
@@ -1677,13 +1696,6 @@ export class JobSearchService {
       ),
       this.workspaceStore.delete(candidateId),
     ]);
-    await Promise.all([
-      mkdir(this.directory, { recursive: true }),
-      mkdir(this.filesDirectory, { recursive: true }),
-      mkdir(this.runsDirectory, { recursive: true }),
-      mkdir(this.sourceSnapshotsDirectory, { recursive: true }),
-      mkdir(this.analysisCheckpointsDirectory, { recursive: true }),
-    ]);
 
     this.candidateCache.delete(candidateId);
     this.requestedAnalyses.delete(candidateId);
@@ -1691,14 +1703,6 @@ export class JobSearchService {
     this.stoppedCandidates.delete(candidateId);
     this.stoppedSnapshots.delete(candidateId);
     if (candidateId === CANDIDATE_ID) await this.resetJobNumberRegistry();
-
-    const workspace = emptyWorkspace(candidateId, {
-      name: "",
-      email: "",
-      location: "",
-    });
-    await this.saveCandidate(workspace);
-    return workspace;
   }
 
   async startFindMoreApplications(
