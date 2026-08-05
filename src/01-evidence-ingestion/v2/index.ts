@@ -1,12 +1,15 @@
 import type { JobSearchWorkspace } from "../../contracts/job-search.js";
 import type { CodexExecClient } from "../../codex-runtime/client.js";
-import { synthesizeCandidateEvidence } from "../03-synthesis/index.js";
 import type {
   CandidateAnalysisProgress,
   CandidateAnalysisResult,
   CandidateAnalyzer,
 } from "../types.js";
 import { readCandidateSourceChunksV2 } from "./reader.js";
+import {
+  joinCandidateOverviewV2,
+  synthesizeCandidateOverviewV2,
+} from "./synthesis.js";
 
 /** Versioned one-pass evidence analyzer selected by ROLEGAIN_EVIDENCE_VERSION=v2. */
 export class CodexCandidateAnalyzerV2 implements CandidateAnalyzer {
@@ -22,21 +25,36 @@ export class CodexCandidateAnalyzerV2 implements CandidateAnalyzer {
   ): Promise<CandidateAnalysisResult> {
     const runtime = await this.codex.start();
     if (!runtime.authenticated) throw new Error("Codex is not authenticated");
-    const reading = await readCandidateSourceChunksV2({
-      codex: this.codex,
-      cwd: this.cwd,
-      workspace,
-      onProgress,
+    const [reading, synthesis] = await Promise.all([
+      readCandidateSourceChunksV2({
+        codex: this.codex,
+        cwd: this.cwd,
+        workspace,
+        onProgress,
+      }),
+      synthesizeCandidateOverviewV2({
+        codex: this.codex,
+        cwd: this.cwd,
+        workspace,
+        message,
+      }),
+    ]);
+    await onProgress?.({
+      stage: "synthesizing",
+      completed: reading.totalChunks,
+      total: reading.totalChunks,
     });
-    return synthesizeCandidateEvidence({
-      codex: this.codex,
-      cwd: this.cwd,
-      workspace,
-      reading,
-      message,
-      onProgress,
-    });
+    return joinCandidateOverviewV2({ workspace, reading, synthesis });
   }
 }
 
-export { readCandidateSourceChunksV2 } from "./reader.js";
+export {
+  EVIDENCE_INGESTION_V2_VERSION,
+  EVIDENCE_V2_CHUNK_MAX_CHARS,
+  EVIDENCE_V2_CHUNK_OVERLAP_CHARS,
+  chunkSourceForAnalysisV2,
+  evidenceAnalysisConcurrencyV2,
+  prepareCandidateSourceChunksV2,
+  readCandidateSourceChunksV2,
+} from "./reader.js";
+export { joinCandidateOverviewV2, synthesizeCandidateOverviewV2 } from "./synthesis.js";

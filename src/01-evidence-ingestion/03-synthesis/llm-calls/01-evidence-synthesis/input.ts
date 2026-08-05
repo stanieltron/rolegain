@@ -11,12 +11,14 @@ export interface EvidenceSynthesisInput {
     chunks: SourceChunkNotes[];
   }>;
   message?: string;
+  version?: "v1" | "v2";
 }
 
 export function buildInput({
   workspace,
   sourceNotes,
   message,
+  version = "v1",
 }: EvidenceSynthesisInput): string {
   const action = message
     ? `Re-analyze the supplied candidate evidence with this additional context:\n${message}`
@@ -83,6 +85,15 @@ export function buildInput({
     ),
     (item) => `${item.field}|${item.reason}`.toLowerCase(),
   ).slice(0, 30);
+  const versionRules =
+    version === "v2"
+      ? `- Return only the consolidated profile, cross-source unknowns/contradictions/prohibited inferences, role families, and the requested semantic search vocabulary. Profile evidence is attached deterministically outside this turn.
+- Select profile values only from the supplied extracted profile facts or preserved current profile. Every new scalar field, skill, and language must match a supplied value exactly.
+- For each contradiction value, copy sourceId and quote exactly from the supplied profile evidence; do not construct or paraphrase a quote.
+- Keep model-owned search vocabulary selective: at most 20 evidence intersections, 60 reusable tools/methods/standards, 20 adjacent dialects, 12 seniority modifiers, 20 geography/language variants, and 20 negative terms. Exclude function names, code identifiers, numeric constants, project names, status words, and one-off implementation details. Title aliases and problem phrases are derived deterministically from role families.`
+      : `- Return only the consolidated profile with profileEvidence, cross-source unknowns/contradictions/prohibited inferences, role families, and full search vocabulary.
+- Preserve profileEvidence exactly as supplied for every source-derived profile value you select. Every new scalar field, skill, and language needs at least one supporting item. Do not invent or paraphrase quotes.
+- Keep search vocabulary selective: at most 30 title aliases, 20 evidence intersections, 30 problem phrases, 60 reusable tools/methods/standards, 20 adjacent dialects, and 12 seniority modifiers. Exclude function names, code identifiers, numeric constants, and one-off implementation details.`;
   return `${action}
 
 Current profile (preserve confirmed non-empty values):
@@ -91,7 +102,7 @@ ${JSON.stringify(workspace.profile, null, 2)}
 Candidate profile facts extracted from source chunks:
 ${JSON.stringify(profileFacts, null, 2)}
 
-Exact source evidence available for profile fields:
+Exact source evidence available for resolving profile values and contradictions:
 ${JSON.stringify(profileEvidence, null, 2)}
 
 Deduplicated evidence signals for role modelling:
@@ -102,13 +113,11 @@ ${JSON.stringify(materialUnknowns, null, 2)}
 
 Rules for this turn:
 - Do not reproduce source notes, insights, claims, or knowledge Markdown; those are consolidated deterministically outside this turn.
-- Return only the consolidated profile with profileEvidence, cross-source unknowns/contradictions/prohibited inferences, role families, and search vocabulary.
-- Preserve profileEvidence exactly as supplied for every source-derived profile value you select. Every new scalar field, skill, and language needs at least one supporting item. Do not invent or paraphrase quotes.
+${versionRules}
 - Generate direct and adjacent role families; use stretch only when the evidence signals justify it.
 - Return 0 to 8 materially distinct role families. Include a direct role family for every strong, separate evidence cluster, but do not meet a numeric target by stretching or duplicating evidence.
 - Each role family must name 1 to 8 exact capability strings from the supplied evidence signals in leadingCapabilities. Use only capabilities that materially support that family.
 - Base roles on evidence intersections, ownership, maturity, scope, and outcomes rather than title alone.
-- Keep search vocabulary selective: at most 30 title aliases, 20 evidence intersections, 30 problem phrases, 60 reusable tools/methods/standards, 20 adjacent dialects, and 12 seniority modifiers. Exclude function names, code identifiers, numeric constants, and one-off implementation details.
 - Preserve profile values that the sources do not contradict. Do not replace preferences with guesses.
 - Do not return advice, questions, an audit, a score, or rewritten CV text.`;
 }

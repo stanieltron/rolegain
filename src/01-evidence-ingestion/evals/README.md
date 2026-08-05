@@ -3,7 +3,8 @@
 This directory contains a versioned synthetic behavior corpus, an outcome
 grader, and a live multi-trial runner. It covers baseline extraction,
 instruction-shaped CV text, multilingual evidence, contradictions, sparse
-evidence, and material facts near chunk boundaries.
+evidence, material facts near chunk boundaries, and independent multi-page
+portfolio evidence.
 
 Run three real Codex trials per case against either version:
 

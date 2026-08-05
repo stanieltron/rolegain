@@ -288,8 +288,9 @@ export function mockAnalysis(
   workspace = mockWorkspaceWithCv(),
   reading = mockThreeChunkReading(workspace),
 ): CandidateAnalysisResult {
+  const synthesis = mockSynthesis(workspace);
   return {
-    ...mockSynthesis(workspace),
+    ...synthesis,
     threadId: "mock-synthesis-thread",
     sourceInsights: reading.sourceInsights,
   };

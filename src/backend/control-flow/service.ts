@@ -1651,6 +1651,8 @@ export class JobSearchService {
     this.candidateCache.delete(candidateId);
     this.requestedAnalyses.delete(candidateId);
     this.requestedProfileSourceSync.delete(candidateId);
+    this.stoppedCandidates.delete(candidateId);
+    this.stoppedSnapshots.delete(candidateId);
     if (candidateId === CANDIDATE_ID) await this.resetJobNumberRegistry();
 
     const workspace = emptyWorkspace(candidateId, {
@@ -1658,11 +1660,6 @@ export class JobSearchService {
       email: "",
       location: "",
     });
-    if (this.isExecutionStopped(candidateId))
-      workspace.backgroundExecution = {
-        state: "stopped",
-        stoppedAt: new Date().toISOString(),
-      };
     await this.saveCandidate(workspace);
     return workspace;
   }

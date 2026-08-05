@@ -34,6 +34,17 @@ describe("Stage 03 — synthesis", () => {
     expect(codex.calls[0].turn.prompt).toContain("operational improvement");
     expect(output.profile.headline).toBe("Platform Engineer");
     expect(output.roleFamilies?.[0].canonicalTitle).toBe("Platform Engineer");
+    expect(output.searchVocabulary?.titleAliases).toEqual([
+      "Platform Engineer",
+      "Backend Platform Engineer",
+    ]);
+    expect(output.searchVocabulary?.problemPhrases).toEqual([
+      "workflow reliability",
+    ]);
+    expect(output.searchVocabulary?.toolsMethodsStandards).toEqual([
+      "TypeScript",
+      "idempotent checkpoints",
+    ]);
     expect(progress).toEqual([
       { stage: "synthesizing", completed: 3, total: 3 },
     ]);
@@ -68,9 +79,6 @@ describe("Stage 03 — synthesis", () => {
     const reading = mockThreeChunkReading(workspace);
     const synthesis = mockSynthesis(workspace);
     synthesis.profile.summary = "Builds reliable workflow systems.";
-    synthesis.profileEvidence = synthesis.profileEvidence.filter(
-      (item) => item.field !== "summary",
-    );
     const codex = mockCodex([synthesis]);
 
     const output = await synthesizeCandidateEvidence({
@@ -87,5 +95,47 @@ describe("Stage 03 — synthesis", () => {
         value: "Builds reliable workflow systems.",
       }),
     );
+  });
+
+  it("03.4 uses the lean synthesis contract only for v2", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "inspection-synthesis-v2-"));
+    const workspace = mockWorkspaceWithCv();
+    const reading = mockThreeChunkReading(workspace);
+    const rich = mockSynthesis(workspace);
+    const { profileEvidence: _profileEvidence, ...withoutEvidence } = rich;
+    const {
+      titleAliases: _titleAliases,
+      problemPhrases: _problemPhrases,
+      ...semanticVocabulary
+    } = rich.searchVocabulary!;
+    const codex = mockCodex([
+      { ...withoutEvidence, searchVocabulary: semanticVocabulary },
+    ]);
+
+    const output = await synthesizeCandidateEvidence({
+      codex: codex.client,
+      cwd,
+      workspace,
+      model: "mock-model",
+      reading,
+      version: "v2",
+    });
+
+    const schema = codex.calls[0].turn.outputSchema as {
+      required: string[];
+      properties: { searchVocabulary: { required: string[] } };
+    };
+    expect(schema.required).not.toContain("profileEvidence");
+    expect(schema.properties.searchVocabulary.required).not.toContain(
+      "titleAliases",
+    );
+    expect(schema.properties.searchVocabulary.required).not.toContain(
+      "problemPhrases",
+    );
+    expect(output.profileEvidence?.length).toBeGreaterThan(0);
+    expect(output.searchVocabulary?.titleAliases).toEqual([
+      "Platform Engineer",
+      "Backend Platform Engineer",
+    ]);
   });
 });

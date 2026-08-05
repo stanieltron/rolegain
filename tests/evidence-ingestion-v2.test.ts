@@ -4,6 +4,11 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { CodexCandidateAnalyzerV2 } from "../src/01-evidence-ingestion/v2/index.js";
 import {
+  EVIDENCE_V2_CHUNK_MAX_CHARS,
+  chunkSourceForAnalysisV2,
+  evidenceAnalysisConcurrencyV2,
+} from "../src/01-evidence-ingestion/v2/reader.js";
+import {
   buildLeanChunkInput,
   leanChunkOutputSchema,
 } from "../src/01-evidence-ingestion/v2/lean-contract.js";
@@ -32,6 +37,7 @@ describe("evidence ingestion v2", () => {
   it("runs one reader call per chunk and synthesis without coverage or repair", async () => {
     const workspace = mockWorkspaceWithCv();
     const roles: string[] = [];
+    const readerEfforts: Array<StartTurnOptions["effort"]> = [];
     const threadRoles = new Map<string, string>();
     const codex = {
       start: async () => ({
@@ -52,6 +58,7 @@ describe("evidence ingestion v2", () => {
       },
       runTurn: async (options: StartTurnOptions) => {
         const role = threadRoles.get(options.threadId);
+        if (role === "candidate-source-reader") readerEfforts.push(options.effort);
         return {
           threadId: options.threadId,
           turnId: `turn-${roles.length}`,
@@ -62,20 +69,17 @@ describe("evidence ingestion v2", () => {
                   profileFacts: [
                     { field: "name", value: "Mira Example", quote: "Mira Example" },
                     { field: "email", value: "mira@example.test", quote: "mira@example.test" },
+                    { field: "headline", value: "Platform Engineer", quote: "Platform Engineer" },
                   ],
                   claims: [
                     {
+                      fact: "Implemented durable workflow recovery for failed jobs.",
                       capability: "workflow orchestration",
-                      action: "Implemented durable workflow recovery for failed jobs.",
-                      toolsMethods: ["workflow recovery"],
+                      keywords: ["workflow recovery"],
                       maturity: "implemented",
                       scope: "system",
                       ownership: "primary",
                       quote: "Implemented durable workflow recovery for failed jobs.",
-                      limitations: [],
-                      startDate: "",
-                      endDate: "",
-                      outcomes: [],
                     },
                   ],
                 }
@@ -91,16 +95,44 @@ describe("evidence ingestion v2", () => {
       workspace,
     );
 
-    expect(roles).toEqual([
-      "candidate-source-reader",
-      "candidate-intelligence",
-    ]);
+    expect(roles).toHaveLength(2);
+    expect(roles).toContain("candidate-source-reader");
+    expect(roles).toContain("candidate-intelligence");
     expect(roles).not.toContain("candidate-source-coverage-verifier");
     expect(roles).not.toContain("candidate-source-repairer");
+    expect(readerEfforts).toEqual(["low"]);
     expect(result.profile.headline).toBe("Platform Engineer");
     expect(result.sourceInsights[0].sourceId).toBe(workspace.sources[0].id);
     expect(result.sourceInsights[0].insights).toHaveLength(1);
     expect(result.sourceInsights[0].claims).toHaveLength(1);
+    expect(result.sourceInsights[0]!.claims![0]!).toMatchObject({
+      startDate: "",
+      endDate: "",
+      outcomes: [],
+      limitations: [],
+    });
+  });
+
+  it("isolates captured pages and bounds each dense page to 20k chunks", () => {
+    const pageA = `Page: https://example.test/a\n${"alpha evidence ".repeat(1_900)}`;
+    const pageB = `Page: https://example.test/b\n${"beta evidence ".repeat(200)}`;
+    const chunks = chunkSourceForAnalysisV2({
+      kind: "webpage",
+      content: `${pageA}\n${pageB}`,
+    });
+
+    expect(chunks).toHaveLength(3);
+    expect(chunks.every((chunk) => chunk.content.length <= EVIDENCE_V2_CHUNK_MAX_CHARS)).toBe(true);
+    expect(chunks.slice(0, 2).every((chunk) => chunk.locator.startsWith("https://example.test/a; lines "))).toBe(true);
+    expect(chunks[2].locator).toMatch(/^https:\/\/example\.test\/b; lines /);
+    expect(chunks.slice(0, 2).every((chunk) => !chunk.content.includes("https://example.test/b"))).toBe(true);
+  });
+
+  it("uses twenty-way v2 fan-out by default with a bounded explicit override", () => {
+    expect(evidenceAnalysisConcurrencyV2({})).toBe(20);
+    expect(evidenceAnalysisConcurrencyV2({ ROLEGAIN_ANALYSIS_CONCURRENCY: "3" })).toBe(20);
+    expect(evidenceAnalysisConcurrencyV2({ ROLEGAIN_EVIDENCE_V2_CONCURRENCY: "4" })).toBe(4);
+    expect(evidenceAnalysisConcurrencyV2({ ROLEGAIN_EVIDENCE_V2_CONCURRENCY: "99" })).toBe(20);
   });
 
   it("keeps the lean contract inside the existing exact-quote gateway", () => {
@@ -112,17 +144,13 @@ describe("evidence ingestion v2", () => {
       ],
       claims: [
         {
+          fact: "Implemented durable workflow recovery for failed jobs.",
           capability: "workflow orchestration",
-          action: "Implemented durable workflow recovery for failed jobs.",
-          toolsMethods: ["workflow recovery"],
+          keywords: ["workflow recovery"],
           maturity: "implemented",
           scope: "system",
           ownership: "primary",
           quote: "Implemented durable workflow recovery for failed jobs.",
-          limitations: [],
-          startDate: "",
-          endDate: "",
-          outcomes: [],
         },
       ],
     };
@@ -148,6 +176,18 @@ describe("evidence ingestion v2", () => {
   it("keeps every strict object property required for OpenAI structured output", () => {
     const missing = strictSchemaMissingRequiredProperties(leanChunkOutputSchema);
     expect(missing).toEqual([]);
+    const claimProperties = (((leanChunkOutputSchema.properties as Record<string, unknown>)
+      .claims as Record<string, unknown>).items as Record<string, unknown>)
+      .properties as Record<string, unknown>;
+    expect(Object.keys(claimProperties)).toEqual([
+      "fact",
+      "capability",
+      "keywords",
+      "maturity",
+      "scope",
+      "ownership",
+      "quote",
+    ]);
   });
 });
 

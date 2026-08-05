@@ -115,10 +115,13 @@ export async function createRolegainDependencies(
     undefined,
     workspaceStore,
   );
-  await jobSearch.initialize({
-    defaultCandidateId:
-      configuration.authMode === "local" ? "candidate-1" : false,
-  });
+  const defaultCandidateId =
+    configuration.authMode === "local" ? "candidate-1" : false;
+  if (defaultCandidateId)
+    await codex.runWithExecutionContext({ userId: defaultCandidateId }, () =>
+      jobSearch.initialize({ defaultCandidateId }),
+    );
+  else await jobSearch.initialize({ defaultCandidateId: false });
   codex.onRunCompleted = async (observation) => {
     if (observation.executionContext)
       await tokenCounter.record(observation.executionContext, observation);

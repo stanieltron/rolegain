@@ -1,13 +1,18 @@
 import type { JobSearchWorkspace } from "../../contracts/job-search.js";
 import type { CodexExecClient } from "../../codex-runtime/client.js";
 import { productionModel } from "../../codex-runtime/call-manifest.js";
-import type { ProfileFieldEvidenceDraft } from "../../contracts/evidence.js";
+import type {
+  ProfileFieldEvidenceDraft,
+  SearchVocabularyDraft,
+} from "../../contracts/evidence.js";
 import {
   buildInput as buildSynthesisPrompt,
   command as SYNTHESIS_COMMAND,
   outputSchema as candidateSynthesisSchema,
+  outputSchemaV2 as candidateSynthesisSchemaV2,
   rolePrompt as CANDIDATE_INTELLIGENCE_INSTRUCTIONS,
   type EvidenceSynthesisOutput,
+  type EvidenceSynthesisOutputV2,
 } from "./llm-calls/01-evidence-synthesis/index.js";
 import type {
   CandidateAnalysisProgress,
@@ -23,10 +28,19 @@ export async function synthesizeCandidateEvidence(input: {
   /** Explicit inspection/eval override. */
   model?: string;
   reading: ChunkReadingResult;
+  version?: "v1" | "v2";
   message?: string;
   onProgress?: (progress: CandidateAnalysisProgress) => void | Promise<void>;
 }): Promise<CandidateAnalysisResult> {
-  const { codex, cwd, workspace, reading, message, onProgress } = input;
+  const {
+    codex,
+    cwd,
+    workspace,
+    reading,
+    message,
+    onProgress,
+    version = "v1",
+  } = input;
   const model = input.model ?? productionModel(SYNTHESIS_COMMAND);
 
   // 1. Tell the product that all reader calls have joined.
@@ -52,10 +66,12 @@ export async function synthesizeCandidateEvidence(input: {
       workspace,
       sourceNotes: reading.sourceNotes,
       message,
+      version,
     }),
     cwd,
     sandbox: SYNTHESIS_COMMAND.sandbox,
-    outputSchema: candidateSynthesisSchema,
+    outputSchema:
+      version === "v2" ? candidateSynthesisSchemaV2 : candidateSynthesisSchema,
     model,
     approvalPolicy: SYNTHESIS_COMMAND.approvalPolicy,
     effort: SYNTHESIS_COMMAND.effort,
@@ -64,48 +80,90 @@ export async function synthesizeCandidateEvidence(input: {
 
   // 3. Keep source insights/claims from the readers; synthesis owns only the
   // cross-source profile, unknowns, role families and search vocabulary.
+  if (version === "v2") {
+    const synthesis = JSON.parse(turn.finalText) as EvidenceSynthesisOutputV2;
+    return {
+      ...synthesis,
+      searchVocabulary: restoreDerivedSearchVocabulary(synthesis),
+      profileEvidence: restoreSelectedProfileEvidence(
+        synthesis.profile,
+        reading,
+      ),
+      threadId: thread.id,
+      sourceInsights: reading.sourceInsights,
+    };
+  }
   const synthesis = JSON.parse(turn.finalText) as EvidenceSynthesisOutput;
   return {
     ...synthesis,
     profileEvidence: restoreSelectedProfileEvidence(
-      synthesis,
+      synthesis.profile,
       reading,
+      synthesis.profileEvidence,
     ),
     threadId: thread.id,
     sourceInsights: reading.sourceInsights,
   };
 }
 
+function restoreDerivedSearchVocabulary(
+  synthesis: EvidenceSynthesisOutputV2,
+): SearchVocabularyDraft {
+  const roles = synthesis.roleFamilies || [];
+  return {
+    titleAliases: uniqueStrings(
+      roles.flatMap((role) => [role.canonicalTitle, ...role.titleAliases]),
+    ).slice(0, 30),
+    evidenceIntersections:
+      synthesis.searchVocabulary?.evidenceIntersections || [],
+    problemPhrases: uniqueStrings(
+      roles.flatMap((role) => role.problemPhrases),
+    ).slice(0, 30),
+    toolsMethodsStandards:
+      synthesis.searchVocabulary?.toolsMethodsStandards || [],
+    adjacentDialects: synthesis.searchVocabulary?.adjacentDialects || [],
+    seniorityOwnershipModifiers:
+      synthesis.searchVocabulary?.seniorityOwnershipModifiers || [],
+    geographyLanguageVariants:
+      synthesis.searchVocabulary?.geographyLanguageVariants || [],
+    negativeTerms: synthesis.searchVocabulary?.negativeTerms || [],
+  };
+}
+
 function restoreSelectedProfileEvidence(
-  synthesis: EvidenceSynthesisOutput,
+  profile: JobSearchWorkspace["profile"],
   reading: ChunkReadingResult,
+  suppliedEvidence: ProfileFieldEvidenceDraft[] = [],
 ) {
   const readerEvidence = reading.sourceNotes.flatMap((source) =>
     source.chunks.flatMap((chunk) => chunk.profileEvidence),
   );
   const selectedReaderEvidence = readerEvidence.filter((evidence) => {
-    const selected = synthesis.profile[evidence.field];
+    const selected = profile[evidence.field];
     return Array.isArray(selected)
       ? selected.some((value) => sameValue(value, evidence.value))
       : sameValue(selected, evidence.value);
   });
   const seen = new Set<string>();
-  return [
-    ...(synthesis.profileEvidence || []),
-    ...selectedReaderEvidence,
-  ].filter((evidence: ProfileFieldEvidenceDraft) => {
-    const key = [
-      evidence.field,
-      evidence.value.trim().toLowerCase(),
-      evidence.sourceId,
-      evidence.quote,
-    ].join("|");
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return [...suppliedEvidence, ...selectedReaderEvidence].filter(
+    (evidence: ProfileFieldEvidenceDraft) => {
+      const key = [
+        evidence.field,
+        evidence.value.trim().toLowerCase(),
+        evidence.sourceId,
+        evidence.quote,
+      ].join("|");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    },
+  );
 }
 
 function sameValue(left: string, right: string) {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }

@@ -7,11 +7,13 @@ import {
   command as SOURCE_READER_COMMAND,
 } from "../v1/02-chunk-reader/llm-calls/01-chunk-analysis/index.js";
 import {
+  chunkSourceWithLocators,
   joinCandidateSourceChunkReadings,
   mapConcurrentOrdered,
   normalizeChunkNotes,
-  prepareCandidateSourceChunks,
+  type PreparedCandidateChunks,
 } from "../v1/02-chunk-reader/index.js";
+import { assertEvidenceAnalysisBudget } from "../v1/02-chunk-reader/recovery/index.js";
 import {
   type ChunkReadJob,
   type ChunkReadResult,
@@ -28,7 +30,9 @@ import {
   type LeanChunkExtraction,
 } from "./lean-contract.js";
 
-export const EVIDENCE_INGESTION_V2_VERSION = "evidence-v2-lean-atomic-v2";
+export const EVIDENCE_INGESTION_V2_VERSION = "evidence-v2-parallel-low-v6";
+export const EVIDENCE_V2_CHUNK_MAX_CHARS = 20_000;
+export const EVIDENCE_V2_CHUNK_OVERLAP_CHARS = 1_500;
 
 /**
  * Benchmark-selected Stage 02 reader.
@@ -46,7 +50,7 @@ export async function readCandidateSourceChunksV2(input: {
   onProgress?: (progress: CandidateAnalysisProgress) => void | Promise<void>;
 }): Promise<ChunkReadingResult> {
   const model = input.model ?? productionModel(SOURCE_READER_COMMAND);
-  const prepared = prepareCandidateSourceChunks(input.workspace);
+  const prepared = prepareCandidateSourceChunksV2(input.workspace);
   const jobs = prepared.jobs;
   await input.onProgress?.({
     stage: "reading",
@@ -67,7 +71,7 @@ export async function readCandidateSourceChunksV2(input: {
   let progressWrites = Promise.resolve();
   const results = await mapConcurrentOrdered(
     jobs,
-    analysisConcurrency(),
+    evidenceAnalysisConcurrencyV2(),
     async (job) => {
       const checkpointFile = checkpointFor(checkpointRoot, job);
       const reportCompleted = async () => {
@@ -189,9 +193,102 @@ async function persistCheckpoint(file: string, checkpoint: ChunkReadResult) {
   await rename(temporary, file);
 }
 
-function analysisConcurrency() {
-  const configured = Number.parseInt(process.env.ROLEGAIN_ANALYSIS_CONCURRENCY || "6", 10);
-  return Number.isFinite(configured) ? Math.max(1, Math.min(6, configured)) : 6;
+export function prepareCandidateSourceChunksV2(
+  workspace: JobSearchWorkspace,
+): PreparedCandidateChunks {
+  const sources = workspace.sources.filter(
+    (source) =>
+      source.analysisRequired ||
+      source.status === "processing" ||
+      (source.status === "ready" &&
+        (source.insights.length === 0 || !source.knowledgePath)),
+  );
+  const jobs = sources.flatMap((source) =>
+    chunkSourceForAnalysisV2(source).map((chunk, index, chunks) => ({
+      source,
+      chunk: chunk.content,
+      locator: chunk.locator,
+      index,
+      count: chunks.length,
+    })),
+  );
+  assertEvidenceAnalysisBudget(jobs.length);
+  return { jobs };
+}
+
+/**
+ * V2 keeps captured pages isolated, then bounds dense pages independently.
+ * This prevents an unrelated page from consuming the extraction budget of its
+ * neighbor while preserving stable global line locators for exact citations.
+ */
+export function chunkSourceForAnalysisV2(
+  source: Pick<JobSearchWorkspace["sources"][number], "kind" | "content">,
+) {
+  const content = source.content || "";
+  if (source.kind !== "webpage" && source.kind !== "portfolio")
+    return chunkSourceWithLocators(
+      content,
+      EVIDENCE_V2_CHUNK_MAX_CHARS,
+      EVIDENCE_V2_CHUNK_OVERLAP_CHARS,
+    );
+
+  const pageMatches = [...content.matchAll(/^Page:\s+(https?:\/\/\S+)/gm)];
+  if (pageMatches.length === 0)
+    return chunkSourceWithLocators(
+      content,
+      EVIDENCE_V2_CHUNK_MAX_CHARS,
+      EVIDENCE_V2_CHUNK_OVERLAP_CHARS,
+    );
+
+  const chunks: Array<{ content: string; locator: string }> = [];
+  const firstPageStart = pageMatches[0].index || 0;
+  const preamble = content.slice(0, firstPageStart).trim();
+  if (preamble) {
+    chunks.push(
+      ...chunkSourceWithLocators(
+        preamble,
+        EVIDENCE_V2_CHUNK_MAX_CHARS,
+        EVIDENCE_V2_CHUNK_OVERLAP_CHARS,
+      ),
+    );
+  }
+
+  for (const [pageIndex, match] of pageMatches.entries()) {
+    const start = match.index || 0;
+    const end = pageMatches[pageIndex + 1]?.index ?? content.length;
+    const page = content.slice(start, end).trim();
+    const lineOffset = content.slice(0, start).split("\n").length - 1;
+    const pageUrl = match[1];
+    chunks.push(
+      ...chunkSourceWithLocators(
+        page,
+        EVIDENCE_V2_CHUNK_MAX_CHARS,
+        EVIDENCE_V2_CHUNK_OVERLAP_CHARS,
+      ).map((chunk) => ({
+        content: chunk.content,
+        locator: `${pageUrl}; ${offsetLineLocator(chunk.locator, lineOffset)}`,
+      })),
+    );
+  }
+  return chunks;
+}
+
+export function evidenceAnalysisConcurrencyV2(
+  environment: NodeJS.ProcessEnv = process.env,
+) {
+  const configured = Number.parseInt(
+    environment.ROLEGAIN_EVIDENCE_V2_CONCURRENCY || "20",
+    10,
+  );
+  return Number.isFinite(configured)
+    ? Math.max(1, Math.min(20, configured))
+    : 20;
+}
+
+function offsetLineLocator(locator: string, lineOffset: number) {
+  const match = locator.match(/^lines (\d+)-(\d+)$/);
+  if (!match) return locator;
+  return `lines ${Number(match[1]) + lineOffset}-${Number(match[2]) + lineOffset}`;
 }
 
 function isGroundingValidationError(error: unknown) {

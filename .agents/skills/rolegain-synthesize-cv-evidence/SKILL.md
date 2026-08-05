@@ -71,7 +71,7 @@ not use external tools unless the call manifest explicitly permits them.
 
 ## Output shape
 
-> Consolidated profile, unknowns, contradictions, prohibited inferences, role families, and search vocabulary. Raw claims are not regenerated.
+> V1 returns the consolidated profile with profile evidence and full search vocabulary. V2 returns the same semantic model without echoed profile evidence or vocabulary duplicated by role families; those fields are attached deterministically. Raw claims are never regenerated.
 
 ## Verification
 

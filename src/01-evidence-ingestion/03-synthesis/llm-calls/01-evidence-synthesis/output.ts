@@ -8,6 +8,16 @@ import type {
   SearchVocabularyDraft,
 } from "../../../../contracts/evidence.js";
 
+type SemanticSearchVocabulary = Pick<
+  SearchVocabularyDraft,
+  | "evidenceIntersections"
+  | "toolsMethodsStandards"
+  | "adjacentDialects"
+  | "seniorityOwnershipModifiers"
+  | "geographyLanguageVariants"
+  | "negativeTerms"
+>;
+
 export interface EvidenceSynthesisOutput {
   profile: CandidateProfile;
   profileEvidence: ProfileFieldEvidenceDraft[];
@@ -16,6 +26,11 @@ export interface EvidenceSynthesisOutput {
   prohibitedInferences?: ProhibitedInferenceDraft[];
   roleFamilies?: RoleFamilyDraft[];
   searchVocabulary?: SearchVocabularyDraft;
+}
+
+export interface EvidenceSynthesisOutputV2
+  extends Omit<EvidenceSynthesisOutput, "profileEvidence" | "searchVocabulary"> {
+  searchVocabulary?: SemanticSearchVocabulary;
 }
 
 const string = { type: "string" };
@@ -115,6 +130,26 @@ const roleFamilySchema = {
     confidence: { type: "number", minimum: 0, maximum: 1 },
   },
 };
+const searchVocabularySchemaV2 = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "evidenceIntersections",
+    "toolsMethodsStandards",
+    "adjacentDialects",
+    "seniorityOwnershipModifiers",
+    "geographyLanguageVariants",
+    "negativeTerms",
+  ],
+  properties: {
+    evidenceIntersections: stringArray,
+    toolsMethodsStandards: stringArray,
+    adjacentDialects: stringArray,
+    seniorityOwnershipModifiers: stringArray,
+    geographyLanguageVariants: stringArray,
+    negativeTerms: stringArray,
+  },
+};
 const searchVocabularySchema = {
   type: "object",
   additionalProperties: false,
@@ -205,5 +240,26 @@ export const outputSchema: Record<string, unknown> = {
   },
 };
 
+export const outputSchemaV2: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "profile",
+    "unknowns",
+    "contradictions",
+    "prohibitedInferences",
+    "roleFamilies",
+    "searchVocabulary",
+  ],
+  properties: {
+    profile: profileSchema,
+    unknowns: { type: "array", items: unknownSchema },
+    contradictions: { type: "array", items: contradictionSchema },
+    prohibitedInferences: { type: "array", items: prohibitedInferenceSchema },
+    roleFamilies: { type: "array", items: roleFamilySchema },
+    searchVocabulary: searchVocabularySchemaV2,
+  },
+};
+
 export const outputDescription =
-  "Consolidated profile, unknowns, contradictions, prohibited inferences, role families, and search vocabulary. Raw claims are not regenerated.";
+  "V1 returns the consolidated profile with profile evidence and full search vocabulary. V2 returns the same semantic model without echoed profile evidence or vocabulary duplicated by role families; those fields are attached deterministically. Raw claims are never regenerated.";

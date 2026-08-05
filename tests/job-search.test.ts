@@ -1874,6 +1874,9 @@ describe("job-search lifecycle", () => {
       "{}",
     );
 
+    const stopped = await service.stopBackgroundWork();
+    expect(stopped.backgroundExecution?.state).toBe("stopped");
+
     const reset = await service.resetUserCompletely();
 
     expect(reset.candidateId).toBe(initial.candidateId);
@@ -1901,6 +1904,7 @@ describe("job-search lifecycle", () => {
     expect(reset.seenJobUrls).toEqual([]);
     expect(reset.sharedAnswers).toEqual({});
     expect(reset.discoveryNeedsRun).toBe(true);
+    expect(reset.backgroundExecution?.state).not.toBe("stopped");
     expect(await readdir(filesDirectory)).toEqual([]);
     expect(await readdir(runsDirectory)).toEqual([]);
     expect(await readdir(sourceSnapshotsDirectory)).toEqual([]);

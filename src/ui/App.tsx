@@ -297,6 +297,8 @@ interface ViewProps {
   ) => Promise<JobSearchWorkspace | undefined>;
 }
 
+type PreferenceSaveState = "idle" | "saving" | "saved" | "error";
+
 type EvidenceLinkDraft = Pick<
   JobSearchWorkspace["profile"],
   "linkedin" | "github" | "website"
@@ -318,6 +320,13 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [preferenceSaveState, setPreferenceSaveState] =
+    useState<PreferenceSaveState>("idle");
+  const preferenceSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const pendingPreferenceSaves = useRef(0);
+  const preferenceSaveFailed = useRef(false);
+  const latestPreferenceAnswers = useRef(new Map<string, string>());
+  const preferenceSavedTimer = useRef<number | undefined>(undefined);
   const [notificationPrompt, setNotificationPrompt] =
     useState<LongActivity>();
   const previousTaskState = useRef<
@@ -328,6 +337,14 @@ export function App() {
     | undefined
   >(undefined);
   const activeLongActivity = useRef<LongActivity | undefined>(undefined);
+
+  useEffect(
+    () => () => {
+      if (preferenceSavedTimer.current)
+        window.clearTimeout(preferenceSavedTimer.current);
+    },
+    [],
+  );
 
   const offerNotifications = (activity: LongActivity) => {
     activeLongActivity.current = activity;
@@ -527,6 +544,44 @@ export function App() {
     }
   };
 
+  const savePreference = (questionId: string, answer: string) => {
+    if (latestPreferenceAnswers.current.get(questionId) === answer) return;
+    latestPreferenceAnswers.current.set(questionId, answer);
+    if (pendingPreferenceSaves.current === 0)
+      preferenceSaveFailed.current = false;
+    pendingPreferenceSaves.current += 1;
+    if (preferenceSavedTimer.current)
+      window.clearTimeout(preferenceSavedTimer.current);
+    setPreferenceSaveState("saving");
+
+    const save = preferenceSaveQueue.current.then(async () => {
+      try {
+        const value = await answerQuestion(questionId, answer);
+        setWorkspace(value);
+        if (latestPreferenceAnswers.current.get(questionId) === answer)
+          latestPreferenceAnswers.current.delete(questionId);
+      } catch (cause) {
+        preferenceSaveFailed.current = true;
+        if (latestPreferenceAnswers.current.get(questionId) === answer)
+          latestPreferenceAnswers.current.delete(questionId);
+        setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        pendingPreferenceSaves.current -= 1;
+        if (pendingPreferenceSaves.current === 0) {
+          if (preferenceSaveFailed.current) setPreferenceSaveState("error");
+          else {
+            setPreferenceSaveState("saved");
+            preferenceSavedTimer.current = window.setTimeout(
+              () => setPreferenceSaveState("idle"),
+              1_600,
+            );
+          }
+        }
+      }
+    });
+    preferenceSaveQueue.current = save.catch(() => undefined);
+  };
+
   if (!workspace || !beta || !serviceStatus)
     return (
       <div className="boot">
@@ -706,7 +761,13 @@ export function App() {
             <BetaLimitCard beta={beta} onEnabled={setBeta} />
           )}
           {view === "profile" && (
-            <ProfileView workspace={workspace} busy={busy} act={act} />
+            <ProfileView
+              workspace={workspace}
+              busy={busy}
+              act={act}
+              preferenceSaveState={preferenceSaveState}
+              savePreference={savePreference}
+            />
           )}
           {view === "discovery" && (
             <DiscoveryView
@@ -884,7 +945,16 @@ function NotificationPrompt({
   );
 }
 
-function ProfileView({ workspace, busy, act }: ViewProps) {
+function ProfileView({
+  workspace,
+  busy,
+  act,
+  preferenceSaveState,
+  savePreference,
+}: ViewProps & {
+  preferenceSaveState: PreferenceSaveState;
+  savePreference: (questionId: string, answer: string) => void;
+}) {
   const [evidence, setEvidence] = useState("");
   const [evidenceLinks, setEvidenceLinks] = useState<EvidenceLinkDraft>({
     linkedin: workspace.profile.linkedin,
@@ -1356,7 +1426,8 @@ function ProfileView({ workspace, busy, act }: ViewProps) {
             workspace={workspace}
             unanswered={unanswered}
             busy={busy}
-            act={act}
+            saveState={preferenceSaveState}
+            savePreference={savePreference}
           />
           {unanswered.length === 0 && workspace.discoveryNeedsRun && (
             <section className="setup-nudge complete">
@@ -1675,8 +1746,8 @@ function EvidenceLedger({
             {source.error && <p className="source-error">{source.error}</p>}
             {source.insights.length > 0 && (
               <ul>
-                {source.insights.map((insight) => (
-                  <li key={insight.id}>
+                {source.insights.map((insight, insightIndex) => (
+                  <li key={`${source.id}:${insight.id}:${insightIndex}`}>
                     <strong>{insight.title}</strong>
                     <span>{insight.summary}</span>
                     {insight.skills.length > 0 && (
@@ -1901,16 +1972,34 @@ function PreferencesSection({
   workspace,
   unanswered,
   busy,
-  act,
-}: ViewProps & { unanswered: JobSearchWorkspace["questions"] }) {
+  saveState,
+  savePreference,
+}: {
+  workspace: JobSearchWorkspace;
+  unanswered: JobSearchWorkspace["questions"];
+  busy: boolean;
+  saveState: PreferenceSaveState;
+  savePreference: (questionId: string, answer: string) => void;
+}) {
   return (
     <section className="band questions" id="job-search-preferences">
       <div className="section-head">
         <div>
           <span className="section-label">Job preferences</span>
           <h2>Information needed for job search</h2>
-          <p className="autosave-note">
-            Changes save automatically. Compensation is optional.
+          <p className={`autosave-note ${saveState}`} aria-live="polite">
+            {saveState === "saving" && <LoaderCircle className="spin" size={12} />}
+            {saveState === "saved" && <Check size={12} />}
+            {saveState === "error" && <AlertTriangle size={12} />}
+            <span>
+              {saveState === "saving"
+                ? "Saving changes…"
+                : saveState === "saved"
+                  ? "Changes saved"
+                  : saveState === "error"
+                    ? "Could not save changes"
+                    : "Changes save automatically. Compensation is optional."}
+            </span>
           </p>
         </div>
         <span className="count">{unanswered.length} open</span>
@@ -1920,7 +2009,7 @@ function PreferencesSection({
           key={`${workspace.candidateId}-${question.id}`}
           question={question}
           busy={busy}
-          act={act}
+          savePreference={savePreference}
         />
       ))}
       <div className="footer-action">
@@ -1936,14 +2025,14 @@ function PreferencesSection({
 function Question({
   question,
   busy,
-  act,
+  savePreference,
 }: {
   question: JobSearchWorkspace["questions"][number];
   busy: boolean;
-  act: ViewProps["act"];
+  savePreference: (questionId: string, answer: string) => void;
 }) {
   const save = (answer: string) =>
-    void act(() => answerQuestion(question.id, answer));
+    savePreference(question.id, answer);
   if (question.id === "salary")
     return <SalaryQuestion question={question} busy={busy} save={save} />;
   if (question.id === "locations")

@@ -211,6 +211,49 @@ describe("deterministic LLM result gateway", () => {
     expect(result.output).toMatchObject({ complete: false });
   });
 
+  it("renames duplicate coverage finding ids without dropping grounded findings", () => {
+    const finding = {
+      findingId: "missing-claim",
+      operation: "add",
+      target: "claims",
+      field: "capability",
+      severity: "blocking",
+      quote: "exact source fact",
+      reason: "A material claim is missing.",
+      category: "experience",
+    };
+    const result = evaluateResultGateway({
+      callId: "evidence.chunk-coverage",
+      finalText: JSON.stringify({
+        complete: false,
+        missingEvidence: [
+          finding,
+          { ...finding, reason: "A second material claim is missing." },
+        ],
+        unsupportedExtractions: [],
+        summary: "Repair is required.",
+      }),
+      outputSchema: objectSchema,
+      prompt: "The chunk contains an exact source fact.",
+    });
+
+    expect(result.report.accepted).toBe(true);
+    expect(result.report.adjustments).toContainEqual(
+      expect.objectContaining({
+        code: "DUPLICATE_IDENTITY_RENAMED",
+        path: "$.missingEvidence[1].findingId",
+        before: "missing-claim",
+        after: "missing-claim-2",
+      }),
+    );
+    expect(result.output).toMatchObject({
+      missingEvidence: [
+        expect.objectContaining({ findingId: "missing-claim" }),
+        expect.objectContaining({ findingId: "missing-claim-2" }),
+      ],
+    });
+  });
+
   it("drops orphaned repair removals instead of applying an unresolved deletion", () => {
     const result = evaluateResultGateway({
       callId: "evidence.chunk-repair",

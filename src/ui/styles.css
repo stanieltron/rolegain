@@ -825,6 +825,19 @@ main {
   margin: 5px 0 0;
   color: #687279;
   font-size: 11px;
+  min-height: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.autosave-note.saving {
+  color: #38638a;
+}
+.autosave-note.saved {
+  color: #2f7656;
+}
+.autosave-note.error {
+  color: #a33b32;
 }
 .count {
   font-size: 11px;

@@ -23,6 +23,9 @@ export const manifest = {
 
 export { command } from "./command.js";
 export { buildInput } from "./input.js";
-export { outputSchema } from "./output.js";
-export type { EvidenceSynthesisOutput } from "./output.js";
+export { outputSchema, outputSchemaV2 } from "./output.js";
+export type {
+  EvidenceSynthesisOutput,
+  EvidenceSynthesisOutputV2,
+} from "./output.js";
 export { rolePrompt } from "./role-prompt.js";

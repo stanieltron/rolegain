@@ -9,6 +9,7 @@ import { CodexCandidateAnalyzerV2 } from "../v2/index.js";
 import { verifyAndPersistEvidence } from "../04-verification/index.js";
 import { mockWorkspaceWithCv } from "../inspection/fixtures.js";
 import { evidenceEvalCorpus } from "./corpus.js";
+import type { EvidenceEvalCase } from "./corpus.js";
 import { gradeEvidenceEval } from "./grader.js";
 
 export async function runEvidenceEvals(input: {
@@ -22,7 +23,7 @@ export async function runEvidenceEvals(input: {
   const results: unknown[] = [];
   for (const testCase of evidenceEvalCorpus) {
     for (let trial = 1; trial <= trials; trial += 1) {
-      const workspace = evalWorkspace(testCase.id, testCase.cvText);
+      const workspace = evalWorkspace(testCase);
       const dataRoot = await mkdtemp(
         path.join(tmpdir(), `rolegain-eval-${testCase.id}-`),
       );
@@ -66,7 +67,8 @@ export async function runEvidenceEvals(input: {
   return results;
 }
 
-function evalWorkspace(id: string, cvText: string) {
+function evalWorkspace(testCase: EvidenceEvalCase) {
+  const { id, cvText } = testCase;
   const workspace = mockWorkspaceWithCv();
   workspace.id = `eval-${id}`;
   workspace.candidateId = `eval-${id}`;
@@ -81,6 +83,8 @@ function evalWorkspace(id: string, cvText: string) {
     ...workspace.sources[0],
     id: `cv-${id}`,
     name: `${id}.txt`,
+    kind: testCase.sourceKind || "cv",
+    url: testCase.sourceUrl || "",
     content: cvText,
   };
   return workspace;

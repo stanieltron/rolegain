@@ -124,6 +124,16 @@ export function evaluateResultGateway(input: {
     sanitizeDuplicateRows(output, "jobs", "jobUrl", adjustments);
   }
 
+  if (input.callId === "evidence.chunk-coverage") {
+    checks.push("finding-identity-normalization");
+    normalizeDuplicateIdentities(
+      output,
+      "missingEvidence",
+      "findingId",
+      adjustments,
+    );
+  }
+
   if (
     input.callId === "search.web-discovery" ||
     input.callId === "search.listing-extraction" ||
@@ -802,6 +812,40 @@ function sanitizeDuplicateRows(
     });
   }
   if (retained.length !== rows.length) output[collectionKey] = retained;
+}
+
+function normalizeDuplicateIdentities(
+  output: unknown,
+  collectionKey: string,
+  identityKey: string,
+  adjustments: ResultGatewayAdjustment[],
+) {
+  if (!isObject(output) || !Array.isArray(output[collectionKey])) return;
+  const seen = new Set<string>();
+  for (const [index, row] of output[collectionKey].entries()) {
+    if (!isObject(row) || typeof row[identityKey] !== "string") continue;
+    const identity = row[identityKey].trim();
+    if (!identity || !seen.has(identity)) {
+      if (identity) seen.add(identity);
+      continue;
+    }
+    let suffix = 2;
+    let replacement = `${identity}-${suffix}`;
+    while (seen.has(replacement)) {
+      suffix += 1;
+      replacement = `${identity}-${suffix}`;
+    }
+    adjustments.push({
+      code: "DUPLICATE_IDENTITY_RENAMED",
+      path: `$.${collectionKey}[${index}].${identityKey}`,
+      message:
+        `Renamed a duplicate ${identityKey} so downstream repair references remain unambiguous`,
+      before: row[identityKey],
+      after: replacement,
+    });
+    row[identityKey] = replacement;
+    seen.add(replacement);
+  }
 }
 
 function uniqueStrings(value: unknown, path: string, defects: ResultGatewayDefect[]) {

@@ -6,6 +6,8 @@ export interface EvidenceEvalCase {
   expectedQuotes: string[];
   forbiddenProfileValues: string[];
   expectedInjectionSignals?: string[];
+  sourceKind?: "cv" | "webpage" | "portfolio";
+  sourceUrl?: string;
 }
 
 const boundaryFiller = Array.from(
@@ -114,5 +116,23 @@ export const evidenceEvalCorpus: EvidenceEvalCase[] = [
       "Architected retry-safe settlement reconciliation across three services.",
     ],
     forbiddenProfileValues: ["Chief Technology Officer"],
+  },
+  {
+    id: "multi-page-portfolio",
+    description: "Independent portfolio pages must both retain matching-relevant implementation evidence.",
+    tags: ["portfolio", "multi-page", "page-boundary", "coverage"],
+    sourceKind: "webpage",
+    sourceUrl: "https://portfolio.example.test/",
+    cvText: [
+      "Page: https://portfolio.example.test/orchestrator",
+      "Implemented dependency-aware execution waves with verifier-gated recovery.",
+      "Page: https://portfolio.example.test/protocol",
+      "Designed reserve-accounting invariants and tested liquidation boundary behavior.",
+    ].join("\n"),
+    expectedQuotes: [
+      "Implemented dependency-aware execution waves with verifier-gated recovery.",
+      "Designed reserve-accounting invariants and tested liquidation boundary behavior.",
+    ],
+    forbiddenProfileValues: ["Kubernetes", "mainnet deployment"],
   },
 ];
