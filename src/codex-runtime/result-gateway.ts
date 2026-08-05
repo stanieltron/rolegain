@@ -394,6 +394,15 @@ function sanitizeChunkAnalysisGrounding(
   adjustments: ResultGatewayAdjustment[],
 ) {
   if (!isObject(output)) return;
+  if (Array.isArray(output.profileFacts))
+    output.profileFacts = output.profileFacts.filter((item, index) =>
+      keepGroundedEvidenceItem(
+        item,
+        sources,
+        `$.profileFacts[${index}]`,
+        adjustments,
+      ),
+    );
   if (Array.isArray(output.profileEvidence))
     output.profileEvidence = output.profileEvidence.filter((item, index) =>
       keepGroundedEvidenceItem(
@@ -405,7 +414,23 @@ function sanitizeChunkAnalysisGrounding(
     );
   if (!Array.isArray(output.claims)) return;
   output.claims = output.claims.filter((claim, claimIndex) => {
-    if (!isObject(claim) || !Array.isArray(claim.sourceEvidence)) return true;
+    if (!isObject(claim)) return true;
+    if (
+      typeof claim.quote === "string" &&
+      claim.quote.trim() &&
+      !isGroundedSourceText(claim.quote, sources)
+    ) {
+      adjustments.push({
+        code: "UNGROUNDED_CLAIM_DROPPED",
+        path: `$.claims[${claimIndex}]`,
+        message:
+          "Dropped a chunk-reader claim whose quotation failed exact-source validation",
+        before: claim,
+        after: undefined,
+      });
+      return false;
+    }
+    if (!Array.isArray(claim.sourceEvidence)) return true;
     const groundedEvidence = claim.sourceEvidence.filter((item, evidenceIndex) =>
       keepGroundedEvidenceItem(
         item,
@@ -512,9 +537,7 @@ function keepGroundedEvidenceItem(
   if (!isObject(item) || typeof item.quote !== "string" || !item.quote.trim())
     return true;
   const quote = item.quote;
-  if (sources.some((source) => source.includes(quote))) return true;
-  if (sources.some((source) => alignSourceWhitespace(source, quote)))
-    return true;
+  if (isGroundedSourceText(quote, sources)) return true;
   adjustments.push({
     code: "UNGROUNDED_EVIDENCE_DROPPED",
     path,
@@ -524,6 +547,13 @@ function keepGroundedEvidenceItem(
     after: undefined,
   });
   return false;
+}
+
+function isGroundedSourceText(value: string, sources: string[]) {
+  return sources.some(
+    (source) =>
+      source.includes(value) || Boolean(alignSourceWhitespace(source, value)),
+  );
 }
 
 function sourceCandidates(prompt: string) {

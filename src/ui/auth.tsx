@@ -80,7 +80,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     );
   return (
     <AuthActionsContext.Provider
-      value={{ signOut: () => void supabase.auth.signOut() }}
+      value={{ signOut: () => void supabase.auth.signOut({ scope: "global" }) }}
     >
       {children}
     </AuthActionsContext.Provider>
@@ -179,7 +179,7 @@ function Login({ client }: { client: SupabaseClient }) {
           onClick={() =>
             void client.auth.signInWithOAuth({
               provider: "google",
-              options: { redirectTo: window.location.origin },
+              options: googleOAuthOptions(window.location.origin),
             })
           }
         >
@@ -255,6 +255,13 @@ function Login({ client }: { client: SupabaseClient }) {
         </button>
     </AuthLayout>
   );
+}
+
+export function googleOAuthOptions(origin: string) {
+  return {
+    redirectTo: origin,
+    queryParams: { prompt: "select_account" },
+  } as const;
 }
 
 function PasswordRecovery({

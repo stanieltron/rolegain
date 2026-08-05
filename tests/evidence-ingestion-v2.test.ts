@@ -24,6 +24,7 @@ import type {
 import { CodexExecClient } from "../src/codex-runtime/client.js";
 import { runtimeConfiguration } from "../src/config/runtime.js";
 import { evaluateResultGateway } from "../src/codex-runtime/result-gateway.js";
+import { normalizeCandidateAnalysisProfileLists } from "../src/01-evidence-ingestion/04-verification/index.js";
 
 describe("evidence ingestion v2", () => {
   it("is explicitly selectable while v1 remains the rollback default", () => {
@@ -135,7 +136,7 @@ describe("evidence ingestion v2", () => {
     expect(evidenceAnalysisConcurrencyV2({ ROLEGAIN_EVIDENCE_V2_CONCURRENCY: "99" })).toBe(20);
   });
 
-  it("keeps the lean contract inside the existing exact-quote gateway", () => {
+  it("keeps the lean contract inside the exact-quote gateway without failing the chunk", () => {
     const workspace = mockWorkspaceWithCv();
     const job = prepareCandidateSourceChunks(workspace).jobs[0];
     const valid = {
@@ -162,15 +163,37 @@ describe("evidence ingestion v2", () => {
       outputSchema: leanChunkOutputSchema,
       prompt,
     }).report.accepted).toBe(true);
-    expect(evaluateResultGateway({
+    const sanitized = evaluateResultGateway({
       callId: "evidence.chunk-analysis",
       finalText: JSON.stringify({
         ...valid,
+        profileFacts: [
+          ...valid.profileFacts,
+          { field: "headline", value: "Invented", quote: "not in source either" },
+        ],
         claims: [{ ...valid.claims[0], quote: "not present in source" }],
       }),
       outputSchema: leanChunkOutputSchema,
       prompt,
-    }).report.defects.some((defect) => defect.code === "SOURCE_TEXT_NOT_IN_INPUT")).toBe(true);
+    });
+    expect(sanitized.report.accepted).toBe(true);
+    expect(sanitized.report.defects).toEqual([]);
+    expect(sanitized.report.adjustments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "UNGROUNDED_EVIDENCE_DROPPED",
+          path: "$.profileFacts[1]",
+        }),
+        expect.objectContaining({
+          code: "UNGROUNDED_CLAIM_DROPPED",
+          path: "$.claims[0]",
+        }),
+      ]),
+    );
+    expect(sanitized.output).toEqual({
+      profileFacts: valid.profileFacts,
+      claims: [],
+    });
   });
 
   it("keeps every strict object property required for OpenAI structured output", () => {
@@ -187,6 +210,43 @@ describe("evidence ingestion v2", () => {
       "scope",
       "ownership",
       "quote",
+    ]);
+  });
+
+  it("atomizes list-shaped profile facts before shared v1/v2 provenance verification", () => {
+    const workspace = mockWorkspaceWithCv();
+    const analysis = {
+      ...mockSynthesis(workspace),
+      profile: {
+        ...workspace.profile,
+        skills: ["Rust, TypeScript; vector and hybrid search", "rust"],
+        languages: ["English | Slovak"],
+      },
+      profileEvidence: [
+        {
+          field: "skills" as const,
+          value: "Rust, TypeScript; vector and hybrid search",
+          sourceId: workspace.sources[0].id,
+          locator: "lines 1-2",
+          quote: "Rust, TypeScript, vector and hybrid search",
+        },
+      ],
+      sourceInsights: [],
+      threadId: "thread-normalize",
+    };
+
+    const normalized = normalizeCandidateAnalysisProfileLists(analysis);
+
+    expect(normalized.profile.skills).toEqual([
+      "Rust",
+      "TypeScript",
+      "vector and hybrid search",
+    ]);
+    expect(normalized.profile.languages).toEqual(["English", "Slovak"]);
+    expect(normalized.profileEvidence?.map((item) => item.value)).toEqual([
+      "Rust",
+      "TypeScript",
+      "vector and hybrid search",
     ]);
   });
 });

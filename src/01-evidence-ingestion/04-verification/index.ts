@@ -21,7 +21,8 @@ export async function verifyAndPersistEvidence(input: {
   analysis: CandidateAnalysisResult;
   sourceIdsToAnalyze: ReadonlySet<string>;
 }): Promise<PersistedEvidenceRun> {
-  const { dataRoot, workspace, analysis, sourceIdsToAnalyze } = input;
+  const { dataRoot, workspace, sourceIdsToAnalyze } = input;
+  const analysis = normalizeCandidateAnalysisProfileLists(input.analysis);
 
   // 1. Audit and apply only source-derived profile values with exact provenance.
   const profileEvidence = auditProfileEvidence({
@@ -86,6 +87,46 @@ export async function verifyAndPersistEvidence(input: {
   advanceProfileSetupAfterAnalysis(workspace);
 
   return evidenceRun;
+}
+
+/**
+ * Reader models occasionally return an entire comma-separated list as one
+ * skill or language. Treating that list as one profile value makes exact
+ * provenance recovery impossible and can block an otherwise grounded run.
+ * Normalize at the shared verification boundary so v1, v2, and cached reader
+ * output all receive the same deterministic repair.
+ */
+export function normalizeCandidateAnalysisProfileLists(
+  analysis: CandidateAnalysisResult,
+): CandidateAnalysisResult {
+  return {
+    ...analysis,
+    profile: {
+      ...analysis.profile,
+      skills: atomicListValues(analysis.profile.skills),
+      languages: atomicListValues(analysis.profile.languages),
+    },
+    profileEvidence: (analysis.profileEvidence || []).flatMap((item) =>
+      item.field === "skills" || item.field === "languages"
+        ? atomicListValues([item.value]).map((value) => ({ ...item, value }))
+        : [item],
+    ),
+  };
+}
+
+function atomicListValues(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values || []) {
+    for (const item of value.split(/[,;|\n\r\u2022]+/u)) {
+      const normalized = item.replace(/^[-*]\s*/, "").trim();
+      const key = normalized.toLowerCase();
+      if (!normalized || seen.has(key)) continue;
+      seen.add(key);
+      result.push(normalized);
+    }
+  }
+  return result;
 }
 
 function applyCandidateAnalysis(

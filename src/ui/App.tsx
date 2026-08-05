@@ -669,10 +669,10 @@ export function App() {
                 className="reset-user-action"
                 type="button"
                 role="menuitem"
-                disabled={busy || beta.remainingApplications <= 0}
+                disabled={busy}
                 title={
                   beta.remainingApplications <= 0
-                    ? "The beta allowance is complete; resetting cannot create more LLM access."
+                    ? "Resetting deletes user data but does not renew the beta allowance."
                     : undefined
                 }
                 onClick={() => {
