@@ -7,6 +7,7 @@ import {
   Building2,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -2779,7 +2780,6 @@ function ApplicationOverviewCard({
           </span>
         </div>
         <p>{job.summary}</p>
-        <RequirementBreakdown job={job} />
       </div>
       <div className="job-side">
         <div
@@ -2793,6 +2793,9 @@ function ApplicationOverviewCard({
         <button onClick={() => onOpen(application.id)}>
           Open application <ChevronRight size={15} />
         </button>
+      </div>
+      <div className="application-match-details">
+        <RequirementBreakdown job={job} />
       </div>
     </article>
   );
@@ -3351,7 +3354,17 @@ function RequirementBreakdown({
   return (
     <details className="requirement-breakdown">
       <summary>
-        <span>Requirement evidence</span>
+        <span className="match-details-heading">
+          <span>
+            <strong>View match details</strong>
+            <small>See how your evidence supports this score</small>
+          </span>
+          <ChevronDown
+            aria-hidden="true"
+            className="match-details-chevron"
+            size={17}
+          />
+        </span>
         <span className="requirement-group-counts">
           <RequirementStatusCounts
             label="Required"
