@@ -85,12 +85,18 @@ export async function synthesizeCandidateEvidence(input: {
   // cross-source profile, unknowns, role families and search vocabulary.
   if (version === "v2") {
     const synthesis = JSON.parse(turn.finalText) as EvidenceSynthesisOutputV2;
+    const profile = preferCvIdentity(
+      synthesis.profile,
+      workspace,
+      reading,
+    );
     return {
       ...synthesis,
+      profile,
       chunkCoverage: reading.chunkCoverage,
       searchVocabulary: restoreDerivedSearchVocabulary(synthesis),
       profileEvidence: restoreSelectedProfileEvidence(
-        synthesis.profile,
+        profile,
         reading,
       ),
       threadId: thread.id,
@@ -98,17 +104,49 @@ export async function synthesizeCandidateEvidence(input: {
     };
   }
   const synthesis = JSON.parse(turn.finalText) as EvidenceSynthesisOutput;
+  const profile = preferCvIdentity(synthesis.profile, workspace, reading);
   return {
     ...synthesis,
+    profile,
     chunkCoverage: reading.chunkCoverage,
     profileEvidence: restoreSelectedProfileEvidence(
-      synthesis.profile,
+      profile,
       reading,
       synthesis.profileEvidence,
     ),
     threadId: thread.id,
     sourceInsights: reading.sourceInsights,
   };
+}
+
+function preferCvIdentity(
+  proposed: JobSearchWorkspace["profile"],
+  workspace: JobSearchWorkspace,
+  reading: ChunkReadingResult,
+) {
+  const profile = {
+    ...proposed,
+    skills: [...proposed.skills],
+    languages: [...proposed.languages],
+  };
+  const cvSourceIds = new Set(
+    workspace.sources
+      .filter((source) => source.kind === "cv")
+      .map((source) => source.id),
+  );
+  const evidence = reading.sourceNotes.flatMap((source) =>
+    source.chunks.flatMap((chunk) => chunk.profileEvidence),
+  );
+  for (const field of ["name", "email"] as const) {
+    const current = workspace.profile[field].trim();
+    const origin = workspace.profileFieldOrigins?.[field];
+    if (current && origin !== "auth") continue;
+    const fromCv = evidence.find(
+      (item) => item.field === field && cvSourceIds.has(item.sourceId),
+    )?.value.trim();
+    if (fromCv) profile[field] = fromCv;
+  }
+  return profile;
 }
 
 function restoreDerivedSearchVocabulary(

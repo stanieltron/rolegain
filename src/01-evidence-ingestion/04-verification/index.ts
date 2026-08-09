@@ -187,6 +187,11 @@ function applyCandidateAnalysis(
     "workAuthorization",
     "startDate",
   ]);
+  const cvSourceIds = new Set(
+    workspace.sources
+      .filter((source) => source.kind === "cv")
+      .map((source) => source.id),
+  );
   for (const [key, value] of Object.entries(result.profile) as Array<
     [keyof typeof result.profile, string | string[]]
   >) {
@@ -224,12 +229,35 @@ function applyCandidateAnalysis(
     )
       continue;
     if (key === "phone" && !isPlausiblePhone(value)) continue;
+    const cvBacked = profileEvidence.verified.some(
+      (item) =>
+        item.field === key &&
+        item.value.trim().toLowerCase() === value.trim().toLowerCase() &&
+        cvSourceIds.has(item.sourceId),
+    );
+    const replacesAuthIdentity =
+      (key === "name" || key === "email") &&
+      workspace.profileFieldOrigins?.[key] === "auth" &&
+      cvBacked;
     if (
       !confirmedFields.has(key) ||
-      !workspace.profile[key as keyof typeof workspace.profile]
-    )
+      !workspace.profile[key as keyof typeof workspace.profile] ||
+      replacesAuthIdentity
+    ) {
       (workspace.profile as unknown as Record<string, string>)[key] =
         value.trim();
+      if (
+        cvBacked &&
+        (key === "name" ||
+          key === "email" ||
+          key === "linkedin" ||
+          key === "github" ||
+          key === "website")
+      ) {
+        workspace.profileFieldOrigins ??= {};
+        workspace.profileFieldOrigins[key] = "cv";
+      }
+    }
   }
 
   for (const group of result.sourceInsights) {

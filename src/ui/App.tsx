@@ -56,6 +56,7 @@ import {
   getServiceStatus,
   getWorkspace,
   enableReleaseUpdates,
+  exploreProfileEvidence,
   prepareApplications,
   prepareSearchReadyApplications,
   promoteOpportunity,
@@ -1027,9 +1028,7 @@ function ProfileView({
     website: workspace.profile.website,
   };
   const savedEvidenceLinksSerialized = JSON.stringify(savedEvidenceLinks);
-  const evidenceLinksChanged =
-    JSON.stringify(evidenceLinks) !== savedEvidenceLinksSerialized;
-  const hasStagedEvidence = stagedEvidence.length > 0 || evidenceLinksChanged;
+  const hasStagedEvidence = stagedEvidence.length > 0;
   const analyzing =
     sourceStarting ||
     workspace.intelligence.status === "analyzing" ||
@@ -1176,17 +1175,6 @@ function ProfileView({
     try {
       const result = await act(
         async () => {
-          if (evidenceLinksChanged)
-            await updateCandidateProfile({
-              name: workspace.profile.name,
-              email: workspace.profile.email,
-              phone: workspace.profile.phone,
-              linkedin: evidenceLinks.linkedin,
-              github: evidenceLinks.github,
-              website: evidenceLinks.website,
-              workAuthorization: workspace.profile.workAuthorization,
-              deferEvidenceAnalysis: true,
-            });
           for (const item of stagedEvidence)
             await addSource({ ...item.source, deferAnalysis: true });
           return analyzeCandidate();
@@ -1199,6 +1187,44 @@ function ProfileView({
       setSourceStarting(false);
       setPendingSourceName("");
     }
+  };
+
+  const saveEvidenceLinkDrafts = () =>
+    updateCandidateProfile({
+      name: workspace.profile.name,
+      email: workspace.profile.email,
+      phone: workspace.profile.phone,
+      linkedin: evidenceLinks.linkedin,
+      github: evidenceLinks.github,
+      website: evidenceLinks.website,
+      workAuthorization: workspace.profile.workAuthorization,
+      deferEvidenceAnalysis: true,
+    });
+
+  const exploreEvidenceLink = (field: "github" | "website") =>
+    void act(
+      async () => {
+        await saveEvidenceLinkDrafts();
+        return exploreProfileEvidence(field);
+      },
+      undefined,
+      "candidate-analysis",
+    );
+
+  const saveLinkedInLink = () => {
+    if (evidenceLinks.linkedin === workspace.profile.linkedin) return;
+    void act(() =>
+      updateCandidateProfile({
+        name: workspace.profile.name,
+        email: workspace.profile.email,
+        phone: workspace.profile.phone,
+        linkedin: evidenceLinks.linkedin,
+        github: workspace.profile.github,
+        website: workspace.profile.website,
+        workAuthorization: workspace.profile.workAuthorization,
+        deferEvidenceAnalysis: true,
+      }),
+    );
   };
 
   const refreshCanonicalEvidence = async () => {
@@ -1254,7 +1280,7 @@ function ProfileView({
               <div className="cv-source-copy">
                 <strong>
                   {cvAnalyzing
-                    ? "Ingesting CV evidence"
+                    ? "Reading CV evidence"
                     : cvSource.status === "analysis_failed" ||
                         cvSource.status === "needs_review"
                       ? "CV analysis needs attention"
@@ -1345,6 +1371,8 @@ function ProfileView({
               disabled={analyzing}
               evidenceLinks={evidenceLinks}
               onEvidenceLinksChange={setEvidenceLinks}
+              onExploreEvidence={exploreEvidenceLink}
+              onSaveLinkedIn={saveLinkedInLink}
             />
             <div className="experience-input">
               <label htmlFor="experience-evidence">
@@ -1894,10 +1922,14 @@ function ProfileBasics({
   disabled = false,
   evidenceLinks,
   onEvidenceLinksChange,
+  onExploreEvidence,
+  onSaveLinkedIn,
 }: ViewProps & {
   disabled?: boolean;
   evidenceLinks?: EvidenceLinkDraft;
   onEvidenceLinksChange?: (value: EvidenceLinkDraft) => void;
+  onExploreEvidence?: (field: "github" | "website") => void;
+  onSaveLinkedIn?: () => void;
 }) {
   const initialValue = {
     name: workspace.profile.name,
@@ -1959,11 +1991,6 @@ function ProfileBasics({
     displayedEvidenceLinks.website,
   );
   const websiteProtocol = websiteProtocolPart(displayedEvidenceLinks.website);
-  const linkedinStatus = profileEvidenceDisplayStatus(
-    workspace,
-    "linkedin",
-    displayedEvidenceLinks.linkedin,
-  );
   const githubStatus = profileEvidenceDisplayStatus(
     workspace,
     "github",
@@ -2014,15 +2041,16 @@ function ProfileBasics({
           <span className="section-label">Optional evidence</span>
           <strong>The more you provide, the better the search results</strong>
           <small>
-            LinkedIn, GitHub, and your personal website are optional. Any link
-            you add is read as candidate evidence.
+            LinkedIn is saved for applications. GitHub and personal websites
+            found in your CV are explored automatically; links you enter here
+            are explored only when you ask.
           </small>
         </div>
         <div className="evidence-link-fields">
+        <div className="evidence-link-field">
         <label className={displayedEvidenceLinks.linkedin.trim() ? "field-complete" : ""}>
           <span className="profile-field-label">
             LinkedIn <small>Optional</small>
-            <ProfileEvidenceStatus status={linkedinStatus} />
           </span>
           <input
             disabled={disabled}
@@ -2035,8 +2063,11 @@ function ProfileBasics({
                 linkedin: event.target.value,
               })
             }
+            onBlur={onSaveLinkedIn}
           />
         </label>
+        </div>
+        <div className="evidence-link-field">
         <label className={displayedEvidenceLinks.github.trim() ? "field-complete" : ""}>
           <span className="profile-field-label">
             GitHub <small>Optional</small>
@@ -2055,6 +2086,18 @@ function ProfileBasics({
             }
           />
         </label>
+        {githubStatus?.tone === "missing" && (
+          <button
+            type="button"
+            className="secondary explore-evidence-button"
+            disabled={disabled || !displayedEvidenceLinks.github.trim()}
+            onClick={() => onExploreEvidence?.("github")}
+          >
+            <Search size={13} /> Explore for evidence
+          </button>
+        )}
+        </div>
+        <div className="evidence-link-field">
         <label className={displayedWebsiteAddress.trim() ? "field-complete" : ""}>
           <span className="profile-field-label">
             Personal website <small>Optional</small>
@@ -2081,6 +2124,17 @@ function ProfileBasics({
             />
           </span>
         </label>
+        {websiteStatus?.tone === "missing" && (
+          <button
+            type="button"
+            className="secondary explore-evidence-button"
+            disabled={disabled || !displayedEvidenceLinks.website.trim()}
+            onClick={() => onExploreEvidence?.("website")}
+          >
+            <Search size={13} /> Explore for evidence
+          </button>
+        )}
+        </div>
         </div>
       </div>
     </div>
@@ -2088,9 +2142,9 @@ function ProfileBasics({
 }
 
 type ProfileEvidenceDisplayStatus =
-  | { label: "Ingested"; tone: "ready" }
-  | { label: "Ingesting"; tone: "processing" }
-  | { label: "Not ingested"; tone: "missing" }
+  | { label: "Evidence explored"; tone: "ready" }
+  | { label: "Exploring evidence"; tone: "processing" }
+  | { label: "Not explored"; tone: "missing" }
   | undefined;
 
 function ProfileEvidenceStatus({
@@ -2118,18 +2172,18 @@ function profileEvidenceDisplayStatus(
   if (!displayed) return undefined;
   const saved = comparableEvidenceUrl(workspace.profile[field]);
   if (!saved || saved !== displayed)
-    return { label: "Not ingested", tone: "missing" };
+    return { label: "Not explored", tone: "missing" };
   const source = workspace.sources.find(
     (candidate) =>
       candidate.profileField === field ||
       comparableEvidenceUrl(candidate.url || "") === saved,
   );
-  if (!source) return { label: "Not ingested", tone: "missing" };
+  if (!source) return { label: "Not explored", tone: "missing" };
   if (source.status === "processing")
-    return { label: "Ingesting", tone: "processing" };
+    return { label: "Exploring evidence", tone: "processing" };
   if (source.status === "ready" && Boolean(source.content?.trim()))
-    return { label: "Ingested", tone: "ready" };
-  return { label: "Not ingested", tone: "missing" };
+    return { label: "Evidence explored", tone: "ready" };
+  return { label: "Not explored", tone: "missing" };
 }
 
 function comparableEvidenceUrl(value: string) {

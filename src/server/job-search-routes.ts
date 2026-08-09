@@ -19,6 +19,7 @@ import {
   messageSchema,
   opportunitySchema,
   outcomeSchema,
+  profileEvidenceExploreSchema,
   profileSchema,
   searchConfigSchema,
   sourceSchema,
@@ -155,16 +156,29 @@ export async function routeRequest(
   }
   if (request.method === "GET" && pathname === "/api/job-search") {
     let workspace = await dependencies.jobSearch.get(userId);
+    const authProfile: { name?: string; email?: string } = {};
     if (
-      (!workspace.profile.email && dependencies.actor.email) ||
-      (!workspace.profile.name && dependencies.actor.name)
+      dependencies.actor.email &&
+      (!workspace.profile.email ||
+        (!workspace.profileFieldOrigins?.email &&
+          workspace.profile.email === dependencies.actor.email))
     )
+      authProfile.email = workspace.profile.email || dependencies.actor.email;
+    if (
+      dependencies.actor.name &&
+      (!workspace.profile.name ||
+        (!workspace.profileFieldOrigins?.name &&
+          workspace.profile.name === dependencies.actor.name))
+    )
+      authProfile.name = workspace.profile.name || dependencies.actor.name;
+    const refreshIdentityFromCv =
+      Boolean(authProfile.email || authProfile.name) &&
+      workspace.sources.some((source) => source.kind === "cv") &&
+      workspace.intelligence.status === "ready";
+    if (authProfile.email || authProfile.name)
       workspace = await dependencies.jobSearch.updateProfile(
-        {
-          email: workspace.profile.email || dependencies.actor.email,
-          name: workspace.profile.name || dependencies.actor.name,
-        },
-        { deferEvidenceAnalysis: true },
+        authProfile,
+        { deferEvidenceAnalysis: true, identityOrigin: "auth" },
         userId,
       );
     const ensuredProfileSources =
@@ -173,12 +187,17 @@ export async function routeRequest(
         !dependencies.workflows,
       );
     workspace = ensuredProfileSources.workspace;
-    if (dependencies.workflows && ensuredProfileSources.needsFetch) {
+    if (
+      dependencies.workflows &&
+      (ensuredProfileSources.needsFetch || refreshIdentityFromCv)
+    ) {
       workspace = await dependencies.jobSearch.markWorkflowQueued(
         "analyze",
         userId,
       );
       await dependencies.workflows.enqueue(userId, "analyze");
+    } else if (!dependencies.workflows && refreshIdentityFromCv) {
+      dependencies.jobSearch.queueCandidateAnalysis(userId);
     }
     await dependencies.platform.recordApplications(
       userId,
@@ -319,6 +338,35 @@ export async function routeRequest(
       dependencies.workflows &&
       workspace.sources.some(
         (source) => source.profileField && source.status === "processing",
+      )
+    ) {
+      workspace = await dependencies.jobSearch.markWorkflowQueued(
+        "analyze",
+        userId,
+      );
+      await dependencies.workflows.enqueue(userId, "analyze");
+    }
+    sendJson(response, 200, workspace);
+    return;
+  }
+  if (
+    request.method === "POST" &&
+    pathname === "/api/job-search/profile-evidence/explore"
+  ) {
+    const body = validate(
+      profileEvidenceExploreSchema,
+      await readJson(request),
+    );
+    let workspace = await dependencies.jobSearch.exploreProfileEvidence(
+      body.field,
+      userId,
+      !dependencies.workflows,
+    );
+    if (
+      dependencies.workflows &&
+      workspace.sources.some(
+        (source) =>
+          source.profileField === body.field && source.status === "processing",
       )
     ) {
       workspace = await dependencies.jobSearch.markWorkflowQueued(
@@ -804,6 +852,7 @@ async function resumeBackgroundExecution(
 function codexRequiredPath(pathname: string) {
   return (
     pathname === "/api/job-search/profile" ||
+    pathname === "/api/job-search/profile-evidence/explore" ||
     pathname === "/api/job-search/sources" ||
     pathname === "/api/job-search/analyze" ||
     pathname === "/api/job-search/prepare" ||

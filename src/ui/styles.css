@@ -369,6 +369,17 @@ main {
   gap: 12px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+.evidence-link-field {
+  align-content: start;
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.explore-evidence-button {
+  justify-self: start;
+  min-height: 32px;
+  padding: 6px 10px;
+}
 .profile-wizard {
   display: grid;
   gap: 16px;
@@ -3133,6 +3144,10 @@ main {
   .basic-fields,
   .evidence-link-fields {
     grid-template-columns: 1fr;
+  }
+  .explore-evidence-button {
+    justify-self: stretch;
+    width: 100%;
   }
   .wizard-panel {
     padding: 17px;

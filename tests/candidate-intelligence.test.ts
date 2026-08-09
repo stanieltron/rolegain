@@ -16,6 +16,68 @@ import { CodexExecClient } from "../src/codex-runtime/client.js";
 import { JobSearchService } from "../src/backend/control-flow/service.js";
 
 describe("candidate intelligence", () => {
+  it("lets CV identity replace OAuth defaults but preserves later manual edits", async () => {
+    const analyzer: CandidateAnalyzer = {
+      analyze: async (workspace) => {
+        const cv = workspace.sources.find((source) => source.kind === "cv")!;
+        return {
+          threadId: "thread-cv-identity",
+          profile: {
+            ...workspace.profile,
+            name: "Stanislav Vozarik",
+            email: "stanislav.vozarik@example.test",
+          },
+          profileEvidence: [
+            {
+              field: "name",
+              value: "Stanislav Vozarik",
+              sourceId: cv.id,
+              locator: "lines 1-1",
+              quote: "Stanislav Vozarik",
+            },
+            {
+              field: "email",
+              value: "stanislav.vozarik@example.test",
+              sourceId: cv.id,
+              locator: "lines 2-2",
+              quote: "stanislav.vozarik@example.test",
+            },
+          ],
+          sourceInsights: workspace.sources.map((source) => ({
+            sourceId: source.id,
+            knowledgeMarkdown: `Notes for ${source.name}`,
+            insights: [],
+          })),
+        };
+      },
+    };
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-cv-identity-"));
+    const service = new JobSearchService(root, analyzer);
+    await service.initialize();
+    await service.updateProfile(
+      { name: "Stano V", email: "stano.v@example.test" },
+      { deferEvidenceAnalysis: true, identityOrigin: "auth" },
+    );
+    await service.addSource({
+      kind: "cv",
+      name: "candidate-cv.txt",
+      content: "Stanislav Vozarik\nstanislav.vozarik@example.test",
+    });
+
+    const fromCv = await service.analyzeCandidate();
+    expect(fromCv.profile.name).toBe("Stanislav Vozarik");
+    expect(fromCv.profile.email).toBe("stanislav.vozarik@example.test");
+    expect(fromCv.profileFieldOrigins).toMatchObject({
+      name: "cv",
+      email: "cv",
+    });
+
+    await service.updateProfile({ name: "Stan Vozarik" });
+    const afterManualEdit = await service.analyzeCandidate();
+    expect(afterManualEdit.profile.name).toBe("Stan Vozarik");
+    expect(afterManualEdit.profileFieldOrigins?.name).toBe("manual");
+  });
+
   it("automatically ingests profile links first extracted from the CV", async () => {
     let analyzerRuns = 0;
     const acquiredProfileUrls: string[] = [];
@@ -672,7 +734,7 @@ describe("candidate intelligence", () => {
     expect(rebuilt.sources.every((source) => source.insights.length === 1)).toBe(true);
   });
 
-  it("keeps existing evidence when LinkedIn blocks automated reading", async () => {
+  it("keeps LinkedIn as a saved link without attempting automated reading", async () => {
     const analyzer: CandidateAnalyzer = {
       analyze: async (workspace) => ({
         threadId: "thread-linkedin-fallback",
@@ -726,13 +788,14 @@ describe("candidate intelligence", () => {
     });
     const after = await service.analyzeCandidate();
     const cv = after.sources.find((source) => source.kind === "cv")!;
-    const linkedin = after.sources.find(
-      (source) => source.profileField === "linkedin",
-    )!;
     expect(cv.insights).toHaveLength(1);
     expect(cv.knowledgePath).toBeTruthy();
-    expect(linkedin.status).toBe("needs_review");
-    expect(linkedin.error).toContain("link is saved");
+    expect(
+      after.sources.some((source) => source.profileField === "linkedin"),
+    ).toBe(false);
+    expect(after.profile.linkedin).toBe(
+      "https://www.linkedin.com/in/candidate/",
+    );
     expect(after.intelligence.status).toBe("ready");
   });
 });

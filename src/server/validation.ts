@@ -19,6 +19,10 @@ export const profileSchema = z.object({
   deferEvidenceAnalysis: z.boolean().optional(),
 });
 
+export const profileEvidenceExploreSchema = z.object({
+  field: z.enum(["github", "website"]),
+});
+
 export const sourceSchema = z
   .object({
     kind: z.enum([

@@ -24,7 +24,6 @@ export { evidenceUrlsMatch };
 import {
   isProfileEvidenceField,
   collapseEquivalentProfileEvidenceSources,
-  PROFILE_EVIDENCE_FIELDS,
   profileSourceError,
   stageProfileEvidenceSources,
   synchronizeProfileEvidenceSources,
@@ -187,11 +186,14 @@ export class JobSearchService {
       }
       const profileSources = stageProfileEvidenceSources(
         workspace,
-        PROFILE_EVIDENCE_FIELDS,
+        automaticProfileEvidenceFields(workspace),
+      );
+      const pendingProfileSource = workspace.sources.some(
+        (source) => source.profileField && source.status === "processing",
       );
       await this.saveCandidate(workspace);
       if (
-        profileSources.needsFetch &&
+        (profileSources.needsFetch || pendingProfileSource) &&
         !this.isExecutionStopped(defaultCandidateId)
       )
         this.queueProfileSourceSync(defaultCandidateId);
@@ -238,15 +240,22 @@ export class JobSearchService {
     const workspace = await this.getCandidate(candidateId);
     const staged = stageProfileEvidenceSources(
       workspace,
-      PROFILE_EVIDENCE_FIELDS,
+      automaticProfileEvidenceFields(workspace),
+    );
+    const pendingProfileSource = workspace.sources.some(
+      (source) => source.profileField && source.status === "processing",
     );
     if (staged.changed) {
       recalculate(workspace);
       await this.saveCandidate(workspace);
     }
-    if (staged.needsFetch && scheduleInProcess)
+    if ((staged.needsFetch || pendingProfileSource) && scheduleInProcess)
       this.queueProfileSourceSync(workspace.candidateId);
-    return { workspace, ...staged };
+    return {
+      workspace,
+      ...staged,
+      needsFetch: staged.needsFetch || pendingProfileSource,
+    };
   }
 
   async canonicalEvidence(candidateId?: string) {
@@ -352,7 +361,10 @@ export class JobSearchService {
         | "workAuthorization"
       >
     >,
-    options: { deferEvidenceAnalysis?: boolean } = {},
+    options: {
+      deferEvidenceAnalysis?: boolean;
+      identityOrigin?: "auth" | "manual";
+    } = {},
     candidateId = CANDIDATE_ID,
   ): Promise<JobSearchWorkspace> {
     const workspace = await this.get(candidateId);
@@ -370,35 +382,84 @@ export class JobSearchService {
     ] as const) {
       if (typeof input[field] === "string") {
         const next = input[field].trim();
-        if (next !== workspace.profile[field]) profileChanged = true;
+        const changed = next !== workspace.profile[field];
+        if (changed) profileChanged = true;
         if (
           isProfileEvidenceField(field) &&
-          next !== workspace.profile[field]
+          changed
         )
           changedEvidenceFields.add(field);
         workspace.profile[field] = next;
+        if (field === "name" || field === "email") {
+          workspace.profileFieldOrigins ??= {};
+          if (changed)
+            workspace.profileFieldOrigins[field] =
+              options.identityOrigin ?? "manual";
+          else if (
+            options.identityOrigin === "auth" &&
+            !workspace.profileFieldOrigins[field]
+          )
+            workspace.profileFieldOrigins[field] = "auth";
+        } else if (isProfileEvidenceField(field) && changed) {
+          workspace.profileFieldOrigins ??= {};
+          workspace.profileFieldOrigins[field] = "manual";
+        }
       }
     }
     if (profileChanged) workspace.discoveryNeedsRun = true;
     if (changedEvidenceFields.size > 0) workspace.profileSetupStep = 2;
-    const profileSources = stageProfileEvidenceSources(
-      workspace,
-      changedEvidenceFields,
-    );
-    if (
-      changedEvidenceFields.size > 0 &&
-      profileSources.changed &&
-      !profileSources.needsFetch
-    )
+    let removedExploredSource = false;
+    if (changedEvidenceFields.size > 0) {
+      const retained = workspace.sources.filter((source) => {
+        if (
+          !source.profileField ||
+          !changedEvidenceFields.has(source.profileField)
+        )
+          return true;
+        const next = workspace.profile[source.profileField];
+        const keep = Boolean(
+          next && source.url && evidenceUrlsMatch(source.url, next),
+        );
+        if (!keep) removedExploredSource = true;
+        return keep;
+      });
+      workspace.sources = retained;
+      // Remove legacy managed LinkedIn evidence; the URL remains a saved
+      // application field and is deliberately never crawled.
+      if (stageProfileEvidenceSources(workspace, ["linkedin"]).changed)
+        removedExploredSource = true;
+    }
+    if (removedExploredSource)
       invalidateEvidenceAnalysis(workspace);
     syncSharedAnswersFromProfile(workspace);
     recalculate(workspace);
     advanceProfileSetupAfterAnalysis(workspace);
     await this.saveCandidate(workspace);
-    if (profileSources.needsFetch && !options.deferEvidenceAnalysis)
-      this.queueProfileSourceSync(workspace.candidateId);
-    else if (profileSources.changed && !options.deferEvidenceAnalysis)
+    if (removedExploredSource && !options.deferEvidenceAnalysis)
       this.queueCandidateAnalysis(workspace.candidateId);
+    return workspace;
+  }
+
+  async exploreProfileEvidence(
+    field: "github" | "website",
+    candidateId = CANDIDATE_ID,
+    scheduleInProcess = true,
+  ): Promise<JobSearchWorkspace> {
+    const workspace = await this.getCandidate(candidateId);
+    if (!workspace.profile[field].trim())
+      throw new Error(
+        `Add a ${field === "github" ? "GitHub" : "personal website"} link first`,
+      );
+    const staged = stageProfileEvidenceSources(workspace, [field], {
+      force: true,
+    });
+    if (staged.changed) {
+      workspace.profileSetupStep = 2;
+      recalculate(workspace);
+      await this.saveCandidate(workspace);
+    }
+    if (staged.needsFetch && scheduleInProcess)
+      this.queueProfileSourceSync(workspace.candidateId);
     return workspace;
   }
 
@@ -2675,7 +2736,7 @@ export class JobSearchService {
       workspace = built.workspace;
       const profileSources = stageProfileEvidenceSources(
         workspace,
-        PROFILE_EVIDENCE_FIELDS,
+        automaticProfileEvidenceFields(workspace),
       );
       if (profileSources.needsFetch) {
         recalculate(workspace);
@@ -2728,6 +2789,17 @@ export class JobSearchService {
   }
 }
 
+function automaticProfileEvidenceFields(
+  workspace: JobSearchWorkspace,
+): ProfileEvidenceField[] {
+  return [
+    "linkedin",
+    ...(["github", "website"] as const).filter(
+      (field) => workspace.profileFieldOrigins?.[field] === "cv",
+    ),
+  ];
+}
+
 function githubContributorFromProfile(value: string) {
   const normalized = value.trim();
   if (!normalized) return undefined;
@@ -2776,6 +2848,7 @@ function emptyWorkspace(
       skills: [],
       languages: [],
     },
+    profileFieldOrigins: {},
     sources: [],
     questions: questions(),
     opportunities: [],
@@ -2860,6 +2933,7 @@ function normalizeWorkspace(
   workspace.discoveryNeedsRun ??=
     !workspace.searchProgress && workspace.jobHistory.length === 0;
   workspace.sharedAnswers = workspace.sharedAnswers ?? {};
+  workspace.profileFieldOrigins ??= {};
   workspace.profileSetupStep ??=
     workspace.phase !== "intake"
       ? 4

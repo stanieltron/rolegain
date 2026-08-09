@@ -34,6 +34,7 @@ const SOURCE_BY_FIELD: Record<
 export function stageProfileEvidenceSources(
   workspace: JobSearchWorkspace,
   fields: Iterable<ProfileEvidenceField>,
+  options: { force?: boolean } = {},
 ) {
   let changed = collapseEquivalentProfileEvidenceSources(workspace);
   let needsFetch = false;
@@ -47,6 +48,15 @@ export function stageProfileEvidenceSources(
     );
     const managed =
       managedIndex >= 0 ? workspace.sources[managedIndex] : undefined;
+    // LinkedIn consistently blocks automated readers. Keep the profile URL for
+    // applications, but never present it as evidence that can be explored.
+    if (field === "linkedin") {
+      if (managedIndex >= 0) {
+        workspace.sources.splice(managedIndex, 1);
+        changed = true;
+      }
+      continue;
+    }
     if (!normalized) {
       if (managedIndex >= 0) {
         workspace.sources.splice(managedIndex, 1);
@@ -64,6 +74,7 @@ export function stageProfileEvidenceSources(
     );
     if (!managed && matchingManualSource) continue;
     if (
+      !options.force &&
       managed &&
       evidenceUrlsMatch(managed.url, url) &&
       (managed.status === "processing" ||

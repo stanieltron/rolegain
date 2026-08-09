@@ -69,7 +69,7 @@ export function joinCandidateOverviewV2(input: {
   const readerEvidence = reading.sourceNotes.flatMap((source) =>
     source.chunks.flatMap((chunk) => chunk.profileEvidence),
   );
-  const profile = selectProfile(workspace.profile, readerEvidence);
+  const profile = selectProfile(workspace, readerEvidence);
   const roles = synthesis.output.roleFamilies || [];
   return {
     ...synthesis.output,
@@ -134,9 +134,10 @@ function uniqueSources(values: Array<JobSearchWorkspace["sources"][number] | und
 }
 
 function selectProfile(
-  current: CandidateProfile,
+  workspace: JobSearchWorkspace,
   evidence: ProfileFieldEvidenceDraft[],
 ): CandidateProfile {
+  const current = workspace.profile;
   const profile: CandidateProfile = {
     ...current,
     skills: [...current.skills],
@@ -146,9 +147,29 @@ function selectProfile(
     "name", "email", "phone", "linkedin", "github", "website", "location",
     "headline", "summary",
   ] as const;
+  const cvSourceIds = new Set(
+    workspace.sources
+      .filter((source) => source.kind === "cv")
+      .map((source) => source.id),
+  );
   for (const field of scalarFields) {
-    const sourceValue = evidence.find((item) => item.field === field)?.value;
-    if (sourceValue && (!profile[field] || isPlaceholder(field, profile[field])))
+    const preferCvIdentity =
+      (field === "name" || field === "email") &&
+      (!profile[field] ||
+        workspace.profileFieldOrigins?.[
+          field as "name" | "email"
+        ] === "auth");
+    const sourceValue = (
+      preferCvIdentity
+        ? evidence.find(
+            (item) => item.field === field && cvSourceIds.has(item.sourceId),
+          )
+        : evidence.find((item) => item.field === field)
+    )?.value;
+    if (
+      sourceValue &&
+      (preferCvIdentity || !profile[field] || isPlaceholder(field, profile[field]))
+    )
       profile[field] = sourceValue;
   }
   if (!profile.skills.length)

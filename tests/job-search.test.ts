@@ -439,7 +439,7 @@ describe("job-search lifecycle", () => {
     ).toHaveLength(1);
   });
 
-  it("promotes profile links into managed evidence sources without duplicates", async () => {
+  it("promotes only crawlable profile links into managed evidence sources", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "rolegain-profile-links-"));
     const service = new JobSearchService(root);
     await service.initialize();
@@ -458,11 +458,6 @@ describe("job-search lifecycle", () => {
     expect(workspace.sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          profileField: "linkedin",
-          kind: "webpage",
-          status: "processing",
-        }),
-        expect.objectContaining({
           profileField: "github",
           kind: "github",
           status: "processing",
@@ -474,6 +469,9 @@ describe("job-search lifecycle", () => {
         }),
       ]),
     );
+    expect(
+      workspace.sources.some((source) => source.profileField === "linkedin"),
+    ).toBe(false);
     expect(
       stageProfileEvidenceSources(workspace, [
         "linkedin",
@@ -543,7 +541,7 @@ describe("job-search lifecycle", () => {
     ).toEqual([expect.objectContaining({ id: "manual-website", status: "ready" })]);
   });
 
-  it("ingests a profile website before treating it as candidate evidence", async () => {
+  it("keeps a manually entered website unexplored until explicitly requested", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "rolegain-profile-fetch-"));
     let ingestCalls = 0;
     const service = new JobSearchService(
@@ -564,11 +562,24 @@ describe("job-search lifecycle", () => {
       },
     );
     await service.initialize();
-    const staged = await service.updateProfile(
+    const saved = await service.updateProfile(
       { website: "https://candidate.example" },
       { deferEvidenceAnalysis: true },
     );
     expect(ingestCalls).toBe(0);
+    expect(saved.sources).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          profileField: "website",
+        }),
+      ]),
+    );
+
+    const staged = await service.exploreProfileEvidence(
+      "website",
+      saved.candidateId,
+      false,
+    );
     expect(staged.sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -577,7 +588,6 @@ describe("job-search lifecycle", () => {
         }),
       ]),
     );
-
     const analyzed = await service.analyzeCandidate();
     expect(ingestCalls).toBe(1);
     expect(analyzed.sources).toEqual(

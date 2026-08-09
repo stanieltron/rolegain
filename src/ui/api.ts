@@ -84,6 +84,8 @@ export const updateCandidateProfile = (body: {
   workAuthorization: string;
   deferEvidenceAnalysis?: boolean;
 }) => workspacePost("/api/job-search/profile", body);
+export const exploreProfileEvidence = (field: "github" | "website") =>
+  workspacePost("/api/job-search/profile-evidence/explore", { field });
 export const stopBackgroundWork = () =>
   workspacePost("/api/job-search/background/stop", {});
 export const continueBackgroundWork = () =>

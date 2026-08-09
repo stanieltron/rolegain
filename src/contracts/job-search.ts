@@ -440,6 +440,13 @@ export interface JobSearchWorkspace {
   candidateId: string;
   phase: WorkspacePhase;
   profile: CandidateProfile;
+  /** Where identity/profile-link values came from so OAuth defaults are not mistaken for user confirmation. */
+  profileFieldOrigins?: Partial<
+    Record<
+      "name" | "email" | "linkedin" | "github" | "website",
+      "auth" | "cv" | "manual"
+    >
+  >;
   sources: CandidateSource[];
   questions: IntakeQuestion[];
   opportunities: JobOpportunity[];
