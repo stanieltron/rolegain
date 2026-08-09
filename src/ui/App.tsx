@@ -609,6 +609,9 @@ export function App() {
   ).length;
   const discoveryReady = candidateDiscoveryReady(workspace);
   const preparedApplications = preparedVerifiedApplications(workspace);
+  const applicationsReady =
+    discoveryReady &&
+    (workspace.phase === "applications" || preparedApplications.length > 0);
   return (
     <div className="shell">
       <nav className="nav" aria-label="Primary navigation">
@@ -633,28 +636,31 @@ export function App() {
           badge={`${workspace.profileCompleteness}%`}
           onClick={() => setView("profile")}
         />
-        {discoveryReady && (
-          <NavButton
-            icon={Search}
-            label="Discovery"
-            active={view === "discovery"}
-            badge={String(workspace.searchProgress?.items?.length ?? 0)}
-            onClick={() => setView("discovery")}
-          />
-        )}
-        {discoveryReady &&
-          (workspace.phase === "applications" || preparedApplications.length > 0) && (
-          <NavButton
-            icon={BriefcaseBusiness}
-            label="Applications"
-            active={view === "applications"}
-            badge={String(preparedApplications.length)}
-            onClick={() => {
-              setSelectedId(undefined);
-              setView("applications");
-            }}
-          />
-        )}
+        <NavButton
+          icon={Search}
+          label="Discovery"
+          active={view === "discovery"}
+          badge={discoveryReady ? String(workspace.searchProgress?.items?.length ?? 0) : "Locked"}
+          disabled={!discoveryReady}
+          lockedReason="Complete your profile and evidence to unlock Discovery"
+          onClick={() => setView("discovery")}
+        />
+        <NavButton
+          icon={BriefcaseBusiness}
+          label="Applications"
+          active={view === "applications"}
+          badge={applicationsReady ? String(preparedApplications.length) : "Locked"}
+          disabled={!applicationsReady}
+          lockedReason={
+            discoveryReady
+              ? "Prepare an application in Discovery to unlock Applications"
+              : "Complete your profile and evidence to unlock Applications"
+          }
+          onClick={() => {
+            setSelectedId(undefined);
+            setView("applications");
+          }}
+        />
         <div className="settings-menu">
           <button
             className="settings-trigger"
@@ -4896,16 +4902,27 @@ function NavButton({
   label,
   active,
   badge,
+  disabled = false,
+  lockedReason,
   onClick,
 }: {
   icon: typeof UserRound;
   label: string;
   active: boolean;
   badge?: string;
+  disabled?: boolean;
+  lockedReason?: string;
   onClick: () => void;
 }) {
   return (
-    <button className={`nav-btn ${active ? "active" : ""}`} onClick={onClick}>
+    <button
+      className={`nav-btn ${active ? "active" : ""}`}
+      type="button"
+      disabled={disabled}
+      aria-label={disabled && lockedReason ? `${label}. ${lockedReason}` : label}
+      title={disabled ? lockedReason : undefined}
+      onClick={onClick}
+    >
       <Icon size={17} />
       <span>{label}</span>
       {badge && <small>{badge}</small>}

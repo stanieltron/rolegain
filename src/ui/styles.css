@@ -98,10 +98,15 @@ button {
   margin: 0;
   order: 2;
 }
-.nav-btn:hover,
+.nav-btn:not(:disabled):hover,
 .nav-btn.active {
   background: var(--rg-color-nav-raised);
   color: #fff;
+}
+.nav-btn:disabled {
+  color: #7f8991;
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 .nav-btn.active {
   box-shadow: inset 0 -2px var(--rg-color-accent);
