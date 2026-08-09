@@ -16,6 +16,141 @@ import { CodexExecClient } from "../src/codex-runtime/client.js";
 import { JobSearchService } from "../src/backend/control-flow/service.js";
 
 describe("candidate intelligence", () => {
+  it("automatically ingests profile links first extracted from the CV", async () => {
+    let analyzerRuns = 0;
+    const acquiredProfileUrls: string[] = [];
+    const analyzer: CandidateAnalyzer = {
+      analyze: async (workspace) => {
+        analyzerRuns += 1;
+        const cv = workspace.sources.find((source) => source.kind === "cv")!;
+        return {
+          threadId: `thread-profile-links-${analyzerRuns}`,
+          profile: {
+            ...workspace.profile,
+            github: "https://github.com/candidate",
+            website: "https://candidate.example",
+          },
+          profileEvidence: [
+            {
+              field: "github",
+              value: "https://github.com/candidate",
+              sourceId: cv.id,
+              locator: "GitHub line",
+              quote: "GitHub: https://github.com/candidate",
+            },
+            {
+              field: "website",
+              value: "https://candidate.example",
+              sourceId: cv.id,
+              locator: "Website line",
+              quote: "Website: https://candidate.example",
+            },
+          ],
+          sourceInsights: workspace.sources.map((source) => ({
+            sourceId: source.id,
+            knowledgeMarkdown: `Notes for ${source.name}`,
+            insights: [],
+          })),
+        };
+      },
+    };
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-cv-profile-links-"));
+    const service = new JobSearchService(
+      root,
+      analyzer,
+      undefined,
+      undefined,
+      async (input) => {
+        acquiredProfileUrls.push(input.url || "");
+        return {
+          kind: input.kind,
+          name: input.name,
+          url: input.url,
+          content: `Public evidence acquired from ${input.url}`,
+          contentHash: `hash-${input.url}`,
+        };
+      },
+    );
+    await service.initialize();
+    await service.addSource({
+      kind: "cv",
+      name: "candidate-cv.txt",
+      content: [
+        "Candidate Name",
+        "candidate@example.test",
+        "GitHub: https://github.com/candidate",
+        "Website: https://candidate.example",
+      ].join("\n"),
+    });
+
+    const result = await service.analyzeCandidate();
+
+    expect(analyzerRuns).toBe(2);
+    expect(acquiredProfileUrls).toEqual([
+      "https://github.com/candidate",
+      "https://candidate.example/",
+    ]);
+    expect(result.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          profileField: "github",
+          status: "ready",
+          content: expect.stringContaining("github.com/candidate"),
+        }),
+        expect.objectContaining({
+          profileField: "website",
+          status: "ready",
+          content: expect.stringContaining("candidate.example"),
+        }),
+      ]),
+    );
+    expect(result.intelligence.status).toBe("ready");
+  });
+
+  it("derives the GitHub contributor identity server-side for repository expansion", async () => {
+    const acquired: Array<{
+      includeGitHubContributions?: boolean;
+      githubContributor?: string;
+    }> = [];
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-github-contributions-"));
+    const service = new JobSearchService(
+      root,
+      undefined,
+      undefined,
+      undefined,
+      async (input) => {
+        acquired.push({
+          includeGitHubContributions: input.includeGitHubContributions,
+          githubContributor: input.githubContributor,
+        });
+        return {
+          kind: "repository",
+          name: input.name,
+          url: input.url,
+          content: "Repository and attributed public contribution evidence.",
+          contentHash: "repository-contribution-hash",
+        };
+      },
+    );
+    await service.initialize();
+    await service.updateProfile(
+      { github: "https://github.com/candidate" },
+      { deferEvidenceAnalysis: true },
+    );
+
+    await service.addSource({
+      kind: "repository",
+      name: "organisation/project",
+      url: "https://github.com/organisation/project",
+      includeGitHubContributions: true,
+    });
+
+    expect(acquired).toContainEqual({
+      includeGitHubContributions: true,
+      githubContributor: "candidate",
+    });
+  });
+
   it("defers website acquisition until the worker analysis step", async () => {
     let reads = 0;
     const reader = async (input: { kind: "webpage"; name: string; url?: string }) => {

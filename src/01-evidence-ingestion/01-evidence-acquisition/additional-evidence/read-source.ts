@@ -20,6 +20,10 @@ export interface SupplementalEvidenceInput {
   content?: string;
   dataBase64?: string;
   mimeType?: string;
+  /** Expand a repository with other public GitHub repositories the candidate contributed to. */
+  includeGitHubContributions?: boolean;
+  /** Server-derived GitHub username used for contribution discovery; never trusted from the client. */
+  githubContributor?: string;
 }
 
 export interface SupplementalEvidence {
@@ -106,7 +110,10 @@ async function ingestUrl(
 ): Promise<AcquiredSource> {
   const url = new URL(input.url);
   if (url.hostname.toLowerCase() === "github.com")
-    return ingestGithub(url, input.name, signal);
+    return ingestGithub(url, input.name, signal, {
+      includeContributions: input.includeGitHubContributions === true,
+      contributor: input.githubContributor,
+    });
   const fetched = await fetchPublic(url, {}, signal);
   const name = input.name || filenameFromUrl(fetched.url) || fetched.url.hostname;
   let content: string;
@@ -156,6 +163,7 @@ async function ingestGithub(
   url: URL,
   fallbackName: string,
   signal?: AbortSignal,
+  options: { includeContributions?: boolean; contributor?: string } = {},
 ): Promise<AcquiredSource> {
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts.length < 1) throw new Error("GitHub URL must point to a profile or repository");
@@ -244,7 +252,143 @@ async function ingestGithub(
     "",
     supplement.content,
   ].join("\n");
-  return { kind: "repository", name: String(metadata.full_name || fallbackName), url: String(metadata.html_url || url.href), content: cleanText(content), mimeType: "application/vnd.github+json", size: repoResponse.buffer.length + languagesResponse.buffer.length + supplement.size };
+  const fullName = String(metadata.full_name || `${owner}/${repo}`);
+  const relatedSources =
+    options.includeContributions && options.contributor
+      ? await githubContributionRepositories(
+          options.contributor,
+          fullName,
+          headers,
+          signal,
+        )
+      : [];
+  return {
+    kind: "repository",
+    name: String(metadata.full_name || fallbackName),
+    url: String(metadata.html_url || url.href),
+    content: cleanText(content),
+    mimeType: "application/vnd.github+json",
+    size:
+      repoResponse.buffer.length +
+      languagesResponse.buffer.length +
+      supplement.size +
+      relatedSources.reduce((total, source) => total + source.size, 0),
+    relatedSources,
+  };
+}
+
+async function githubContributionRepositories(
+  username: string,
+  excludedRepository: string,
+  headers: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<AcquiredSource[]> {
+  const normalizedUsername = username.trim().replace(/^@/, "");
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$/i.test(normalizedUsername))
+    return [];
+  const searchHeaders = {
+    ...headers,
+    Accept: "application/vnd.github+json, application/vnd.github.cloak-preview+json",
+  };
+  const query = encodeURIComponent(`author:${normalizedUsername}`);
+  const response = await fetchPublic(
+    new URL(
+      `https://api.github.com/search/commits?q=${query}&sort=committer-date&order=desc&per_page=50`,
+    ),
+    searchHeaders,
+    signal,
+  ).catch(() => null);
+  if (!response) return [];
+  const payload = JSON.parse(response.buffer.toString("utf8")) as {
+    items?: Array<{
+      sha?: string;
+      html_url?: string;
+      commit?: {
+        message?: string;
+        author?: { date?: string };
+      };
+      repository?: {
+        full_name?: string;
+        html_url?: string;
+        url?: string;
+        description?: string;
+        language?: string;
+        default_branch?: string;
+      };
+    }>;
+  };
+  const byRepository = new Map<
+    string,
+    { repository: NonNullable<NonNullable<typeof payload.items>[number]["repository"]>; commits: NonNullable<typeof payload.items> }
+  >();
+  for (const item of payload.items ?? []) {
+    const repository = item.repository;
+    const fullName = repository?.full_name?.trim();
+    if (
+      !repository ||
+      !fullName ||
+      fullName.toLowerCase() === excludedRepository.toLowerCase()
+    )
+      continue;
+    const existing = byRepository.get(fullName) ?? {
+      repository,
+      commits: [],
+    };
+    if (existing.commits.length < 5) existing.commits.push(item);
+    byRepository.set(fullName, existing);
+    if (byRepository.size >= 8) break;
+  }
+
+  const contributions: AcquiredSource[] = [];
+  const groups = [...byRepository.entries()];
+  for (let index = 0; index < groups.length; index += 3) {
+    const batch = await Promise.all(
+      groups.slice(index, index + 3).map(async ([fullName, group]) => {
+        const repositoryApi =
+          group.repository.url ||
+          `https://api.github.com/repos/${fullName
+            .split("/")
+            .map(encodeURIComponent)
+            .join("/")}`;
+        const supplement = await githubRepositorySupplement(
+          repositoryApi,
+          group.repository.default_branch || "main",
+          headers,
+          signal,
+        ).catch(() => ({ content: "", size: 0 }));
+        const commitEvidence = group.commits.map((commit) => {
+          const title = (commit.commit?.message || "Public commit")
+            .split(/\r?\n/, 1)[0]
+            .slice(0, 240);
+          const sha = (commit.sha || "").slice(0, 12);
+          const date = commit.commit?.author?.date || "date unavailable";
+          return `- ${sha || "commit"} · ${date} · ${title}${commit.html_url ? ` · ${commit.html_url}` : ""}`;
+        });
+        return {
+          kind: "repository" as const,
+          name: fullName,
+          url: group.repository.html_url || `https://github.com/${fullName}`,
+          content: cleanText(
+            [
+              `Repository: ${fullName}`,
+              `Description: ${group.repository.description || ""}`,
+              `Primary language: ${group.repository.language || ""}`,
+              `Public commits attributed by GitHub to @${normalizedUsername}:`,
+              ...commitEvidence,
+              "",
+              supplement.content,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          ),
+          mimeType: "application/vnd.github+json",
+          size: supplement.size,
+        };
+      }),
+    );
+    contributions.push(...batch);
+  }
+  return contributions;
 }
 
 async function githubRepositorySupplement(

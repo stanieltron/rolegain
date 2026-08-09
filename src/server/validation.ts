@@ -35,6 +35,7 @@ export const sourceSchema = z
     mimeType: optionalText(200),
     url: optionalUrl,
     deferAnalysis: z.boolean().optional(),
+    includeGitHubContributions: z.boolean().optional(),
   })
   .refine(
     (value) =>

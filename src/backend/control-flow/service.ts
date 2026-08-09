@@ -226,6 +226,28 @@ export class JobSearchService {
     return this.getCandidate(candidateId);
   }
 
+  async ensureProfileEvidenceSources(
+    candidateId = CANDIDATE_ID,
+    scheduleInProcess = true,
+  ): Promise<{
+    workspace: JobSearchWorkspace;
+    changed: boolean;
+    needsFetch: boolean;
+  }> {
+    const workspace = await this.getCandidate(candidateId);
+    const staged = stageProfileEvidenceSources(
+      workspace,
+      PROFILE_EVIDENCE_FIELDS,
+    );
+    if (staged.changed) {
+      recalculate(workspace);
+      await this.saveCandidate(workspace);
+    }
+    if (staged.needsFetch && scheduleInProcess)
+      this.queueProfileSourceSync(workspace.candidateId);
+    return { workspace, ...staged };
+  }
+
   async canonicalEvidence(candidateId?: string) {
     const id = candidateId || CANDIDATE_ID;
     const [model, workspace] = await Promise.all([
@@ -386,17 +408,33 @@ export class JobSearchService {
     options: { deferUrlAcquisition?: boolean } = {},
   ): Promise<JobSearchWorkspace> {
     const workspace = await this.get(candidateId);
+    const sourceInput: EvidenceInput =
+      input.kind !== "cv" && input.includeGitHubContributions
+        ? {
+            ...input,
+            githubContributor: githubContributorFromProfile(
+              workspace.profile.github,
+            ),
+          }
+        : input;
     const replacedCvs =
       input.kind === "cv"
         ? workspace.sources.filter((source) => source.kind === "cv")
         : [];
-    if (input.kind !== "cv" && input.url && options.deferUrlAcquisition)
-      stageSupplementalUrl({ workspace, source: { ...input, url: input.url } });
+    if (
+      sourceInput.kind !== "cv" &&
+      sourceInput.url &&
+      options.deferUrlAcquisition
+    )
+      stageSupplementalUrl({
+        workspace,
+        source: { ...sourceInput, url: sourceInput.url },
+      });
     else
       await acquireEvidence({
         dataRoot: this.root,
         workspace,
-        source: input,
+        source: sourceInput,
         analyzeWithLlm: Boolean(this.analyzer),
         reader: this.profileSourceIngestor,
       });
@@ -466,6 +504,11 @@ export class JobSearchService {
             kind: pending.kind === "cv" ? "webpage" : pending.kind,
             name: pending.name,
             url: pending.url!,
+            includeGitHubContributions:
+              pending.includeGitHubContributions === true,
+            githubContributor: githubContributorFromProfile(
+              workspace.profile.github,
+            ),
           },
           analyzeWithLlm: Boolean(this.analyzer),
           reader: this.profileSourceIngestor,
@@ -2620,6 +2663,18 @@ export class JobSearchService {
       if (this.isExecutionStopped(workspace.candidateId))
         return this.getCandidate(workspace.candidateId);
       workspace = built.workspace;
+      const profileSources = stageProfileEvidenceSources(
+        workspace,
+        PROFILE_EVIDENCE_FIELDS,
+      );
+      if (profileSources.needsFetch) {
+        recalculate(workspace);
+        await this.saveCandidate(workspace);
+        await this.synchronizeProfileSources(workspace.candidateId, false);
+        workspace = await this.getCandidate(workspace.candidateId);
+        if (workspace.sources.some((source) => source.analysisRequired))
+          this.requestedAnalyses.add(workspace.candidateId);
+      }
     } catch (error) {
       if (this.isExecutionStopped(workspace.candidateId))
         return this.getCandidate(workspace.candidateId);
@@ -2660,6 +2715,20 @@ export class JobSearchService {
     recalculate(workspace);
     await this.saveCandidate(workspace);
     return workspace;
+  }
+}
+
+function githubContributorFromProfile(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  try {
+    const url = new URL(/^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`);
+    if (url.hostname.toLowerCase().replace(/^www\./, "") !== "github.com")
+      return undefined;
+    const username = url.pathname.split("/").filter(Boolean)[0];
+    return username || undefined;
+  } catch {
+    return undefined;
   }
 }
 

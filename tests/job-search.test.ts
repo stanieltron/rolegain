@@ -474,6 +474,13 @@ describe("job-search lifecycle", () => {
         }),
       ]),
     );
+    expect(
+      stageProfileEvidenceSources(workspace, [
+        "linkedin",
+        "github",
+        "website",
+      ]),
+    ).toEqual({ changed: false, needsFetch: false });
 
     workspace.profile.github = "";
     expect(stageProfileEvidenceSources(workspace, ["github"])).toEqual({

@@ -66,7 +66,8 @@ export function stageProfileEvidenceSources(
     if (
       managed &&
       evidenceUrlsMatch(managed.url, url) &&
-      ((managed.status === "ready" && Boolean(managed.content)) ||
+      (managed.status === "processing" ||
+        (managed.status === "ready" && Boolean(managed.content)) ||
         ((managed.status === "needs_review" ||
           managed.status === "analysis_failed") &&
           managed.analysisRequired === false))

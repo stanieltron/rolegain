@@ -167,6 +167,19 @@ export async function routeRequest(
         { deferEvidenceAnalysis: true },
         userId,
       );
+    const ensuredProfileSources =
+      await dependencies.jobSearch.ensureProfileEvidenceSources(
+        userId,
+        !dependencies.workflows,
+      );
+    workspace = ensuredProfileSources.workspace;
+    if (dependencies.workflows && ensuredProfileSources.needsFetch) {
+      workspace = await dependencies.jobSearch.markWorkflowQueued(
+        "analyze",
+        userId,
+      );
+      await dependencies.workflows.enqueue(userId, "analyze");
+    }
     await dependencies.platform.recordApplications(
       userId,
       workspace.applications

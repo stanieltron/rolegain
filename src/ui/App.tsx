@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowUpRight,
+  Award,
   BellRing,
   BriefcaseBusiness,
   Building2,
@@ -22,6 +23,7 @@ import {
   LogOut,
   MapPin,
   Paperclip,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
@@ -957,6 +959,8 @@ function ProfileView({
   savePreference: (questionId: string, answer: string) => void;
 }) {
   const [evidence, setEvidence] = useState("");
+  const [includeGitHubContributions, setIncludeGitHubContributions] =
+    useState(false);
   const [evidenceLinks, setEvidenceLinks] = useState<EvidenceLinkDraft>({
     linkedin: workspace.profile.linkedin,
     github: workspace.profile.github,
@@ -975,6 +979,9 @@ function ProfileView({
   const cvSource = [...workspace.sources]
     .reverse()
     .find((source) => source.kind === "cv");
+  const parsedEvidenceUrl = parseSourceUrl(evidence.trim());
+  const githubRepository = isGitHubRepositoryUrl(parsedEvidenceUrl);
+  const githubContributor = githubProfileUsername(evidenceLinks.github);
   useEffect(() => {
     const runId = workspace.intelligence.evidenceRun?.id;
     if (!runId) {
@@ -1101,8 +1108,17 @@ function ProfileView({
     const value = evidence.trim();
     if (!value) return;
     const parsed = parseSourceUrl(value);
+    const repository = isGitHubRepositoryUrl(parsed);
     const source: Parameters<typeof addSource>[0] = parsed
-      ? { kind: "webpage", name: parsed.hostname, url: parsed.href }
+      ? {
+          kind: repository ? "repository" : "webpage",
+          name: repository
+            ? parsed.pathname.split("/").filter(Boolean).slice(0, 2).join("/")
+            : parsed.hostname,
+          url: parsed.href,
+          includeGitHubContributions:
+            repository && includeGitHubContributions,
+        }
       : { kind: "document", name: "Additional experience", content: value };
     setStagedEvidence((current) => [
       ...current,
@@ -1113,14 +1129,18 @@ function ProfileView({
       },
     ]);
     setEvidence("");
+    setIncludeGitHubContributions(false);
   };
 
-  const stageEvidenceFiles = async (files: FileList | null) => {
+  const stageEvidenceFiles = async (
+    files: FileList | null,
+    labelPrefix = "",
+  ) => {
     if (!files?.length) return;
     const additions = await Promise.all(
       [...files].map(async (file) => ({
         id: crypto.randomUUID(),
-        label: file.name,
+        label: labelPrefix ? `${labelPrefix} · ${file.name}` : file.name,
         source: {
           kind: "document" as const,
           name: file.name,
@@ -1314,16 +1334,43 @@ function ProfileView({
                 Anything else that shows your experience?
               </label>
               <span>
-                Repository, relevant webpage, or a short description of an
-                achievement.
+                Add a certificate, publication, repository, relevant webpage,
+                or a short description of an achievement.
               </span>
+              <p className="experience-evidence-guidance">
+                Everything you add may be considered when describing your
+                experience. For coauthored papers, shared repositories, or team
+                projects, state exactly what you contributed—do not rely on the
+                source to imply ownership of the whole work. You can remove a
+                source later through <strong>Edit evidence</strong>.
+              </p>
               <textarea
                 id="experience-evidence"
                 disabled={analyzing}
                 value={evidence}
                 onChange={(event) => setEvidence(event.target.value)}
-                placeholder="Paste a link or describe your experience, project or achievement..."
+                placeholder="Paste a link or describe your exact contribution, certificate, project, publication, or achievement..."
               />
+              {githubRepository && (
+                <label className="github-contributions-option">
+                  <input
+                    type="checkbox"
+                    checked={includeGitHubContributions}
+                    disabled={!githubContributor || analyzing}
+                    onChange={(event) =>
+                      setIncludeGitHubContributions(event.target.checked)
+                    }
+                  />
+                  <span>
+                    <strong>Find my contributions in other public repositories</strong>
+                    <small>
+                      {githubContributor
+                        ? `Search public commits attributed by GitHub to @${githubContributor}. Private, squashed, and older contributions may be missing.`
+                        : "Add your GitHub profile above to identify which contributions are yours."}
+                    </small>
+                  </span>
+                </label>
+              )}
               <div className="evidence-batch-actions">
                 <button
                   className="secondary"
@@ -1341,6 +1388,19 @@ function ProfileView({
                     accept=".pdf,.doc,.docx,.txt,.md,.markdown,.rtf,.html,.htm"
                     onChange={(event) => {
                       void stageEvidenceFiles(event.target.files);
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
+                <label className={`secondary file-action certificate-action ${busy || analyzing ? "disabled" : ""}`}>
+                  <Award size={15} /> Add certificate
+                  <input
+                    type="file"
+                    multiple
+                    disabled={busy || analyzing}
+                    accept=".pdf,.doc,.docx,.txt,.md,.markdown,.rtf,.html,.htm"
+                    onChange={(event) => {
+                      void stageEvidenceFiles(event.target.files, "Certificate");
                       event.target.value = "";
                     }}
                   />
@@ -1566,6 +1626,7 @@ function EvidenceLedger({
     selectedValue?: string,
   ) => void;
 }) {
+  const [editingSources, setEditingSources] = useState(false);
   if (workspace.sources.length === 0) return null;
   const reviewedClaimIds = new Set(
     (workspace.intelligence.evidenceReview?.claims ?? []).map(
@@ -1588,7 +1649,22 @@ function EvidenceLedger({
         <small>
           Codex reasons across these source-backed facts when ranking jobs.
         </small>
+        <button
+          className={`evidence-edit-toggle ${editingSources ? "active" : ""}`}
+          type="button"
+          disabled={disabled}
+          onClick={() => setEditingSources((editing) => !editing)}
+        >
+          {editingSources ? <Check size={14} /> : <Pencil size={14} />}
+          {editingSources ? "Done editing" : "Edit evidence"}
+        </button>
       </div>
+      {editingSources && (
+        <p className="evidence-edit-notice">
+          Removing a source deletes its extracted facts and rebuilds the
+          candidate evidence used by search and applications.
+        </p>
+      )}
       {hasReviewItems && (
         <section className="evidence-review-queue" aria-label="Evidence review">
           <header>
@@ -1730,15 +1806,17 @@ function EvidenceLedger({
                 ) : (
                   <CheckCircle2 size={16} className="green" />
                 )}
-                <button
-                  type="button"
-                  disabled={disabled}
-                  title={`Remove ${source.name} and rebuild evidence`}
-                  aria-label={`Remove ${source.name}`}
-                  onClick={() => onRemove(source.id)}
-                >
-                  <X size={13} />
-                </button>
+                {editingSources && (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    title={`Remove ${source.name} and rebuild evidence`}
+                    aria-label={`Remove ${source.name}`}
+                    onClick={() => onRemove(source.id)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </span>
             </header>
             {source.status === "processing" && (
@@ -1841,6 +1919,21 @@ function ProfileBasics({
     displayedEvidenceLinks.website,
   );
   const websiteProtocol = websiteProtocolPart(displayedEvidenceLinks.website);
+  const linkedinStatus = profileEvidenceDisplayStatus(
+    workspace,
+    "linkedin",
+    displayedEvidenceLinks.linkedin,
+  );
+  const githubStatus = profileEvidenceDisplayStatus(
+    workspace,
+    "github",
+    displayedEvidenceLinks.github,
+  );
+  const websiteStatus = profileEvidenceDisplayStatus(
+    workspace,
+    "website",
+    displayedEvidenceLinks.website,
+  );
   return (
     <div className="profile-basics">
       <div className="subsection-heading">
@@ -1889,6 +1982,7 @@ function ProfileBasics({
         <label className={displayedEvidenceLinks.linkedin.trim() ? "field-complete" : ""}>
           <span className="profile-field-label">
             LinkedIn <small>Optional</small>
+            <ProfileEvidenceStatus status={linkedinStatus} />
           </span>
           <input
             disabled={disabled}
@@ -1906,6 +2000,7 @@ function ProfileBasics({
         <label className={displayedEvidenceLinks.github.trim() ? "field-complete" : ""}>
           <span className="profile-field-label">
             GitHub <small>Optional</small>
+            <ProfileEvidenceStatus status={githubStatus} />
           </span>
           <input
             disabled={disabled}
@@ -1923,6 +2018,7 @@ function ProfileBasics({
         <label className={displayedWebsiteAddress.trim() ? "field-complete" : ""}>
           <span className="profile-field-label">
             Personal website <small>Optional</small>
+            <ProfileEvidenceStatus status={websiteStatus} />
           </span>
           <span className="url-prefix-input">
             <b>{websiteProtocol}</b>
@@ -1949,6 +2045,75 @@ function ProfileBasics({
       </div>
     </div>
   );
+}
+
+type ProfileEvidenceDisplayStatus =
+  | { label: "Ingested"; tone: "ready" }
+  | { label: "Ingesting"; tone: "processing" }
+  | { label: "Not ingested"; tone: "missing" }
+  | undefined;
+
+function ProfileEvidenceStatus({
+  status,
+}: {
+  status: ProfileEvidenceDisplayStatus;
+}) {
+  if (!status) return null;
+  return (
+    <span className={`profile-evidence-status status-${status.tone}`}>
+      {status.tone === "processing" && (
+        <LoaderCircle className="spin" size={10} />
+      )}
+      {status.label}
+    </span>
+  );
+}
+
+function profileEvidenceDisplayStatus(
+  workspace: JobSearchWorkspace,
+  field: "linkedin" | "github" | "website",
+  displayedValue: string,
+): ProfileEvidenceDisplayStatus {
+  const displayed = comparableEvidenceUrl(displayedValue);
+  if (!displayed) return undefined;
+  const saved = comparableEvidenceUrl(workspace.profile[field]);
+  if (!saved || saved !== displayed)
+    return { label: "Not ingested", tone: "missing" };
+  const source = workspace.sources.find(
+    (candidate) =>
+      candidate.profileField === field ||
+      comparableEvidenceUrl(candidate.url || "") === saved,
+  );
+  if (!source) return { label: "Not ingested", tone: "missing" };
+  if (source.status === "processing")
+    return { label: "Ingesting", tone: "processing" };
+  if (source.status === "ready" && Boolean(source.content?.trim()))
+    return { label: "Ingested", tone: "ready" };
+  return { label: "Not ingested", tone: "missing" };
+}
+
+function comparableEvidenceUrl(value: string) {
+  const parsed = parseSourceUrl(value);
+  if (!parsed) return "";
+  return `${parsed.hostname.toLowerCase().replace(/^www\./, "")}${parsed.pathname.replace(/\/+$/, "")}${parsed.search}`;
+}
+
+function isGitHubRepositoryUrl(value?: URL) {
+  if (!value) return false;
+  return (
+    value.hostname.toLowerCase().replace(/^www\./, "") === "github.com" &&
+    value.pathname.split("/").filter(Boolean).length >= 2
+  );
+}
+
+function githubProfileUsername(value: string) {
+  const parsed = parseSourceUrl(value);
+  if (
+    !parsed ||
+    parsed.hostname.toLowerCase().replace(/^www\./, "") !== "github.com"
+  )
+    return "";
+  return parsed.pathname.split("/").filter(Boolean)[0] || "";
 }
 
 function websiteProtocolPart(value: string) {

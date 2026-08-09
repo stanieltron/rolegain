@@ -123,6 +123,8 @@ export function stageSupplementalUrl(input: {
     status: "processing",
     analysisRequired: true,
     insights: [],
+    includeGitHubContributions:
+      inputSource.includeGitHubContributions === true || undefined,
   };
   if (source) Object.assign(source, pending, { error: undefined, knowledgePath: undefined });
   else {

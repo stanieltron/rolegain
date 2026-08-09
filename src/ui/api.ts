@@ -100,6 +100,7 @@ export const addSource = (body: {
   mimeType?: string;
   url?: string;
   deferAnalysis?: boolean;
+  includeGitHubContributions?: boolean;
 }) => workspacePost("/api/job-search/sources", body);
 export const removeSource = (id: string) =>
   workspaceDelete(`/api/job-search/sources/${encodeURIComponent(id)}`);

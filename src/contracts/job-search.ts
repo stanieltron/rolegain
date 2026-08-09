@@ -7,6 +7,8 @@ export interface CandidateSource {
   url?: string;
   /** Profile field that automatically owns and refreshes this evidence source. */
   profileField?: "linkedin" | "github" | "website";
+  /** For a staged GitHub repository, also discover public repositories with commits attributed to the candidate. */
+  includeGitHubContributions?: boolean;
   content?: string;
   /** Supplemental-only SHA-256 used to prevent duplicate evidence. */
   contentHash?: string;

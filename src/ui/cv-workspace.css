@@ -46,6 +46,43 @@
   font-size: 10px;
   margin-top: 3px;
 }
+.evidence-ledger > .subsection-heading {
+  padding-right: 132px;
+  position: relative;
+}
+.evidence-edit-toggle {
+  align-items: center;
+  background: var(--rg-color-surface);
+  border: var(--rg-border-width) solid var(--rg-color-border-strong);
+  border-radius: var(--rg-radius-xs);
+  color: var(--rg-color-ink);
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 750;
+  gap: 6px;
+  padding: 7px 9px;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+.evidence-edit-toggle.active {
+  background: #edf6f0;
+  border-color: #8fc3a1;
+  color: #276b43;
+}
+.evidence-edit-toggle:disabled {
+  cursor: wait;
+  opacity: 0.45;
+}
+.evidence-edit-notice {
+  background: #fff9eb;
+  border: 1px solid #e5c77e;
+  color: #68572e;
+  font-size: 10px;
+  line-height: 1.45;
+  margin: 12px 0 0;
+  padding: 9px 11px;
+}
 .basic-fields {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) minmax(
@@ -442,7 +479,7 @@
 }
 .experience-input {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px 10px;
   margin-top: 14px;
   padding: 14px;
@@ -459,8 +496,16 @@
   font-size: 10px;
   color: #6b757c;
 }
+.experience-evidence-guidance {
+  color: #52616a;
+  font-size: 10px;
+  grid-column: 1 / -1;
+  line-height: 1.5;
+  margin: 2px 0 4px;
+  max-width: 880px;
+}
 .experience-input textarea {
-  grid-column: 1;
+  grid-column: 1 / -1;
   min-height: 84px;
   border: 1px solid #cfd6da;
   padding: 10px;
@@ -468,7 +513,7 @@
   font-size: 11px;
 }
 .experience-input button {
-  grid-column: 2;
+  grid-column: auto;
   align-self: end;
   height: 38px;
 }
@@ -476,7 +521,8 @@
   align-self: end;
   display: flex;
   gap: 7px;
-  grid-column: 2;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
 }
 .experience-input .evidence-batch-actions button,
 .experience-input .evidence-batch-actions .file-action {
@@ -500,6 +546,38 @@
 }
 .file-action.disabled input {
   cursor: not-allowed;
+}
+.certificate-action {
+  background: #f8f4ff;
+  border-color: #d8caee;
+  color: #65458f;
+}
+.github-contributions-option {
+  align-items: flex-start;
+  background: #eef4fb;
+  border: 1px solid #ccddec;
+  display: flex;
+  gap: 9px;
+  grid-column: 1 / -1;
+  padding: 10px 11px;
+}
+.github-contributions-option > input {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+.github-contributions-option > span {
+  display: grid;
+  gap: 3px;
+}
+.github-contributions-option strong {
+  color: #334d65;
+  font-size: 10px;
+}
+.github-contributions-option small {
+  color: #63788a;
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1.4;
 }
 .staged-evidence {
   background: #fbfcfc;
@@ -757,7 +835,19 @@
   }
   .evidence-batch-actions {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
+  }
+  .experience-input .evidence-batch-actions > * {
+    justify-content: center;
+    width: 100%;
+  }
+  .evidence-ledger > .subsection-heading {
+    padding-right: 0;
+  }
+  .evidence-edit-toggle {
+    align-self: flex-start;
+    margin-top: 10px;
+    position: static;
   }
   .basic-fields,
   .evidence-source ul {
