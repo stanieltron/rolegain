@@ -16,6 +16,7 @@ export class CodexCandidateAnalyzerV2 implements CandidateAnalyzer {
   constructor(
     private readonly codex: CodexExecClient,
     private readonly cwd: string,
+    private readonly evidenceChunkLimit?: () => Promise<number>,
   ) {}
 
   async analyze(
@@ -25,11 +26,13 @@ export class CodexCandidateAnalyzerV2 implements CandidateAnalyzer {
   ): Promise<CandidateAnalysisResult> {
     const runtime = await this.codex.start();
     if (!runtime.authenticated) throw new Error("Codex is not authenticated");
+    const maxChunks = await this.evidenceChunkLimit?.();
     const [reading, synthesis] = await Promise.all([
       readCandidateSourceChunksV2({
         codex: this.codex,
         cwd: this.cwd,
         workspace,
+        maxChunks,
         onProgress,
       }),
       synthesizeCandidateOverviewV2({
@@ -42,7 +45,10 @@ export class CodexCandidateAnalyzerV2 implements CandidateAnalyzer {
     await onProgress?.({
       stage: "synthesizing",
       completed: reading.totalChunks,
-      total: reading.totalChunks,
+      total: reading.chunkCoverage?.totalChunks ?? reading.totalChunks,
+      ...(reading.chunkCoverage?.limitReached
+        ? { limit: reading.chunkCoverage.limit, limitReached: true }
+        : {}),
     });
     return joinCandidateOverviewV2({ workspace, reading, synthesis });
   }

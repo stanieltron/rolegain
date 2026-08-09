@@ -162,6 +162,83 @@
   margin-top: 28px;
 }
 
+.admin-evidence-limit {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 24px;
+  border: var(--rg-border-width) solid var(--rg-color-border);
+  border-radius: var(--rg-radius-xl);
+  background: var(--rg-color-surface);
+  padding: 20px;
+  box-shadow: var(--rg-shadow-card);
+}
+
+.admin-evidence-limit h2 {
+  margin: 4px 0;
+  letter-spacing: -0.035em;
+}
+
+.admin-evidence-limit p {
+  max-width: 680px;
+  margin: 0;
+  color: var(--rg-color-text-muted);
+}
+
+.admin-evidence-limit-control {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 6px 8px;
+  min-width: 360px;
+}
+
+.admin-evidence-limit-control label {
+  display: grid;
+  gap: 4px;
+  color: var(--rg-color-text-muted);
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.admin-evidence-limit-control input {
+  border: var(--rg-border-width) solid var(--rg-color-border-strong);
+  border-radius: var(--rg-radius-sm);
+  padding: 8px;
+  font: inherit;
+}
+
+.admin-evidence-limit-control button {
+  align-self: end;
+  border: var(--rg-border-width) solid var(--rg-color-accent);
+  border-radius: var(--rg-radius-sm);
+  background: var(--rg-color-accent);
+  padding: 8px 12px;
+  color: var(--rg-color-accent-ink);
+  font: inherit;
+  font-weight: 800;
+}
+
+.admin-evidence-limit-control button:disabled {
+  cursor: default;
+  opacity: .5;
+}
+
+.admin-evidence-limit-control small,
+.admin-evidence-limit-control em {
+  grid-column: 1 / -1;
+  font-size: .7rem;
+}
+
+.admin-evidence-limit-control small {
+  color: var(--rg-color-text-muted);
+}
+
+.admin-evidence-limit-control em {
+  color: var(--rg-color-danger);
+  font-style: normal;
+}
+
 .admin-metrics article {
   display: flex;
   align-items: center;
@@ -459,6 +536,15 @@
   .admin-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .admin-evidence-limit {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-evidence-limit-control {
+    min-width: 0;
+  }
 }
 
 @media (max-width: 560px) {
@@ -468,6 +554,16 @@
 
   .admin-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .admin-evidence-limit-control {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-evidence-limit-control button,
+  .admin-evidence-limit-control small,
+  .admin-evidence-limit-control em {
+    grid-column: 1;
   }
 
   .admin-header-actions {

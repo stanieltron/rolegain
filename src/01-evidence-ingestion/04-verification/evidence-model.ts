@@ -88,6 +88,7 @@ export async function persistCanonicalEvidenceRun(input: {
   analysis: CandidateAnalysisResult;
   profileEvidence?: ProfileFieldEvidence[];
   profileEvidenceBlockers?: string[];
+  additionalWarnings?: string[];
 }): Promise<PersistedEvidenceRun> {
   const { dataRoot, workspace, analysis } = input;
   const profileEvidence = input.profileEvidence || [];
@@ -132,6 +133,7 @@ export async function persistCanonicalEvidenceRun(input: {
     unknowns,
     contradictions,
     additionalBlockers: input.profileEvidenceBlockers || [],
+    additionalWarnings: input.additionalWarnings || [],
   });
   const runFingerprint = stableHash(
     JSON.stringify({
@@ -766,6 +768,7 @@ function evidenceReadiness(input: {
   unknowns: CandidateUnknown[];
   contradictions: CandidateContradiction[];
   additionalBlockers: string[];
+  additionalWarnings: string[];
 }): EvidenceReadiness {
   const supportedClaims = input.claims.filter(
     (claim) =>
@@ -778,7 +781,7 @@ function evidenceReadiness(input: {
   if (input.roleFamilies.length === 0) blockers.push("No evidence-backed role families were generated");
   if (supportedClaims.length === 0)
     blockers.push("No positive claim has an exact supported source reference");
-  const warnings: string[] = [];
+  const warnings: string[] = [...input.additionalWarnings];
   const weakClaims = input.claims.filter(
     (claim) => claim.supportStatus !== "supported",
   ).length;

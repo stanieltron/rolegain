@@ -9,11 +9,14 @@ import {
 import {
   chunkSourceWithLocators,
   joinCandidateSourceChunkReadings,
-  mapConcurrentOrdered,
+  mapConcurrentOrderedInBatches,
   normalizeChunkNotes,
   type PreparedCandidateChunks,
 } from "../v1/02-chunk-reader/index.js";
-import { assertEvidenceAnalysisBudget } from "../v1/02-chunk-reader/recovery/index.js";
+import {
+  configuredEvidenceChunkLimit,
+  limitEvidenceChunkJobs,
+} from "../chunk-budget.js";
 import {
   type ChunkReadJob,
   type ChunkReadResult,
@@ -47,16 +50,23 @@ export async function readCandidateSourceChunksV2(input: {
   cwd: string;
   workspace: JobSearchWorkspace;
   model?: string;
+  maxChunks?: number;
   onProgress?: (progress: CandidateAnalysisProgress) => void | Promise<void>;
 }): Promise<ChunkReadingResult> {
   const model = input.model ?? productionModel(SOURCE_READER_COMMAND);
-  const prepared = prepareCandidateSourceChunksV2(input.workspace);
+  const prepared = prepareCandidateSourceChunksV2(
+    input.workspace,
+    input.maxChunks,
+  );
   const jobs = prepared.jobs;
   await input.onProgress?.({
     stage: "reading",
     completed: 0,
-    total: jobs.length,
+    total: prepared.coverage.totalChunks,
     sourceName: jobs[0]?.source.name,
+    ...(prepared.coverage.limitReached
+      ? { limit: prepared.coverage.limit, limitReached: true }
+      : {}),
   });
 
   const checkpointRoot = path.join(
@@ -69,7 +79,7 @@ export async function readCandidateSourceChunksV2(input: {
   );
   let completedJobs = 0;
   let progressWrites = Promise.resolve();
-  const results = await mapConcurrentOrdered(
+  const results = await mapConcurrentOrderedInBatches(
     jobs,
     evidenceAnalysisConcurrencyV2(),
     async (job) => {
@@ -80,8 +90,11 @@ export async function readCandidateSourceChunksV2(input: {
         progressWrites = progressWrites.then(() => input.onProgress?.({
           stage: "reading",
           completed,
-          total: jobs.length,
+          total: prepared.coverage.totalChunks,
           sourceName: job.source.name,
+          ...(prepared.coverage.limitReached
+            ? { limit: prepared.coverage.limit, limitReached: true }
+            : {}),
         }));
         await progressWrites;
       };
@@ -107,6 +120,7 @@ export async function readCandidateSourceChunksV2(input: {
     ...joinCandidateSourceChunkReadings(input.workspace, prepared, results),
     prepared,
     chunkResults: results,
+    chunkCoverage: prepared.coverage,
   };
 }
 
@@ -195,6 +209,7 @@ async function persistCheckpoint(file: string, checkpoint: ChunkReadResult) {
 
 export function prepareCandidateSourceChunksV2(
   workspace: JobSearchWorkspace,
+  maxChunks = configuredEvidenceChunkLimit(),
 ): PreparedCandidateChunks {
   const sources = workspace.sources.filter(
     (source) =>
@@ -203,17 +218,17 @@ export function prepareCandidateSourceChunksV2(
       (source.status === "ready" &&
         (source.insights.length === 0 || !source.knowledgePath)),
   );
-  const jobs = sources.flatMap((source) =>
-    chunkSourceForAnalysisV2(source).map((chunk, index, chunks) => ({
+  const sourceJobs = sources.map((source) => ({
+    source,
+    jobs: chunkSourceForAnalysisV2(source).map((chunk, index, chunks) => ({
       source,
       chunk: chunk.content,
       locator: chunk.locator,
       index,
       count: chunks.length,
     })),
-  );
-  assertEvidenceAnalysisBudget(jobs.length);
-  return { jobs };
+  }));
+  return limitEvidenceChunkJobs(sourceJobs, maxChunks);
 }
 
 /**

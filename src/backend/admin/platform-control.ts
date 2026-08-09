@@ -1,6 +1,13 @@
 import type { Pool } from "pg";
 import type { JobSearchWorkspace } from "../../contracts/job-search.js";
 import { HttpError } from "../../server/auth.js";
+import {
+  configuredEvidenceChunkLimit,
+  EVIDENCE_CHUNK_BATCH_SIZE,
+  HARD_MAX_EVIDENCE_CHUNKS,
+  normalizeEvidenceChunkLimit,
+  validateEvidenceChunkLimit,
+} from "../../01-evidence-ingestion/chunk-budget.js";
 
 export const BETA_APPLICATION_LIMIT = 10;
 export const BETA_BATCH_SIZE = 5;
@@ -90,6 +97,11 @@ export interface AdminUserSummary {
 export interface AdminOverview {
   generatedAt: string;
   service: ServiceStatus;
+  settings: {
+    evidenceChunkLimit: number;
+    evidenceChunkBatchSize: number;
+    evidenceChunkHardMaximum: number;
+  };
   totals: {
     users: number;
     tokens: number;
@@ -108,6 +120,7 @@ export class PlatformControl {
     createdAt: string;
   }> = [];
   private memoryCodexEnabled = true;
+  private memoryEvidenceChunkLimit = configuredEvidenceChunkLimit();
 
   constructor(private readonly pool?: Pool) {}
 
@@ -144,6 +157,46 @@ export class PlatformControl {
         [JSON.stringify(codexEnabled)],
       );
     return this.serviceStatus();
+  }
+
+  async evidenceChunkLimit(): Promise<number> {
+    if (!this.pool) return this.memoryEvidenceChunkLimit;
+    const result = await this.pool.query<{ value: unknown }>(
+      `select value
+       from rolegain_system_settings
+       where setting_key = 'evidence_chunk_limit'`,
+    );
+    const stored = Number(result.rows[0]?.value);
+    return Number.isFinite(stored)
+      ? normalizeEvidenceChunkLimit(stored)
+      : configuredEvidenceChunkLimit();
+  }
+
+  async setEvidenceChunkLimit(limit: number) {
+    let validated: number;
+    try {
+      validated = validateEvidenceChunkLimit(limit);
+    } catch (error) {
+      throw new HttpError(
+        400,
+        error instanceof Error ? error.message : String(error),
+        "invalid_evidence_chunk_limit",
+      );
+    }
+    if (!this.pool) this.memoryEvidenceChunkLimit = validated;
+    else
+      await this.pool.query(
+        `insert into rolegain_system_settings (setting_key, value, updated_at)
+         values ('evidence_chunk_limit', $1::jsonb, now())
+         on conflict (setting_key) do update
+         set value = excluded.value, updated_at = now()`,
+        [JSON.stringify(validated)],
+      );
+    return {
+      evidenceChunkLimit: await this.evidenceChunkLimit(),
+      evidenceChunkBatchSize: EVIDENCE_CHUNK_BATCH_SIZE,
+      evidenceChunkHardMaximum: HARD_MAX_EVIDENCE_CHUNKS,
+    };
   }
 
   async assertCodexEnabled() {
@@ -430,6 +483,12 @@ export class PlatformControl {
 
   async adminOverview(): Promise<AdminOverview> {
     const service = await this.serviceStatus();
+    const evidenceChunkLimit = await this.evidenceChunkLimit();
+    const settings = {
+      evidenceChunkLimit,
+      evidenceChunkBatchSize: EVIDENCE_CHUNK_BATCH_SIZE,
+      evidenceChunkHardMaximum: HARD_MAX_EVIDENCE_CHUNKS,
+    };
     if (!this.pool) {
       const users = [...this.memoryBeta.keys()].map((id) => ({
         id,
@@ -453,7 +512,7 @@ export class PlatformControl {
             .map((event) => event.event.name),
         ),
       }));
-      return overviewFrom(service, users);
+      return overviewFrom(service, settings, users);
     }
 
     const [authRows, workspaces, tokens, betaRows, workflows, events] =
@@ -590,7 +649,7 @@ export class PlatformControl {
         left.lastActiveAt || left.registeredAt || "",
       ),
     );
-    return overviewFrom(service, users);
+    return overviewFrom(service, settings, users);
   }
 
   private memoryState(userId: string) {
@@ -671,6 +730,7 @@ function eventCounts(names: string[]) {
 
 function overviewFrom(
   service: ServiceStatus,
+  settings: AdminOverview["settings"],
   users: AdminUserSummary[],
 ): AdminOverview {
   const eventTotals: Record<string, number> = {};
@@ -680,6 +740,7 @@ function overviewFrom(
   return {
     generatedAt: new Date().toISOString(),
     service,
+    settings,
     totals: {
       users: users.length,
       tokens: users.reduce((total, user) => total + user.tokens, 0),

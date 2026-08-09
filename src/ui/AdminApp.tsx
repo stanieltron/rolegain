@@ -57,6 +57,11 @@ interface AdminOverview {
     codexEnabled: boolean;
     maintenanceMessage?: string;
   };
+  settings: {
+    evidenceChunkLimit: number;
+    evidenceChunkBatchSize: number;
+    evidenceChunkHardMaximum: number;
+  };
   totals: {
     users: number;
     tokens: number;
@@ -227,6 +232,13 @@ export function AdminApp() {
       )}
       {error && <div className="admin-error">{error}</div>}
 
+      {overview && (
+        <EvidenceChunkLimitControl
+          settings={overview.settings}
+          onUpdated={refresh}
+        />
+      )}
+
       <section className="admin-metrics">
         <Metric
           icon={Users}
@@ -375,6 +387,81 @@ export function AdminApp() {
         </div>
       </section>
     </main>
+  );
+}
+
+function EvidenceChunkLimitControl({
+  settings,
+  onUpdated,
+}: {
+  settings: AdminOverview["settings"];
+  onUpdated: () => Promise<void>;
+}) {
+  const [limit, setLimit] = useState(settings.evidenceChunkLimit);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => setLimit(settings.evidenceChunkLimit), [settings.evidenceChunkLimit]);
+
+  return (
+    <section className="admin-evidence-limit">
+      <div>
+        <span className="admin-kicker">Evidence ingestion</span>
+        <h2>Chunk run limit</h2>
+        <p>
+          Evidence runs execute sequential batches of {settings.evidenceChunkBatchSize} chunks.
+          The default allowance is two batches; completed chunks remain usable when this limit is reached.
+        </p>
+      </div>
+      <div className="admin-evidence-limit-control">
+        <label>
+          Maximum chunks per run
+          <input
+            type="number"
+            min={settings.evidenceChunkBatchSize}
+            max={settings.evidenceChunkHardMaximum}
+            step={settings.evidenceChunkBatchSize}
+            value={limit}
+            disabled={busy}
+            onChange={(event) => setLimit(Number(event.target.value))}
+          />
+        </label>
+        <button
+          type="button"
+          disabled={
+            busy ||
+            limit === settings.evidenceChunkLimit ||
+            !Number.isInteger(limit) ||
+            limit < settings.evidenceChunkBatchSize ||
+            limit > settings.evidenceChunkHardMaximum
+          }
+          onClick={async () => {
+            setBusy(true);
+            setError("");
+            try {
+              const response = await fetch("/api/admin/evidence-chunk-limit", {
+                method: "POST",
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ limit }),
+              });
+              if (!response.ok) throw new Error(await responseError(response));
+              await onUpdated();
+            } catch (cause) {
+              setError(cause instanceof Error ? cause.message : String(cause));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Saving…" : "Save limit"}
+        </button>
+        <small>
+          Current: {settings.evidenceChunkLimit} · Hard maximum: {settings.evidenceChunkHardMaximum}
+        </small>
+        {error && <em>{error}</em>}
+      </div>
+    </section>
   );
 }
 

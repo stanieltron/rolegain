@@ -47,7 +47,10 @@ export async function synthesizeCandidateEvidence(input: {
   await onProgress?.({
     stage: "synthesizing",
     completed: reading.totalChunks,
-    total: reading.totalChunks,
+    total: reading.chunkCoverage?.totalChunks ?? reading.totalChunks,
+    ...(reading.chunkCoverage?.limitReached
+      ? { limit: reading.chunkCoverage.limit, limitReached: true }
+      : {}),
   });
 
   // 2. Run one isolated reducer call over reader-produced facts and signals.
@@ -84,6 +87,7 @@ export async function synthesizeCandidateEvidence(input: {
     const synthesis = JSON.parse(turn.finalText) as EvidenceSynthesisOutputV2;
     return {
       ...synthesis,
+      chunkCoverage: reading.chunkCoverage,
       searchVocabulary: restoreDerivedSearchVocabulary(synthesis),
       profileEvidence: restoreSelectedProfileEvidence(
         synthesis.profile,
@@ -96,6 +100,7 @@ export async function synthesizeCandidateEvidence(input: {
   const synthesis = JSON.parse(turn.finalText) as EvidenceSynthesisOutput;
   return {
     ...synthesis,
+    chunkCoverage: reading.chunkCoverage,
     profileEvidence: restoreSelectedProfileEvidence(
       synthesis.profile,
       reading,

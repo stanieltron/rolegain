@@ -10,6 +10,10 @@ import {
   type ProfileEvidenceAudit,
 } from "./profile-evidence/index.js";
 import { knowledgeSourceFilename } from "./knowledge-base/index.js";
+import {
+  evidenceChunkLimitWarning,
+  evidenceSourceLimitMessage,
+} from "../chunk-budget.js";
 
 /**
  * Stage 4: apply model output, audit exact quotations, persist the current
@@ -41,11 +45,25 @@ export async function verifyAndPersistEvidence(input: {
     analysis,
     profileEvidence: profileEvidence.verified,
     profileEvidenceBlockers: profileEvidence.blockers,
+    additionalWarnings: analysis.chunkCoverage
+      ? [evidenceChunkLimitWarning(analysis.chunkCoverage)].filter(
+          (warning): warning is string => Boolean(warning),
+        )
+      : [],
   });
+
+  const coverageBySource = new Map(
+    analysis.chunkCoverage?.sources.map((coverage) => [
+      coverage.sourceId,
+      coverage,
+    ]) || [],
+  );
 
   // 3. Link each analyzed source to its immutable deep knowledge page.
   for (const source of workspace.sources) {
     if (!sourceIdsToAnalyze.has(source.id)) continue;
+    const coverage = coverageBySource.get(source.id);
+    if (coverage && coverage.analyzedChunks === 0) continue;
     source.knowledgePath = path.posix.join(
       "job-search",
       "runs",
@@ -72,7 +90,25 @@ export async function verifyAndPersistEvidence(input: {
     analysis.sourceInsights.map((item) => item.sourceId),
   );
   for (const source of workspace.sources) {
-    if (!analyzedSourceIds.has(source.id)) continue;
+    if (
+      !sourceIdsToAnalyze.has(source.id) ||
+      !analyzedSourceIds.has(source.id)
+    )
+      continue;
+    const coverage = coverageBySource.get(source.id);
+    if (
+      analysis.chunkCoverage?.limitReached &&
+      coverage &&
+      coverage.analyzedChunks < coverage.totalChunks
+    ) {
+      source.status = "needs_review";
+      source.analysisRequired = false;
+      source.error = evidenceSourceLimitMessage(
+        coverage,
+        analysis.chunkCoverage,
+      );
+      continue;
+    }
     source.status = "ready";
     source.analysisRequired = false;
     source.error = undefined;

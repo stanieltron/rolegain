@@ -107,6 +107,20 @@ export class AdminRoutes {
       );
       return;
     }
+    if (
+      request.method === "POST" &&
+      pathname === "/api/admin/evidence-chunk-limit"
+    ) {
+      const body = await readJson(request);
+      sendJson(
+        response,
+        200,
+        await this.platform.setEvidenceChunkLimit(
+          typeof body.limit === "number" ? body.limit : Number.NaN,
+        ),
+      );
+      return;
+    }
     const userLimitMatch = pathname.match(
       /^\/api\/admin\/users\/([^/]+)\/application-limit$/,
     );

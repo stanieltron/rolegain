@@ -17,6 +17,7 @@ import type {
   ChunkReadJob,
   ChunkReadResult,
 } from "./v1/02-chunk-reader/recovery/run-reader-with-coverage.js";
+import type { EvidenceChunkCoverage } from "./chunk-budget.js";
 
 export interface CandidateAnalysisResult {
   threadId: string;
@@ -28,6 +29,7 @@ export interface CandidateAnalysisResult {
   prohibitedInferences?: ProhibitedInferenceDraft[];
   roleFamilies?: RoleFamilyDraft[];
   searchVocabulary?: SearchVocabularyDraft;
+  chunkCoverage?: EvidenceChunkCoverage;
 }
 
 export interface SourceAnalysis {
@@ -44,6 +46,8 @@ export interface CandidateAnalysisProgress {
   completed: number;
   total: number;
   sourceName?: string;
+  limit?: number;
+  limitReached?: boolean;
 }
 
 export interface CandidateAnalyzer {
@@ -66,8 +70,12 @@ export interface ChunkReadingResult {
   sourceNotes: SourceNotes[];
   sourceInsights: SourceAnalysis[];
   totalChunks: number;
+  chunkCoverage?: EvidenceChunkCoverage;
   /** Inspectable fan-out input retained by the standalone pipeline. */
-  prepared?: { jobs: ChunkReadJob[] };
+  prepared?: {
+    jobs: ChunkReadJob[];
+    coverage: EvidenceChunkCoverage;
+  };
   /** Ordered one-chunk transaction outputs retained before deterministic join. */
   chunkResults?: ChunkReadResult[];
 }

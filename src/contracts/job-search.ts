@@ -51,6 +51,8 @@ export interface CandidateIntelligence {
     completed: number;
     total: number;
     sourceName?: string;
+    limit?: number;
+    limitReached?: boolean;
   };
   evidenceRun?: {
     id: string;

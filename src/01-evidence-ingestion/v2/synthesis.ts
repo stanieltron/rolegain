@@ -73,6 +73,7 @@ export function joinCandidateOverviewV2(input: {
   const roles = synthesis.output.roleFamilies || [];
   return {
     ...synthesis.output,
+    chunkCoverage: reading.chunkCoverage,
     profile,
     profileEvidence: selectedProfileEvidence(profile, readerEvidence),
     roleFamilies: roles,

@@ -76,6 +76,20 @@ describe("closed beta controls", () => {
     await expect(platform.assertCodexEnabled()).resolves.toBeUndefined();
   });
 
+  it("uses a 48-chunk default and lets an administrator raise the bounded limit", async () => {
+    const platform = new PlatformControl();
+    expect(await platform.evidenceChunkLimit()).toBe(48);
+    await expect(platform.setEvidenceChunkLimit(72)).resolves.toMatchObject({
+      evidenceChunkLimit: 72,
+      evidenceChunkBatchSize: 24,
+      evidenceChunkHardMaximum: 240,
+    });
+    await expect(platform.setEvidenceChunkLimit(241)).rejects.toMatchObject({
+      status: 400,
+      code: "invalid_evidence_chunk_limit",
+    });
+  });
+
   it("resets user statistics without removing the configured allowance", async () => {
     const platform = new PlatformControl();
     await platform.setUserApplicationLimit("user-a", 25);
@@ -148,6 +162,28 @@ describe.sequential("administrator HTTP surface", () => {
     expect(overview.status).toBe(200);
     expect(await overview.json()).toMatchObject({
       service: { codexEnabled: true },
+      settings: {
+        evidenceChunkLimit: 48,
+        evidenceChunkBatchSize: 24,
+        evidenceChunkHardMaximum: 240,
+      },
+    });
+
+    const raisedEvidenceLimit = await fetch(
+      `${base}/api/admin/evidence-chunk-limit`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ limit: 72 }),
+      },
+    );
+    expect(raisedEvidenceLimit.status).toBe(200);
+    expect(await raisedEvidenceLimit.json()).toMatchObject({
+      evidenceChunkLimit: 72,
+      evidenceChunkBatchSize: 24,
     });
 
     const raised = await fetch(

@@ -15,23 +15,3 @@ export class EvidenceCoverageNeedsReviewError extends EvidenceNeedsReviewError {
     this.name = "EvidenceCoverageNeedsReviewError";
   }
 }
-
-export class EvidenceAnalysisBudgetError extends EvidenceNeedsReviewError {
-  constructor(chunks: number, maximum: number) {
-    super(
-      `Evidence analysis needs ${chunks} chunks, exceeding the configured maximum of ${maximum}`,
-    );
-    this.name = "EvidenceAnalysisBudgetError";
-  }
-}
-
-export function assertEvidenceAnalysisBudget(chunks: number) {
-  const configured = Number.parseInt(
-    process.env.ROLEGAIN_MAX_EVIDENCE_CHUNKS || "24",
-    10,
-  );
-  const maximum = Number.isFinite(configured)
-    ? Math.max(1, Math.min(64, configured))
-    : 24;
-  if (chunks > maximum) throw new EvidenceAnalysisBudgetError(chunks, maximum);
-}

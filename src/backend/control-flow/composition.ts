@@ -108,8 +108,16 @@ export async function createRolegainDependencies(
   const jobSearch = new JobSearchService(
     dataRoot,
     configuration.evidenceIngestionVersion === "v2"
-      ? new CodexCandidateAnalyzerV2(codex, root)
-      : new CodexCandidateAnalyzerV1(codex, root),
+      ? new CodexCandidateAnalyzerV2(
+          codex,
+          root,
+          () => platform.evidenceChunkLimit(),
+        )
+      : new CodexCandidateAnalyzerV1(
+          codex,
+          root,
+          () => platform.evidenceChunkLimit(),
+        ),
     researcher,
     writer,
     undefined,

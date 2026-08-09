@@ -12,6 +12,9 @@ fourth coverage check terminates as `needs_review`. Runtime, tool-policy, or
 schema failures terminate as `analysis_failed`. These fixed limits prevent
 silent infinite loops and make call cost predictable.
 
-The stage also bounds the total source chunks with
-`ROLEGAIN_MAX_EVIDENCE_CHUNKS` (default 24, hard range 1–64). Exceeding the
-budget terminates as `needs_review` before any model call starts.
+The reader executes sequential batches of 24 chunks. A run analyzes at most 48
+chunks by default (two batches), with a database-backed administrator setting
+or `ROLEGAIN_MAX_EVIDENCE_CHUNKS` fallback controlling the run allowance. The
+hard maximum is 240 chunks. When a source exceeds the allowance, completed
+chunks are synthesized and persisted, incomplete sources are marked
+`needs_review`, and the candidate can continue using the finished evidence.

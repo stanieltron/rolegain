@@ -209,6 +209,14 @@ function candidateDiscoveryReady(workspace: JobSearchWorkspace) {
   );
 }
 
+function isEvidenceChunkLimitError(value?: string) {
+  return Boolean(
+    value?.includes("the run reached its configured limit") ||
+      (value?.includes("Evidence analysis needs") &&
+        value.includes("exceeding the configured maximum")),
+  );
+}
+
 function cumulativePipelineItems(workspace: JobSearchWorkspace) {
   const byJobId = new Map<
     string,
@@ -1236,7 +1244,8 @@ function ProfileView({
               <span className="cv-source-icon" aria-hidden="true">
                 {cvAnalyzing ? (
                   <LoaderCircle size={18} className="spin" />
-                ) : cvSource.status === "analysis_failed" ? (
+                ) : cvSource.status === "analysis_failed" ||
+                  cvSource.status === "needs_review" ? (
                   <AlertTriangle size={18} />
                 ) : (
                   <CheckCircle2 size={18} />
@@ -1246,7 +1255,8 @@ function ProfileView({
                 <strong>
                   {cvAnalyzing
                     ? "Ingesting CV evidence"
-                    : cvSource.status === "analysis_failed"
+                    : cvSource.status === "analysis_failed" ||
+                        cvSource.status === "needs_review"
                       ? "CV analysis needs attention"
                       : "CV evidence ready"}
                 </strong>
@@ -1259,7 +1269,8 @@ function ProfileView({
                 </small>
               </div>
               <div className="cv-source-actions">
-                {cvSource.status === "analysis_failed" ? (
+                {cvSource.status === "analysis_failed" ||
+                isEvidenceChunkLimitError(cvSource.error) ? (
                   <button
                     className="cv-update"
                     disabled={busy || analyzing}
@@ -1469,6 +1480,13 @@ function ProfileView({
             workspace={workspace}
             canonicalEvidence={canonicalEvidence}
             disabled={busy || analyzing}
+            onRetry={() =>
+              void act(
+                () => analyzeCandidate(),
+                undefined,
+                "candidate-analysis",
+              )
+            }
             onReviewClaim={(claimId, decision) =>
               void reviewClaim(claimId, decision)
             }
@@ -1585,9 +1603,13 @@ function ProfileAnalysisStatus({
         </strong>
         <span>
           {progress?.stage === "reading"
-            ? `${progress.completed} of ${progress.total} chunks read. Every eligible source is reread before the evidence ledger is rebuilt.`
+            ? progress.limitReached
+              ? `${progress.completed} of ${progress.total} chunks read; this run will stop at the configured limit of ${progress.limit}. Completed evidence will still be kept.`
+              : `${progress.completed} of ${progress.total} chunks read. Every eligible source is reread before the evidence ledger is rebuilt.`
             : progress?.stage === "synthesizing"
-              ? `All ${progress.total} chunks are read. Rebuilding detailed knowledge and the deduplicated evidence index used for matching.`
+              ? progress.limitReached
+                ? `${progress.completed} of ${progress.total} chunks were read before the configured limit of ${progress.limit}. Consolidating completed evidence so you can continue.`
+                : `All ${progress.total} chunks are read. Rebuilding detailed knowledge and the deduplicated evidence index used for matching.`
               : "Starting the complete reread, consolidation, and deduplication pass."}
         </span>
         <small className="analysis-disclaimer">
@@ -1614,6 +1636,7 @@ function EvidenceLedger({
   workspace,
   canonicalEvidence,
   disabled,
+  onRetry,
   onRemove,
   onReviewClaim,
   onReviewContradiction,
@@ -1621,6 +1644,7 @@ function EvidenceLedger({
   workspace: JobSearchWorkspace;
   canonicalEvidence?: CanonicalEvidenceModel;
   disabled: boolean;
+  onRetry: () => void;
   onRemove: (sourceId: string) => void;
   onReviewClaim: (
     claimId: string,
@@ -1829,6 +1853,16 @@ function EvidenceLedger({
               <p className="evidence-pending">Extracting evidence...</p>
             )}
             {source.error && <p className="source-error">{source.error}</p>}
+            {isEvidenceChunkLimitError(source.error) && (
+              <button
+                className="evidence-limit-retry"
+                type="button"
+                disabled={disabled}
+                onClick={onRetry}
+              >
+                <RefreshCw size={13} /> Retry with the current admin limit
+              </button>
+            )}
             {source.insights.length > 0 && (
               <ul>
                 {source.insights.map((insight, insightIndex) => (

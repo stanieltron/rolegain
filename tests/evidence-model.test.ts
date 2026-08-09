@@ -12,6 +12,7 @@ import {
   persistCanonicalEvidenceRun,
   readCurrentEvidenceModel,
 } from "../src/01-evidence-ingestion/04-verification/evidence-model.js";
+import { verifyAndPersistEvidence } from "../src/01-evidence-ingestion/04-verification/index.js";
 import type { EvidenceClaim } from "../src/contracts/evidence.js";
 
 describe("canonical phase-one evidence", () => {
@@ -152,6 +153,53 @@ describe("canonical phase-one evidence", () => {
       (await readFile(path.join(inexact.directory, "claims.jsonl"), "utf8")).trim(),
     ) as EvidenceClaim;
     expect(inexactClaim.supportStatus).toBe("weakly_supported");
+  });
+
+  it("keeps partial evidence usable and marks only the limited source for review", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-evidence-partial-"));
+    const cv = source(
+      "cv-partial",
+      "cv",
+      "candidate.txt",
+      "Candidate built a TypeScript service.\nImplemented durable workflow recovery for failed jobs.",
+    );
+    cv.status = "processing";
+    cv.analysisRequired = true;
+    const workspace = workspaceFor("candidate-partial", [cv]);
+    const analysis = analysisFor(workspace);
+    analysis.chunkCoverage = {
+      analyzedChunks: 48,
+      totalChunks: 63,
+      limit: 48,
+      batchSize: 24,
+      limitReached: true,
+      sources: [
+        {
+          sourceId: cv.id,
+          sourceName: cv.name,
+          analyzedChunks: 48,
+          totalChunks: 63,
+        },
+      ],
+    };
+
+    const persisted = await verifyAndPersistEvidence({
+      dataRoot: root,
+      workspace,
+      analysis,
+      sourceIdsToAnalyze: new Set([cv.id]),
+    });
+
+    expect(persisted.manifest.readiness.readyForSearch).toBe(true);
+    expect(persisted.manifest.readiness.warnings).toContain(
+      "48/63 evidence chunks were analyzed; the configured limit is 48. Evidence from completed chunks was kept.",
+    );
+    expect(workspace.sources[0]).toMatchObject({
+      status: "needs_review",
+      analysisRequired: false,
+    });
+    expect(workspace.sources[0].error).toContain("48/63 chunks analyzed");
+    expect(workspace.intelligence.status).toBe("ready");
   });
 });
 

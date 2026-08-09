@@ -12,6 +12,7 @@ import {
 } from "../../01-evidence-ingestion/01-evidence-acquisition/cv/upload-cv.js";
 import type { CandidateAnalyzer } from "../../01-evidence-ingestion/types.js";
 import { EvidenceNeedsReviewError } from "../../01-evidence-ingestion/v1/02-chunk-reader/recovery/index.js";
+import { isEvidenceChunkLimitMessage } from "../../01-evidence-ingestion/chunk-budget.js";
 import {
   readSupplementalEvidence,
 } from "../../01-evidence-ingestion/01-evidence-acquisition/additional-evidence/read-source.js";
@@ -476,6 +477,15 @@ export class JobSearchService {
   ): Promise<JobSearchWorkspace> {
     await this.activeProfileSourceSync.get(candidateId);
     let workspace = await this.getCandidate(candidateId);
+    for (const source of workspace.sources)
+      if (
+        source.status === "needs_review" &&
+        isEvidenceChunkLimitMessage(source.error)
+      ) {
+        source.status = "processing";
+        source.analysisRequired = true;
+        source.error = undefined;
+      }
     if (
       workspace.sources.some(
         (source) =>

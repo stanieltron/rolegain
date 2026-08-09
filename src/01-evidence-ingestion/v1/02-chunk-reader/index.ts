@@ -9,9 +9,6 @@ import {
   type SourceChunkNotes,
 } from "./llm-calls/01-chunk-analysis/index.js";
 import {
-  assertEvidenceAnalysisBudget,
-} from "./recovery/index.js";
-import {
   readAndVerifyChunk,
   type ChunkReadJob,
   type ChunkReadResult,
@@ -21,6 +18,12 @@ import type {
   ChunkReadingResult,
   SourceNotes,
 } from "../../types.js";
+import {
+  configuredEvidenceChunkLimit,
+  EVIDENCE_CHUNK_BATCH_SIZE,
+  limitEvidenceChunkJobs,
+  type EvidenceChunkCoverage,
+} from "../../chunk-budget.js";
 
 /** Stage 2: split every pending source and run one isolated reader per chunk. */
 export async function readCandidateSourceChunks(input: {
@@ -29,6 +32,7 @@ export async function readCandidateSourceChunks(input: {
   workspace: JobSearchWorkspace;
   /** Explicit inspection/eval override applied to every call in the reader flow. */
   model?: string;
+  maxChunks?: number;
   onProgress?: (progress: CandidateAnalysisProgress) => void | Promise<void>;
 }): Promise<ChunkReadingResult> {
   const { codex, cwd, workspace, onProgress } = input;
@@ -36,13 +40,16 @@ export async function readCandidateSourceChunks(input: {
     input.model ?? productionModel(SOURCE_READER_COMMAND);
 
   // 1–2. Select pending sources and split them into stable chunk jobs.
-  const prepared = prepareCandidateSourceChunks(workspace);
+  const prepared = prepareCandidateSourceChunks(workspace, input.maxChunks);
   const jobs = prepared.jobs;
   await onProgress?.({
     stage: "reading",
     completed: 0,
-    total: jobs.length,
+    total: prepared.coverage.totalChunks,
     sourceName: jobs[0]?.source.name,
+    ...(prepared.coverage.limitReached
+      ? { limit: prepared.coverage.limit, limitReached: true }
+      : {}),
   });
 
   // 3. Run reader calls concurrently while retaining deterministic job order.
@@ -59,7 +66,7 @@ export async function readCandidateSourceChunks(input: {
   );
   let completedJobs = 0;
   let progressWrites = Promise.resolve();
-  const results = await mapConcurrentOrdered(
+  const results = await mapConcurrentOrderedInBatches(
     jobs,
     analysisConcurrency(),
     async (job) => {
@@ -71,8 +78,11 @@ export async function readCandidateSourceChunks(input: {
           onProgress?.({
             stage: "reading",
             completed,
-            total: jobs.length,
+            total: prepared.coverage.totalChunks,
             sourceName: job.source.name,
+            ...(prepared.coverage.limitReached
+              ? { limit: prepared.coverage.limit, limitReached: true }
+              : {}),
           }),
         );
         await progressWrites;
@@ -112,16 +122,19 @@ export async function readCandidateSourceChunks(input: {
     ...joinCandidateSourceChunkReadings(workspace, prepared, results),
     prepared,
     chunkResults: results,
+    chunkCoverage: prepared.coverage,
   };
 }
 
 export interface PreparedCandidateChunks {
   jobs: ChunkReadJob[];
+  coverage: EvidenceChunkCoverage;
 }
 
 /** Deterministic fan-out preparation: source text → independently runnable jobs. */
 export function prepareCandidateSourceChunks(
   workspace: JobSearchWorkspace,
+  maxChunks = configuredEvidenceChunkLimit(),
 ): PreparedCandidateChunks {
   const sources = workspace.sources.filter(
     (source) =>
@@ -130,17 +143,17 @@ export function prepareCandidateSourceChunks(
       (source.status === "ready" &&
         (source.insights.length === 0 || !source.knowledgePath)),
   );
-  const jobs = sources.flatMap((source) =>
-    chunkSourceForAnalysis(source).map((chunk, index, chunks) => ({
+  const sourceJobs = sources.map((source) => ({
+    source,
+    jobs: chunkSourceForAnalysis(source).map((chunk, index, chunks) => ({
         source,
         chunk: chunk.content,
         locator: chunk.locator,
         index,
         count: chunks.length,
       })),
-  );
-  assertEvidenceAnalysisBudget(jobs.length);
-  return { jobs };
+  }));
+  return limitEvidenceChunkJobs(sourceJobs, maxChunks);
 }
 
 /** Deterministic fan-in: verified chunk readings → Stage 02 reading contract. */
@@ -330,6 +343,24 @@ export async function mapConcurrentOrdered<T, R>(
   });
   await Promise.all(workers);
   if (firstError !== undefined) throw firstError;
+  return results;
+}
+
+export async function mapConcurrentOrderedInBatches<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let offset = 0; offset < items.length; offset += EVIDENCE_CHUNK_BATCH_SIZE) {
+    const batch = items.slice(offset, offset + EVIDENCE_CHUNK_BATCH_SIZE);
+    const batchResults = await mapConcurrentOrdered(
+      batch,
+      concurrency,
+      (item, index) => mapper(item, offset + index),
+    );
+    results.push(...batchResults);
+  }
   return results;
 }
 
