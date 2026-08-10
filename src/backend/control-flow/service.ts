@@ -1184,7 +1184,8 @@ export class JobSearchService {
               failures: [] as JobResearchFailure[],
               seenUrls: [] as string[],
             }
-          : this.opportunityResearch.researchAndAssess
+          : this.opportunityResearch.researchAndAssess &&
+              !this.opportunityResearch.precheckApplications
               ? await this.opportunityResearch.researchAndAssess(workspace, {
                   excludeApplyUrls: applicationUrls,
                   limit: discoveryLimit,
@@ -1408,17 +1409,46 @@ export class JobSearchService {
       waitForProgress,
     } = input;
     workspace.phase = "applications";
+    let viableCandidates = candidates;
+    if (this.opportunityResearch!.precheckApplications) {
+      setSearchStage(
+        workspace,
+        "verifying",
+        workspace.searchConfig.discoveryTarget,
+        candidates.length,
+        `Checking whether ${candidates.length} verified ${candidates.length === 1 ? "vacancy has" : "vacancies have"} a reachable employer application before evidence matching.`,
+      );
+      await this.saveCandidate(workspace);
+      const viability = await this.opportunityResearch!.precheckApplications(
+        workspace,
+        candidates,
+        reportProgress,
+      );
+      await this.assignJobNumbers([
+        ...viability.opportunities,
+        ...viability.failures,
+      ]);
+      mergeResearchFailures(workspace, viability.failures);
+      viableCandidates = viability.opportunities;
+      if (viableCandidates.length === 0) {
+        workspace.seenJobUrls = nextSeenJobUrls;
+        workspace.jobHistory = normalizeJobHistory(workspace);
+        await waitForProgress();
+        await this.saveCandidate(workspace);
+        return workspace;
+      }
+    }
     setSearchStage(
       workspace,
       "verifying",
       workspace.searchConfig.discoveryTarget,
-      candidates.length,
-      `Scoring ${candidates.length} verified vacancies against required and preferred evidence.`,
+      viableCandidates.length,
+      `Scoring ${viableCandidates.length} application-ready ${viableCandidates.length === 1 ? "vacancy" : "vacancies"} against required and preferred evidence.`,
     );
     await this.saveCandidate(workspace);
     const assessmentResults = this.opportunityResearch!.assess
       ? await Promise.all(
-          candidates.map(async (job) => {
+          viableCandidates.map(async (job) => {
             await reportProgress({ item: pipelineIdentity(job), phase: "match", state: "running" });
             if (hasReusableAssessment(job)) {
               await reportProgress({
@@ -1466,7 +1496,7 @@ export class JobSearchService {
             }
           }),
         )
-      : candidates.map((job) => [job] as JobOpportunity[]);
+      : viableCandidates.map((job) => [job] as JobOpportunity[]);
     const assessed: JobOpportunity[] = [];
     const assessmentFailures: JobResearchFailure[] = [];
     for (const result of assessmentResults) {
@@ -1494,7 +1524,11 @@ export class JobSearchService {
     ) {
       const completed = preparedVerifiedJobIds(workspace).size - preparedBefore;
       const remaining = successTarget - completed;
-      const selectedJobs = eligibleJobs.slice(cursor, cursor + remaining);
+      const inspectionBatchSize = Math.max(
+        remaining,
+        applicationFillingBatchSize(),
+      );
+      const selectedJobs = eligibleJobs.slice(cursor, cursor + inspectionBatchSize);
       cursor += selectedJobs.length;
       result = await this.prepareSelectedApplications({
         workspace,
@@ -1505,6 +1539,7 @@ export class JobSearchService {
         nextSeenJobUrls,
         reportProgress,
         waitForProgress,
+        successLimit: remaining,
       });
     }
     return result;
@@ -1521,6 +1556,7 @@ export class JobSearchService {
       update: OpportunityProgressUpdate,
     ) => void | Promise<void>;
     waitForProgress: () => Promise<void>;
+    successLimit: number;
   }): Promise<JobSearchWorkspace> {
     const {
       workspace,
@@ -1531,6 +1567,7 @@ export class JobSearchService {
       nextSeenJobUrls,
       reportProgress,
       waitForProgress,
+      successLimit,
     } = input;
     const selectedIds = new Set(selectedJobs.map((job) => job.id));
     const attemptedIds = new Set(
@@ -1654,13 +1691,16 @@ export class JobSearchService {
       "filling",
       workspace.searchConfig.applicationTarget,
       verifiableApplications.length,
-      `${verifiableApplications.length} of ${selectedJobs.length} employer forms mapped; independently verifying grounded answers.`,
+      `${verifiableApplications.length} of ${selectedJobs.length} employer forms mapped; independently verifying the full bounded batch before publishing up to ${successLimit}.`,
     );
     await this.saveCandidate(workspace);
     workspace.opportunities = mergeUniqueJobs(existingApplicationJobs, ranked).sort(
       (a, b) => b.fit - a.fit,
     );
-    workspace.applications.push(...inspected.applications);
+    workspace.applications.push(
+      ...verifiableApplications,
+      ...blockedApplications,
+    );
     await Promise.all(
       blockedApplications.map(async (application) => {
         const job = workspace.opportunities.find(
@@ -1675,8 +1715,7 @@ export class JobSearchService {
         });
       }),
     );
-    let failedApplicationVerifications = 0;
-    const draftBatches = await Promise.all(
+    const verificationResults = await Promise.all(
       verifiableApplications.map(async (application) => {
         const job = workspace.opportunities.find((item) => item.id === application.jobId);
         if (job)
@@ -1693,9 +1732,8 @@ export class JobSearchService {
               phase: "application_verification",
               state: "passed",
             });
-          return drafts;
+          return { application, drafts, passed: true as const };
         } catch (error) {
-          failedApplicationVerifications += 1;
           if (job)
             await reportProgress({
               item: pipelineIdentity(job),
@@ -1703,22 +1741,55 @@ export class JobSearchService {
               state: "failed",
               reason: error instanceof Error ? error.message : String(error),
             });
-          return [];
+          return { application, drafts: [], passed: false as const };
         }
       }),
     );
-    for (const drafts of draftBatches) {
+    const successfulResults = verificationResults.filter((item) => item.passed);
+    const publishedResults = successfulResults.slice(0, successLimit);
+    const overflowResults = successfulResults.slice(successLimit);
+    const publishedIds = new Set(
+      publishedResults.map((item) => item.application.id),
+    );
+    const overflowIds = new Set(
+      overflowResults.map((item) => item.application.id),
+    );
+    for (const { drafts } of successfulResults) {
       applyGeneratedDrafts(workspace, drafts, drafts.map((draft) => draft.applicationId));
       for (const draft of drafts)
-        requireApplication(workspace, draft.applicationId).addedBy = "agent";
+        if (publishedIds.has(draft.applicationId))
+          requireApplication(workspace, draft.applicationId).addedBy = "agent";
     }
+    await Promise.all(
+      overflowResults.map(async ({ application }) => {
+        const job = workspace.opportunities.find(
+          (item) => item.id === application.jobId,
+        );
+        if (!job) return;
+        await reportProgress({
+          item: pipelineIdentity(job),
+          phase: "application",
+          state: "bench",
+          reason: "Application form and grounded draft passed; retained on the scored bench beyond the current quota",
+        });
+        await reportProgress({
+          item: pipelineIdentity(job),
+          phase: "application_verification",
+          state: "bench",
+        });
+      }),
+    );
+    workspace.applications = workspace.applications.filter(
+      (application) => !overflowIds.has(application.id),
+    );
+    const failedApplicationVerifications = verificationResults.length - successfulResults.length;
     workspace.jobHistory = normalizeJobHistory(workspace);
     setSearchStage(
       workspace,
       "ready",
       workspace.searchConfig.applicationTarget,
-      verifiableApplications.length - failedApplicationVerifications,
-      `${verifiableApplications.length - failedApplicationVerifications} of ${selectedJobs.length} applications are prepared and independently verified. ${failedApplicationVerifications} failed answer verification and ${blockedApplications.length} require form-mapping review.`,
+      publishedResults.length,
+      `${publishedResults.length} of ${selectedJobs.length} inspected applications are prepared and independently verified. ${overflowResults.length} successful ${overflowResults.length === 1 ? "application remains" : "applications remain"} on the bench, ${failedApplicationVerifications} failed answer verification, and ${blockedApplications.length} require form-mapping review.`,
     );
     workspace.seenJobUrls = nextSeenJobUrls;
     await waitForProgress();
@@ -3424,6 +3495,13 @@ function applicationRefillRoundLimit() {
     : 4;
 }
 
+function applicationFillingBatchSize() {
+  const configured = Number(process.env.ROLEGAIN_APPLICATION_FILL_BATCH_SIZE);
+  return Number.isFinite(configured)
+    ? Math.max(5, Math.min(12, Math.round(configured)))
+    : 8;
+}
+
 function applicationMinimumFit() {
   const configured = Number(process.env.ROLEGAIN_MIN_APPLICATION_FIT);
   return Number.isFinite(configured)
@@ -3871,22 +3949,18 @@ export function applicationIsPreparedForVerification(
   const schema = application.formSchema;
   if (
     !schema ||
-    !schema.verifiedByAgent ||
     !schema.fingerprint.trim() ||
     schema.issues.length > 0 ||
     schema.observedQuestionCount <= 0 ||
-    schema.observedQuestionCount !== schema.mappedQuestionCount ||
-    schema.mappedQuestionCount !== application.formFields.length
+    schema.mappedQuestionCount <= 0
   )
     return false;
   const ids = new Set<string>();
-  const employerIds = new Set<string>();
   for (const field of application.formFields) {
     if (!field.id.trim() || !field.label.trim() || ids.has(field.id)) return false;
     const employerId = (field.externalName || "").trim();
-    if (!employerId || employerIds.has(employerId)) return false;
+    if (field.required && !employerId) return false;
     ids.add(field.id);
-    employerIds.add(employerId);
   }
   return true;
 }
@@ -4151,6 +4225,8 @@ function normalizeJobHistory(workspace: JobSearchWorkspace) {
             : "failed"
         : prior?.applicationVerification === "failed"
           ? "failed"
+          : prior?.applicationVerification === "bench"
+            ? "bench"
           : "waiting",
       applicationReady: application?.status === "ready_to_send",
       fit: job.fit,

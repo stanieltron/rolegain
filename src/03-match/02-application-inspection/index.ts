@@ -8,6 +8,10 @@ import { repairMojibake } from "../../infrastructure/text-encoding.js";
 import { guardPublicPage } from "../../02-search/v1/03-vacancy-validation/index.js";
 import type { BrowserPool } from "../../search-match-shared/browser-pool.js";
 import {
+  mapParallelOrdered,
+  vacancyValidationConcurrency,
+} from "../../search-match-shared/parallel.js";
+import {
   adapterForUrl,
   candidateFromOpportunity,
   cvName,
@@ -44,6 +48,145 @@ import {
   rolePrompt as APPLICATION_SCHEMA_VERIFICATION_INSTRUCTIONS,
   type ApplicationSchemaVerificationOutput,
 } from "./llm-calls/03-application-schema-verification/index.js";
+
+/**
+ * Cheap, deterministic-first application reachability check. This deliberately
+ * runs before evidence matching: a vacancy without a reachable employer form
+ * should not consume the more expensive matching and drafting stages.
+ */
+export async function precheckOpportunityApplications(input: {
+  codex?: CodexExecClient;
+  cwd: string;
+  browsers: BrowserPool;
+  workspace: JobSearchWorkspace;
+  opportunities: JobOpportunity[];
+  onProgress?: OpportunityProgressReporter;
+}) {
+  const { codex, cwd, browsers, workspace, opportunities, onProgress } = input;
+  const executionGeneration = browsers.currentGeneration(workspace.candidateId);
+  const browser = await browsers.launch.bind(browsers)(
+    workspace.candidateId,
+    executionGeneration,
+  );
+  try {
+    const results = await mapParallelOrdered(
+      opportunities,
+      vacancyValidationConcurrency(),
+      async (opportunity) => {
+        await onProgress?.({
+          item: progressItemFromOpportunity(opportunity),
+          phase: "application",
+          state: "running",
+        });
+        try {
+          const applicationUrl = await findReachableApplicationForm(
+            browser,
+            opportunity.applyUrl,
+            codex,
+            cwd,
+          );
+          const viable = { ...opportunity, applyUrl: applicationUrl };
+          await onProgress?.({
+            item: progressItemFromOpportunity(viable),
+            phase: "application",
+            state: "passed",
+          });
+          return { opportunity: viable };
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          await onProgress?.({
+            item: progressItemFromOpportunity(opportunity),
+            phase: "application",
+            state: "failed",
+            reason,
+          });
+          return {
+            failure: failureFromOpportunity(opportunity, "form", reason),
+          };
+        }
+      },
+    );
+    return {
+      opportunities: results
+        .map((item) => item.opportunity)
+        .filter((item): item is JobOpportunity => Boolean(item)),
+      failures: results
+        .map((item) => item.failure)
+        .filter((item): item is JobResearchFailure => Boolean(item)),
+    };
+  } finally {
+    await browsers.close(browser);
+  }
+}
+
+async function findReachableApplicationForm(
+  browser: Browser,
+  applyUrl: string,
+  codex?: CodexExecClient,
+  cwd = process.cwd(),
+) {
+  const initialPage = await browser.newPage({ serviceWorkers: "block" });
+  let page = initialPage;
+  const openedPages = new Set<Page>([initialPage]);
+  try {
+    await assertPublicHttpUrl(new URL(applyUrl));
+    await guardPublicPage(page);
+    try {
+      await page.goto(applyUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 20_000,
+      });
+    } catch (error) {
+      if (!/Download is starting/i.test(String(error))) throw error;
+    }
+    await page.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => undefined);
+    await waitForRenderedApplicationControls(page, 4_000);
+    if (!(await hasLikelyApplicationForm(page))) {
+      const opened = await openApplicationControl(page);
+      if (opened) {
+        page = opened;
+        openedPages.add(page);
+        await waitForRenderedApplicationControls(page, 5_000);
+      }
+    }
+    if (!(await hasLikelyApplicationForm(page))) {
+      const embedded = await openEmbeddedApplicationFrame(page);
+      if (embedded) {
+        page = embedded;
+        openedPages.add(page);
+        await waitForRenderedApplicationControls(page, 5_000);
+      }
+    }
+    const observation = !(await hasLikelyApplicationForm(page)) && codex
+      ? await observeApplicationPage(page)
+      : undefined;
+    const hasPlausibleApplicationControl = observation?.controls.some((control) => {
+      const label = `${control.text} ${control.ariaLabel} ${control.title}`;
+      return !isUnsafeApplicationAction(control) &&
+        /\bapply\b|application|candidature|candidater|postuler|job opening/i.test(label);
+    });
+    if (!(await hasLikelyApplicationForm(page)) && codex && hasPlausibleApplicationControl) {
+      const opened = await openApplicationControlWithAgent(page, codex, cwd);
+      if (opened) {
+        page = opened;
+        openedPages.add(page);
+        await waitForRenderedApplicationControls(page, 5_000);
+      }
+    }
+    if (!(await hasLikelyApplicationForm(page)))
+      throw new Error(
+        "No reachable employer application form was found; the page is a listing, paywall, sign-in flow, or dead application path",
+      );
+    await assertPublicHttpUrl(new URL(page.url()));
+    return page.url();
+  } finally {
+    await Promise.all(
+      [...openedPages].map((openedPage) =>
+        openedPage.close().catch(() => undefined),
+      ),
+    );
+  }
+}
 
 export async function inspectOpportunityApplications(input: {
   codex?: CodexExecClient;
@@ -395,7 +538,9 @@ export async function hasLikelyApplicationForm(page: Page): Promise<boolean> {
       'input[type="email"]:visible, input[type="tel"]:visible, input[type="file"]',
     )
     .count();
-  if (visibleControls >= 3 && identityControls > 0) return true;
+  const uploadControls = await page.locator('input[type="file"]').count();
+  if (visibleControls >= 3 && identityControls > 0 && uploadControls > 0)
+    return true;
   return (await page.evaluate(`(() => {
     const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
     const scopes = Array.from(new Set([
@@ -666,10 +811,6 @@ export function auditApplicationFieldMapping(
   fields: FormField[],
 ) {
   const issues: string[] = [];
-  if (observed.length !== fields.length)
-    issues.push(
-      `Observed ${observed.length} employer questions but mapped ${fields.length}`,
-    );
   const byExternalName = new Map<string, FormField[]>();
   for (const field of fields) {
     const key = (field.externalName || "").trim();
@@ -680,19 +821,27 @@ export function auditApplicationFieldMapping(
     byExternalName.set(key, [...(byExternalName.get(key) || []), field]);
   }
   for (const entry of observed) {
-    const mapped = byExternalName.get(entry.externalName) || [];
-    if (mapped.length !== 1) {
-      issues.push(
-        `${entry.label}: expected exactly one mapped field, found ${mapped.length}`,
-      );
+    const candidates = byExternalName.get(entry.externalName) || [];
+    const exactLabel = candidates.filter(
+      (field) => normalizedSchemaValue(field.label) === normalizedSchemaValue(entry.label),
+    );
+    const mapped = exactLabel.length === 1
+      ? exactLabel[0]
+      : candidates.length === 1
+        ? candidates[0]
+        : undefined;
+    if (!mapped) {
+      if (entry.required)
+        issues.push(`${entry.label}: required employer question was not mapped uniquely`);
       continue;
     }
-    const field = mapped[0];
-    if (field.required !== entry.required)
+    const field = mapped;
+    if (entry.required && !field.required)
       issues.push(`${entry.label}: required status was not preserved`);
     const expectedOptions = new Set(entry.options.map(normalizedSchemaValue));
     const mappedOptions = new Set((field.options || []).map(normalizedSchemaValue));
     if (
+      entry.required &&
       expectedOptions.size > 0 &&
       (expectedOptions.size !== mappedOptions.size ||
         [...expectedOptions].some((option) => !mappedOptions.has(option)))
@@ -703,14 +852,11 @@ export function auditApplicationFieldMapping(
       entry.allowsManualEntry &&
       field.canonicalKey === "cover_letter" &&
       field.type === "textarea";
-    if (field.type !== expectedType && !compatibleManualCover)
+    if (entry.required && field.type !== expectedType && !compatibleManualCover)
       issues.push(
         `${entry.label}: employer control ${expectedType} was mapped as ${field.type}`,
       );
   }
-  for (const [externalName, duplicates] of byExternalName)
-    if (duplicates.length > 1)
-      issues.push(`${externalName}: mapped more than once`);
   return [...new Set(issues)];
 }
 

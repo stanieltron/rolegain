@@ -94,6 +94,79 @@ describe("cover-letter evidence loading", () => {
     expect(writerPrompt).not.toContain("IRRELEVANT_PRIVATE_DETAIL");
     expect(writerPrompt).not.toContain("RAW_SOURCE_SHOULD_NOT_BE_READ");
   });
+
+  it("accepts grounded drafts with candidate-owned blanks as needs input without repair", async () => {
+    const dataRoot = await mkdtemp(path.join(tmpdir(), "rolegain-needs-input-"));
+    const workspace = minimalWorkspace();
+    workspace.applications[0].companyResearch = {
+      status: "ready",
+      company: "Dex Co",
+      overview: "Decentralized exchange infrastructure.",
+      productsAndServices: [],
+      customersAndMarkets: [],
+      businessModel: "Protocol services",
+      cultureAndValues: [],
+      recentSignals: [],
+      tailoringAngles: [],
+      sources: [],
+      researchedAt: new Date().toISOString(),
+    };
+    workspace.applications[0].formFields.push({
+      id: "current-location",
+      canonicalKey: "current_location",
+      externalName: "location",
+      label: "Current location",
+      type: "text",
+      value: "",
+      required: true,
+      source: "user",
+      confidence: 0,
+    });
+    let repairCalls = 0;
+    const codex = {
+      start: async () => ({ authenticated: true, model: "test-model" }),
+      startThread: async ({ role }: { role: string }) => ({ id: role }),
+      runTurn: async ({ threadId }: { threadId: string }) => {
+        if (threadId === "cover-letter-writer")
+          return {
+            finalText: JSON.stringify({
+              drafts: [
+                {
+                  applicationId: "app-1",
+                  coverLetter: "Grounded cover letter",
+                  answers: [],
+                },
+              ],
+            }),
+          };
+        if (threadId === "application-draft-repairer") {
+          repairCalls += 1;
+          throw new Error("repair should not run for candidate input");
+        }
+        return {
+          finalText: JSON.stringify({
+            verifications: [
+              {
+                applicationId: "app-1",
+                verdict: "needs_input",
+                findings: ["Current location must be supplied by the candidate"],
+                repairInstructions: [],
+              },
+            ],
+          }),
+        };
+      },
+    } as unknown as CodexExecClient;
+
+    const drafts = await new CodexCoverLetterWriter(
+      codex,
+      dataRoot,
+      dataRoot,
+    ).draft(workspace, ["app-1"]);
+
+    expect(drafts).toHaveLength(1);
+    expect(repairCalls).toBe(0);
+  });
 });
 
 function minimalWorkspace(): JobSearchWorkspace {

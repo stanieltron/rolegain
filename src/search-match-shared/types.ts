@@ -121,6 +121,11 @@ export interface OpportunityResearchProvider {
     | JobOpportunity[]
     | { opportunities: JobOpportunity[]; failures: JobResearchFailure[] }
   >;
+  precheckApplications?(
+    workspace: JobSearchWorkspace,
+    opportunities: JobOpportunity[],
+    onProgress?: OpportunityProgressReporter,
+  ): Promise<{ opportunities: JobOpportunity[]; failures: JobResearchFailure[] }>;
   inspectApplications?(
     workspace: JobSearchWorkspace,
     opportunities: JobOpportunity[],

@@ -14,7 +14,10 @@ import {
 import { revalidateOpportunities } from "../02-search/v1/03-vacancy-validation/index.js";
 import { matchOpportunitiesV1 } from "./v1/index.js";
 import { matchOpportunitiesV2 } from "./v2/index.js";
-import { inspectOpportunityApplications } from "./02-application-inspection/index.js";
+import {
+  inspectOpportunityApplications,
+  precheckOpportunityApplications,
+} from "./02-application-inspection/index.js";
 import { streamSearchToMatch } from "./orchestration/search-to-match-stream.js";
 import { BrowserPool } from "../search-match-shared/browser-pool.js";
 import type {
@@ -160,6 +163,21 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
     onProgress?: OpportunityProgressReporter,
   ) {
     return inspectOpportunityApplications({
+      codex: this.codex,
+      cwd: this.cwd,
+      browsers: this.browsers,
+      workspace,
+      opportunities,
+      onProgress,
+    });
+  }
+
+  precheckApplications(
+    workspace: JobSearchWorkspace,
+    opportunities: JobOpportunity[],
+    onProgress?: OpportunityProgressReporter,
+  ) {
+    return precheckOpportunityApplications({
       codex: this.codex,
       cwd: this.cwd,
       browsers: this.browsers,

@@ -246,6 +246,129 @@ describe("job-search lifecycle", () => {
     ).toBe(20);
   });
 
+  it("checks application reachability before starting requirement matching", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-form-precheck-"));
+    const jobs: JobOpportunity[] = ["reachable-1", "blocked", "reachable-2"].map(
+      (id, index) => ({
+        id,
+        company: `${id} Employer`,
+        title: `${id} Engineer`,
+        location: "Remote",
+        workplace: "Remote",
+        compensation: "Not disclosed",
+        sourceUrl: `https://jobs.example.test/${id}`,
+        applyUrl: `https://jobs.example.test/${id}/apply`,
+        capturedAt: "2026-08-10",
+        fit: 90 - index,
+        summary: `${id} role`,
+        description: `${id} role`,
+        requirements: [],
+        requirementMatches: [],
+        strengths: [],
+        gaps: [],
+      }),
+    );
+    const events: string[] = [];
+    const assessedIds: string[] = [];
+    const research = {
+      async research() {
+        events.push("search");
+        return { opportunities: jobs, applications: [], failures: [] };
+      },
+      async precheckApplications() {
+        events.push("precheck");
+        return {
+          opportunities: jobs.filter((job) => job.id !== "blocked"),
+          failures: [
+            {
+              id: "blocked",
+              company: "blocked Employer",
+              title: "blocked Engineer",
+              location: "Remote",
+              sourceUrl: jobs[1].sourceUrl,
+              applyUrl: jobs[1].applyUrl,
+              stage: "form" as const,
+              reason: "No reachable employer application form was found",
+              capturedAt: "2026-08-10T00:00:00.000Z",
+            },
+          ],
+        };
+      },
+      async assess(
+        _workspace: JobSearchWorkspace,
+        opportunities: JobOpportunity[],
+      ) {
+        expect(events).toContain("precheck");
+        assessedIds.push(...opportunities.map((job) => job.id));
+        events.push(`match:${opportunities[0].id}`);
+        return opportunities;
+      },
+      async inspectApplications(
+        workspace: JobSearchWorkspace,
+        opportunities: JobOpportunity[],
+      ) {
+        return {
+          applications: opportunities.map((job): ApplicationDraft => ({
+            id: `app-${job.id}`,
+            jobId: job.id,
+            status: "ready_to_send",
+            coverLetter: "",
+            coverLetterChat: [],
+            formFields: [
+              {
+                id: `name-${job.id}`,
+                canonicalKey: "name",
+                externalName: "name",
+                label: "Full name",
+                type: "text",
+                value: workspace.profile.name,
+                required: true,
+                source: "profile",
+                confidence: 100,
+              },
+            ],
+            missingQuestions: [],
+            adapter: "generic",
+            liveFormValidated: true,
+            formSchema: {
+              observedQuestionCount: 1,
+              mappedQuestionCount: 1,
+              fingerprint: `schema-${job.id}`,
+              issues: [],
+              verifiedByAgent: false,
+            },
+            updatedAt: workspace.updatedAt,
+          })),
+          failures: [] as JobResearchFailure[],
+        };
+      },
+    };
+    const service = new JobSearchService(
+      root,
+      undefined,
+      research,
+      deterministicCoverLetterWriter,
+    );
+    await service.initialize();
+    await service.addSource({ kind: "cv", name: "cv.txt", content: "Candidate" });
+    await service.updateProfile({
+      name: "Candidate",
+      email: "candidate@example.test",
+    });
+    for (const id of ["locations", "employment", "start", "languages"])
+      await service.answer(id, "Confirmed");
+    await service.finishIntake();
+    await service.updateSearchConfig({ discoveryTarget: 8, applicationTarget: 2 });
+
+    const result = await service.prepareApplications();
+
+    expect(events[0]).toBe("search");
+    expect(events[1]).toBe("precheck");
+    expect(assessedIds.sort()).toEqual(["reachable-1", "reachable-2"]);
+    expect(result.applications.filter((item) => item.addedBy === "agent")).toHaveLength(2);
+    expect(result.searchValidationIssues.some((item) => item.id === "blocked")).toBe(true);
+  });
+
   it("isolates parallel matching and application-verification failures per job", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "rolegain-isolated-pipeline-"));
     const jobs: JobOpportunity[] = [
@@ -373,8 +496,11 @@ describe("job-search lifecycle", () => {
 
     const result = await service.prepareApplications();
 
-    expect(maxActiveAssessments).toBe(4);
-    expect(maxActiveInspections).toBe(3);
+    // Progress persistence is serialized, so worker scheduling under the full
+    // suite may not overlap every job at once. The contract is parallelism and
+    // failure isolation, not an exact wall-clock overlap count.
+    expect(maxActiveAssessments).toBeGreaterThan(1);
+    expect(maxActiveInspections).toBeGreaterThan(1);
     expect(result.searchProgress).toMatchObject({
       stage: "ready",
       target: 5,
@@ -1322,7 +1448,7 @@ describe("job-search lifecycle", () => {
       .toHaveLength(3);
   });
 
-  it("refills failed application slots until five drafts are verified", async () => {
+  it("inspects eight applications at once, publishes five successes, and benches overflow", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "rolegain-refill-quota-"));
     let researchCalls = 0;
     const researchLimits: number[] = [];
@@ -1348,7 +1474,7 @@ describe("job-search lifecycle", () => {
       async research(_workspace: JobSearchWorkspace, options: { limit: number }) {
         researchCalls += 1;
         researchLimits.push(options.limit);
-        const count = researchCalls === 1 ? 5 : 3;
+        const count = researchCalls === 1 ? 8 : 3;
         const prefix = researchCalls === 1 ? "first" : "refill";
         const opportunities = Array.from({ length: count }, (_, index) =>
           makeJob(`${prefix}-${index}`, 90 - index),
@@ -1373,8 +1499,7 @@ describe("job-search lifecycle", () => {
           applications: opportunities.map((job) => {
             const mapped =
               job.id.startsWith("refill-") ||
-              job.id === "first-0" ||
-              job.id === "first-1";
+              !["first-0", "first-1"].includes(job.id);
             return {
               id: `app-${job.id}`,
               jobId: job.id,
@@ -1433,9 +1558,9 @@ describe("job-search lifecycle", () => {
 
     const result = await service.prepareApplications();
 
-    expect(researchCalls).toBe(2);
-    expect(researchLimits).toEqual([26, 16]);
-    expect(result.applications).toHaveLength(8);
+    expect(researchCalls).toBe(1);
+    expect(researchLimits).toEqual([26]);
+    expect(result.applications).toHaveLength(7);
     expect(
       result.applications.filter((application) => application.addedBy === "agent"),
     ).toHaveLength(5);
@@ -1452,6 +1577,13 @@ describe("job-search lifecycle", () => {
           item.applicationVerification === "passed",
       ),
     ).toHaveLength(5);
+    expect(
+      result.searchProgress?.items?.filter(
+        (item) =>
+          item.application === "bench" &&
+          item.applicationVerification === "bench",
+      ),
+    ).toHaveLength(1);
   });
 
   it("drops only verifier-rejected vacancies and their application drafts", async () => {

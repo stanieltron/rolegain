@@ -22,7 +22,10 @@ export const outputSchema = {
         ],
         properties: {
           applicationId: { type: "string" },
-          verdict: { type: "string", enum: ["pass", "needs_repair"] },
+          verdict: {
+            type: "string",
+            enum: ["pass", "needs_input", "needs_repair"],
+          },
           findings: { type: "array", items: { type: "string" } },
           repairInstructions: { type: "array", items: { type: "string" } },
         },
@@ -32,4 +35,4 @@ export const outputSchema = {
 } as const;
 
 export const outputDescription =
-  "Pass or repair verdict with concrete findings per application.";
+  "Pass, needs-input, or repair verdict with concrete findings per application.";

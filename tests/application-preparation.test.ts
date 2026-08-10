@@ -110,6 +110,29 @@ describe("application preparation safeguards", () => {
         application({ formSchema: undefined }),
       ),
     ).toBe(false);
+    const first = application().formFields[0];
+    expect(
+      applicationIsPreparedForVerification(
+        application({
+          formFields: [
+            first,
+            {
+              ...first,
+              id: "optional-eeo-2",
+              label: "Optional self identification",
+              required: false,
+            },
+          ],
+          formSchema: {
+            observedQuestionCount: 3,
+            mappedQuestionCount: 2,
+            fingerprint: "schema-advisory-agent",
+            issues: [],
+            verifiedByAgent: false,
+          },
+        }),
+      ),
+    ).toBe(true);
   });
 
   it("does not mistake a job-board search box or newsletter email for an application", () => {
@@ -208,7 +231,7 @@ describe("application preparation safeguards", () => {
     }
   });
 
-  it("rejects omissions, duplicate logical questions, and changed required flags", () => {
+  it("blocks required mapping defects without letting optional ATS fields block the form", () => {
     const observed = [
       {
         label: "Visa sponsorship?",
@@ -223,7 +246,7 @@ describe("application preparation safeguards", () => {
       },
     ];
     expect(auditApplicationFieldMapping(observed, [])).toContain(
-      "Observed 1 employer questions but mapped 0",
+      "Visa sponsorship?: required employer question was not mapped uniquely",
     );
     expect(
       auditApplicationFieldMapping(observed, [
@@ -240,6 +263,12 @@ describe("application preparation safeguards", () => {
         },
       ]),
     ).toContain("Visa sponsorship?: required status was not preserved");
+    expect(
+      auditApplicationFieldMapping(
+        [{ ...observed[0], label: "Optional EEO", externalName: "eeo", required: false }],
+        [],
+      ),
+    ).toEqual([]);
   });
 
   it("keeps physical location and education components distinct from preferences", () => {

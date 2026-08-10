@@ -71,7 +71,7 @@ not use external tools unless the call manifest explicitly permits them.
 
 ## Output shape
 
-> Pass or repair verdict with concrete findings per application.
+> Pass, needs-input, or repair verdict with concrete findings per application.
 
 ## Verification
 

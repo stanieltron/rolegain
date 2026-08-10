@@ -35,7 +35,11 @@ export interface TailoredCvContent {
 
 export interface ApplicationDraftVerification {
   applicationId: string;
-  verdict: "pass" | "needs_repair";
+  /**
+   * `needs_input` is an accepted draft with honest candidate-owned blanks.
+   * Only `needs_repair` may trigger the bounded model repair pass.
+   */
+  verdict: "pass" | "needs_input" | "needs_repair";
   findings: string[];
   repairInstructions: string[];
 }
