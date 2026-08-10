@@ -9,6 +9,7 @@ import {
   canonicalFieldKey,
   extractLogicalApplicationForm,
   isGenericWorkplaceLocation,
+  observeRenderedApplicationForm,
   preserveStructuralCanonicalKey,
 } from "../src/03-match/02-application-inspection/index.js";
 import { applicationIsPreparedForVerification } from "../src/backend/control-flow/service.js";
@@ -225,6 +226,67 @@ describe("application preparation safeguards", () => {
         label: "Cover Letter",
         inputType: "file",
         allowsManualEntry: true,
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("preserves every rendered LaborX-style anonymous control for the form-reading agent", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`
+        <form class="application-form">
+          <div class="form-field with-label">
+            <div class="input-label">First Name<div class="required-marker"></div></div>
+            <div class="input-container"><input placeholder="Not specified" /></div>
+          </div>
+          <div class="form-field with-label">
+            <div class="input-label">Last Name<div class="required-marker"></div></div>
+            <div class="input-container"><input placeholder="Not specified" /></div>
+          </div>
+          <div class="form-field with-label">
+            <div class="input-label">Email<div class="required-marker"></div></div>
+            <div class="input-container"><input placeholder="Not specified" /></div>
+          </div>
+          <div class="form-field with-label">
+            <div class="input-label">Resume/CV<div class="required-marker"></div></div>
+            <label class="uploaded-bound"><input type="file" name="image" style="display:none" />Drag and drop file here</label>
+            <textarea placeholder="Not specified"></textarea>
+            <span>or enter manually</span>
+          </div>
+          <div class="form-field with-label">
+            <div class="input-label">How did you hear about this position?<div class="required-marker"></div></div>
+            <div class="multiselect" tabindex="0">
+              <span class="multiselect__placeholder">Choose</span>
+              <span class="multiselect__option">LinkedIn</span>
+              <span class="multiselect__option">Referral</span>
+            </div>
+          </div>
+        </form>
+      `);
+      const controls = await observeRenderedApplicationForm(page);
+      expect(controls).toHaveLength(6);
+      expect(controls.map((field) => field.browserControlIds?.[0])).toEqual([
+        "rolegain-control-1",
+        "rolegain-control-2",
+        "rolegain-control-3",
+        "rolegain-control-4",
+        "rolegain-control-5",
+        "rolegain-control-6",
+      ]);
+      expect(controls[0]).toMatchObject({
+        label: "First Name",
+        placeholder: "Not specified",
+        required: true,
+      });
+      expect(controls[3].nearbyText).toContain("Resume/CV");
+      expect(controls[4].nearbyText).toContain("Resume/CV");
+      expect(controls[5]).toMatchObject({
+        inputType: "select",
+        required: true,
+        options: ["LinkedIn", "Referral"],
       });
     } finally {
       await browser.close();

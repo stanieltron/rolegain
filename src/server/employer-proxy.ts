@@ -48,6 +48,11 @@ export async function proxyEmployerRequest(
 ) {
   const remoteHost = proxiedEmployerHost(request.headers.host);
   if (!remoteHost) return false;
+  // The regular app is deliberately non-embeddable, while employer pages are
+  // displayed inside RolegAIn's review iframe. Remove the app-level frame
+  // denial before forwarding the separately allow-listed employer origin.
+  response.removeHeader("X-Frame-Options");
+  response.removeHeader("Content-Security-Policy");
   if (
     !(await publicEmployerHost(remoteHost)) ||
     !(await options.isAllowedHost(remoteHost))

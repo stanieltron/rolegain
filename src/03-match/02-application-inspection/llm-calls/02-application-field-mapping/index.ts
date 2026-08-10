@@ -10,7 +10,7 @@ export const manifest = {
   id: "application.field-map",
   pipeline: "03-match",
   name: "Application field mapping",
-  purpose: "Map multilingual employer questions to canonical candidate facts.",
+  purpose: "Read a live rendered employer form and map every question to canonical candidate facts.",
   fanOut: "parallel-per-job",
   input: inputDescription,
   output: outputDescription,
@@ -18,7 +18,12 @@ export const manifest = {
   tools,
   memory,
   command,
-  verification: ["observed-id allow-list", "structural-key preservation", "option compatibility"],
+  verification: [
+    "rendered-control partition",
+    "observed-id allow-list",
+    "structural-key preservation",
+    "option compatibility",
+  ],
 } satisfies AgentCallManifest;
 
 export { buildInput, command, outputSchema, rolePrompt };

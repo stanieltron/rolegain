@@ -73,11 +73,16 @@ import {
   trackAnalyticsEvent,
   updateApplication,
   updateCandidateProfile,
+  updateSearchConfig,
 } from "./api.js";
 import { useAuthActions } from "./auth.js";
 import {
   applicationOutcomeState,
+  coalescePipelineItems,
+  isLowMatchPipelineItem,
+  isManualReviewPipelineItem,
   pipelineDisplayStage,
+  pipelineItemVisible,
   settlePipelineItemForDisplay,
   sortPipelineRows,
 } from "./pipeline-items.js";
@@ -219,16 +224,10 @@ function isEvidenceChunkLimitError(value?: string) {
 }
 
 function cumulativePipelineItems(workspace: JobSearchWorkspace) {
-  const byJobId = new Map<
-    string,
-    JobSearchWorkspace["jobHistory"][number]
-  >();
-  for (const item of [
+  return coalescePipelineItems([
     ...workspace.jobHistory,
     ...(workspace.searchProgress?.items ?? []),
-  ])
-    byJobId.set(item.id, item);
-  return [...byJobId.values()];
+  ]);
 }
 
 function preparedVerifiedItemsFrom(
@@ -256,6 +255,17 @@ function preparedVerifiedApplications(workspace: JobSearchWorkspace) {
   return workspace.applications.filter((application) =>
     Boolean(application.addedBy),
   );
+}
+
+function applicationReadinessCounts(applications: ApplicationDraft[]) {
+  return {
+    ready: applications.filter(
+      (application) => application.status === "ready_to_send" && !application.outcome,
+    ).length,
+    needsInput: applications.filter(
+      (application) => application.status === "needs_input" && !application.outcome,
+    ).length,
+  };
 }
 
 function marketplaceSourceGroups(
@@ -566,6 +576,29 @@ export function App() {
     }
   };
 
+  const saveSearchSettings = (
+    patch: Partial<
+      Pick<
+        JobSearchWorkspace["searchConfig"],
+        "minimumMatchScore" | "developerMode"
+      >
+    >,
+  ) => {
+    if (!workspace) return;
+    void act(() =>
+      updateSearchConfig({
+        discoveryTarget: workspace.searchConfig.discoveryTarget,
+        applicationTarget: workspace.searchConfig.applicationTarget,
+        minimumMatchScore:
+          patch.minimumMatchScore ??
+          workspace.searchConfig.minimumMatchScore ??
+          35,
+        developerMode:
+          patch.developerMode ?? workspace.searchConfig.developerMode ?? false,
+      }),
+    );
+  };
+
   const savePreference = (questionId: string, answer: string) => {
     if (latestPreferenceAnswers.current.get(questionId) === answer) return;
     latestPreferenceAnswers.current.set(questionId, answer);
@@ -693,6 +726,44 @@ export function App() {
           {settingsOpen && (
             <div className="settings-popover" role="menu">
               <strong>Settings</strong>
+              <section className="settings-section" aria-label="Pipeline settings">
+                <label className="settings-toggle">
+                  <span>
+                    <strong>Developer mode</strong>
+                    <small>Show failed jobs, benches, and diagnostic event history.</small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={workspace.searchConfig.developerMode ?? false}
+                    disabled={busy}
+                    onChange={(event) =>
+                      saveSearchSettings({ developerMode: event.target.checked })
+                    }
+                  />
+                </label>
+                <label className="settings-threshold">
+                  <span>
+                    <strong>Minimum match for applications</strong>
+                    <small>Lower-ranked jobs remain available for manual promotion.</small>
+                  </span>
+                  <select
+                    aria-label="Minimum match for applications"
+                    value={workspace.searchConfig.minimumMatchScore ?? 35}
+                    disabled={busy}
+                    onChange={(event) =>
+                      saveSearchSettings({
+                        minimumMatchScore: Number(event.target.value),
+                      })
+                    }
+                  >
+                    {Array.from({ length: 21 }, (_, index) => index * 5).map(
+                      (score) => (
+                        <option value={score} key={score}>{score}%</option>
+                      ),
+                    )}
+                  </select>
+                </label>
+              </section>
               <button
                 className="reset-user-action"
                 type="button"
@@ -808,6 +879,13 @@ export function App() {
               onContinue={() => {
                 setSelectedId(undefined);
                 setView("applications");
+              }}
+              onOpenApplication={(applicationId) => {
+                setSelectedId(applicationId);
+                setView("applications");
+                window.requestAnimationFrame(() =>
+                  window.scrollTo({ top: 0, behavior: "smooth" }),
+                );
               }}
             />
           )}
@@ -926,9 +1004,9 @@ function NotificationPrompt({
         }
       : activity === "application-preparation"
         ? {
-            title: "Preparing each application independently",
+            title: "Matching, ranking and preparing selected applications",
             detail:
-              "For every job, we inspect the live form, research the company, match requirements to your evidence, draft grounded materials and verify the result before showing it to you.",
+              "Jobs stay in Match & rank while we prevalidate the application route and compare requirements with your evidence. Only the selected ranked jobs proceed to full form inspection, grounded drafting and verification.",
           }
         : {
             title: "Running a verified job search",
@@ -1072,6 +1150,19 @@ function ProfileView({
   const previousHighestStep = useRef<1 | 2 | 3 | 4>(
     highestStep === 3 ? 2 : highestStep,
   );
+  const wasAnalyzing = useRef(analyzing);
+
+  useEffect(() => {
+    const started = analyzing && !wasAnalyzing.current;
+    wasAnalyzing.current = analyzing;
+    if (!started) return;
+    window.requestAnimationFrame(() =>
+      document.getElementById("profile-analysis-status")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      }),
+    );
+  }, [analyzing]);
 
   useEffect(() => {
     const previous = previousHighestStep.current;
@@ -1267,6 +1358,13 @@ function ProfileView({
 
   return (
     <div className="profile-wizard">
+      {analyzing && (
+        <ProfileAnalysisStatus
+          workspace={workspace}
+          sourceStarting={sourceStarting}
+          pendingSourceName={pendingSourceName}
+        />
+      )}
       <section className="band wizard-panel wizard-cv">
           <WizardHeading
             number={1}
@@ -1354,16 +1452,9 @@ function ProfileView({
               />
             </label>
           )}
-          {analyzing && highestStep === 1 && (
-            <ProfileAnalysisStatus
-              workspace={workspace}
-              sourceStarting={sourceStarting}
-              pendingSourceName={pendingSourceName}
-            />
-          )}
       </section>
 
-      {highestStep >= 2 && (
+      {!analyzing && highestStep >= 2 && (
         <div className="wizard-step-stack">
           <section className="band wizard-panel">
             <WizardHeading
@@ -1485,13 +1576,6 @@ function ProfileView({
                   </span>
                 ))}
               </div>
-            )}
-            {analyzing && (
-              <ProfileAnalysisStatus
-                workspace={workspace}
-                sourceStarting={sourceStarting}
-                pendingSourceName={pendingSourceName}
-              />
             )}
             {!analyzing && (!basicReady || evidenceNeedsAnalysis) && (
               <div className="wizard-action">
@@ -1627,7 +1711,12 @@ function ProfileAnalysisStatus({
         ? Math.max(4, Math.round((progress.completed / progress.total) * 85))
         : 4;
   return (
-    <div className="analysis-progress" role="status" aria-live="polite">
+    <div
+      id="profile-analysis-status"
+      className="analysis-progress analysis-progress-primary"
+      role="status"
+      aria-live="polite"
+    >
       <LoaderCircle className="spin" size={21} />
       <div>
         <strong>
@@ -2693,19 +2782,23 @@ function DiscoveryView({
   act,
   onContinue,
   onBetaChange,
+  onOpenApplication,
   liveEvents,
 }: ViewProps & {
   beta: BetaStatus;
   onContinue: () => void;
   onBetaChange: (next: BetaStatus) => void;
+  onOpenApplication: (applicationId: string) => void;
   liveEvents: WorkflowProgressEvent[];
 }) {
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string>();
   const progress = workspace.searchProgress;
   const running =
     progress?.stage === "looking" ||
     progress?.stage === "verifying" ||
     progress?.stage === "filling";
   const prepared = preparedVerifiedApplications(workspace);
+  const preparedReadiness = applicationReadinessCounts(prepared);
   const allPipelineItems = cumulativePipelineItems(workspace);
   const currentItemIds = new Set(
     (progress?.items ?? []).map((item) => item.id),
@@ -2726,12 +2819,39 @@ function DiscoveryView({
   const readyForMatching = (workspace.searchReadyOpportunities ?? []).filter(
     (job) => !applicationJobIds.has(job.id),
   );
-  const promote = (jobId: string) =>
-    void act(
-      () => promoteOpportunity(jobId),
-      "applications",
-      "application-preparation",
-    );
+  const developerMode = workspace.searchConfig.developerMode ?? false;
+  const minimumMatchScore = workspace.searchConfig.minimumMatchScore ?? 35;
+  const selectedPipelineItem = selectedPipelineId
+    ? allPipelineItems.find((item) => item.id === selectedPipelineId)
+    : undefined;
+  const selectedPipelineOpportunity = selectedPipelineItem
+    ? [...workspace.opportunities, ...workspace.searchReadyOpportunities].find(
+        (job) => job.id === selectedPipelineItem.id,
+      )
+    : undefined;
+  const promote = (jobId: string) => {
+    void act(() => promoteOpportunity(jobId)).then((next) => {
+      const application = next?.applications.find(
+        (candidate) => candidate.jobId === jobId,
+      );
+      if (application) onOpenApplication(application.id);
+    });
+  };
+  const openPipelineItem = (
+    item: JobSearchWorkspace["jobHistory"][number],
+    stage: "validation" | "match" | "application",
+  ) => {
+    if (stage === "application") {
+      const application = workspace.applications.find(
+        (candidate) => candidate.jobId === item.id,
+      );
+      if (application) {
+        onOpenApplication(application.id);
+        return;
+      }
+    }
+    setSelectedPipelineId(item.id);
+  };
   if (!candidateDiscoveryReady(workspace))
     return (
       <section className="discovery-blocked" role="status">
@@ -2754,7 +2874,9 @@ function DiscoveryView({
           <div>
             <CheckCircle2 size={18} />
             <span>
-              <strong>{prepared.length} applications are ready</strong>
+              <strong>
+                {preparedReadiness.ready} ready · {preparedReadiness.needsInput} need input
+              </strong>
             </span>
           </div>
           <button className="primary" onClick={onContinue}>
@@ -2766,8 +2888,8 @@ function DiscoveryView({
         <div>
           <strong>{progress ? "Discover another batch" : "Start job discovery"}</strong>
           <span>
-            Live vacancies are verified, matched to evidence, and prepared
-            before they reach Applications.
+            Live vacancies are verified, prevalidated and evidence-matched in
+            Match & rank. Only the selected ranked jobs enter Application preparation.
           </span>
         </div>
         <div className="search-pool-controls">
@@ -2800,6 +2922,11 @@ function DiscoveryView({
           preparedItems={preparedPipelineItems}
           currentItemIds={currentItemIds}
           applicationTarget={workspace.searchConfig.applicationTarget}
+          developerMode={developerMode}
+          minimumMatchScore={minimumMatchScore}
+          promotionBusy={busy || running}
+          onPromote={promote}
+          onOpenItem={openPipelineItem}
           liveEvents={liveEvents}
         />
       ) : (
@@ -2853,28 +2980,160 @@ function DiscoveryView({
       )}
       {progress && (
         <>
-          <PipelinePool
-            title={readyForMatching.length
-              ? `Ready for matching · ${readyForMatching.length}`
-              : `Verified bench · ${bench.length}`}
-            detail={readyForMatching.length
-              ? "Live, eligible vacancies that passed search verification; no matching decision is implied yet."
-              : "Passing jobs ranked by evidence match and reconsidered on the next discovery run."}
-            jobs={readyForMatching.length ? readyForMatching : bench}
-            showFit={!readyForMatching.length}
-            busy={busy || running || beta.remainingApplications <= 0}
-            onPromote={promote}
-          />
-          <RejectedPool
-            failures={workspace.rejectedOpportunities}
-            busy={busy || running || beta.remainingApplications <= 0}
-            onPromote={promote}
-          />
+          {readyForMatching.length > 0 && (
+            <PipelinePool
+              title={`Ready for matching · ${readyForMatching.length}`}
+              detail="Live, eligible vacancies that passed search verification; no matching decision is implied yet."
+              jobs={readyForMatching}
+              showFit={false}
+              busy={busy || running}
+              onPromote={promote}
+            />
+          )}
+          {developerMode && (
+            <>
+              <PipelinePool
+                title={`Developer bench · ${bench.length}`}
+                detail="All scored jobs outside Applications, including automatic replacements and below-threshold matches."
+                jobs={bench}
+                busy={busy || running}
+                onPromote={promote}
+              />
+              <RejectedPool
+                failures={workspace.rejectedOpportunities}
+                busy={busy || running}
+                onPromote={promote}
+              />
+            </>
+          )}
         </>
+      )}
+      {selectedPipelineItem && (
+        <PipelineJobDetails
+          item={selectedPipelineItem}
+          job={selectedPipelineOpportunity}
+          minimumMatchScore={minimumMatchScore}
+          busy={busy || running}
+          onClose={() => setSelectedPipelineId(undefined)}
+          onMoveToApplications={() => promote(selectedPipelineItem.id)}
+        />
       )}
     </div>
   );
 }
+
+function PipelineJobDetails({
+  item,
+  job,
+  minimumMatchScore,
+  busy,
+  onClose,
+  onMoveToApplications,
+}: {
+  item: JobSearchWorkspace["jobHistory"][number];
+  job?: JobSearchWorkspace["opportunities"][number];
+  minimumMatchScore: number;
+  busy: boolean;
+  onClose: () => void;
+  onMoveToApplications: () => void;
+}) {
+  const manualReview = isManualReviewPipelineItem(item);
+  const lowMatch = isLowMatchPipelineItem(item, minimumMatchScore);
+  return (
+    <div className="pipeline-details-backdrop" role="presentation" onClick={onClose}>
+      <section
+        className="pipeline-details-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pipeline-job-details-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="pipeline-details-toolbar">
+          <a
+            href={item.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() =>
+              void trackAnalyticsEvent("job_source_opened", {
+                jobId: item.id,
+                stage: "pipeline_details",
+              })
+            }
+          >
+            <Globe2 size={15} /> Open original listing <ArrowUpRight size={14} />
+          </a>
+          <button type="button" aria-label="Close job details" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </div>
+        <div className="pipeline-details-heading">
+          <span>{jobNumberLabel(item.jobNumber)}</span>
+          <div>
+            <small>{item.company}</small>
+            <h2 id="pipeline-job-details-title">{item.title}</h2>
+            {job && (
+              <div className="job-meta">
+                <span><MapPin size={14} /> {job.location}</span>
+                <span>{compactCompensation(job.compensation)}</span>
+                <span>{job.fit}% evidence match</span>
+              </div>
+            )}
+          </div>
+        </div>
+        {manualReview && (
+          <div className="pipeline-details-warning">
+            <AlertTriangle size={18} />
+            <span>
+              <strong>Unable to verify automatically</strong>
+              <small>
+                RolegAIn could not confirm this page or map its application
+                route. Review the original listing manually before applying.
+              </small>
+            </span>
+          </div>
+        )}
+        {lowMatch && (
+          <div className="pipeline-details-warning low-match">
+            <CircleHelp size={18} />
+            <span>
+              <strong>Below your {minimumMatchScore}% automatic threshold</strong>
+              <small>
+                The role remains available for manual review and application
+                tracking despite its lower evidence score.
+              </small>
+            </span>
+          </div>
+        )}
+        {item.reason && <p className="pipeline-details-reason">{item.reason}</p>}
+        {job?.summary && <p className="pipeline-details-summary">{job.summary}</p>}
+        {job && <RequirementBreakdown job={job} />}
+        {job?.description && (
+          <details className="pipeline-details-description">
+            <summary>Full job description</summary>
+            <p>{job.description}</p>
+          </details>
+        )}
+        {(manualReview || lowMatch) && (
+          <div className="pipeline-details-actions">
+            <span>
+              Move this job into Applications to apply manually and track its
+              outcome in RolegAIn.
+            </span>
+            <button
+              className="primary"
+              type="button"
+              disabled={busy}
+              onClick={onMoveToApplications}
+            >
+              <Plus size={14} /> Move to applications
+            </button>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 const APPLICATION_GROUPS = [
   {
     key: "open",
@@ -3139,6 +3398,11 @@ function FindApplicationsProgress({
   preparedItems,
   currentItemIds,
   applicationTarget,
+  developerMode,
+  minimumMatchScore,
+  promotionBusy,
+  onPromote,
+  onOpenItem,
   liveEvents,
   compact = false,
 }: {
@@ -3147,6 +3411,14 @@ function FindApplicationsProgress({
   preparedItems: JobSearchWorkspace["jobHistory"];
   currentItemIds: Set<string>;
   applicationTarget: number;
+  developerMode: boolean;
+  minimumMatchScore: number;
+  promotionBusy: boolean;
+  onPromote: (jobId: string) => void;
+  onOpenItem: (
+    item: JobSearchWorkspace["jobHistory"][number],
+    stage: "validation" | "match" | "application",
+  ) => void;
   liveEvents: WorkflowProgressEvent[];
   compact?: boolean;
 }) {
@@ -3187,15 +3459,32 @@ function FindApplicationsProgress({
   const discoveryOnlyItems = displayItems.filter(
     (item) =>
       pipelineDisplayStage(item) === "validation" &&
-      item.validationDisposition !== "source_page",
+      item.validationDisposition !== "source_page" &&
+      pipelineItemVisible(
+        item,
+        "validation",
+        developerMode,
+        minimumMatchScore,
+      ),
   );
   const matchOnlyItems = displayItems.filter(
-    (item) => pipelineDisplayStage(item) === "match",
+    (item) =>
+      pipelineDisplayStage(item) === "match" &&
+      pipelineItemVisible(item, "match", developerMode, minimumMatchScore),
   );
   const applicationAttemptItems = displayItems.filter(
-    (item) => pipelineDisplayStage(item) === "application",
+    (item) =>
+      pipelineDisplayStage(item) === "application" &&
+      pipelineItemVisible(
+        item,
+        "application",
+        developerMode,
+        minimumMatchScore,
+      ),
   );
-  const sourceGroups = marketplaceSourceGroups(displayItems, currentItemIds);
+  const sourceGroups = developerMode
+    ? marketplaceSourceGroups(displayItems, currentItemIds)
+    : [];
   const newValidCount = matchOnlyItems.filter((item) =>
     currentItemIds.has(item.id),
   ).length;
@@ -3237,7 +3526,11 @@ function FindApplicationsProgress({
           <strong>{activity}</strong>
           <PipelineElapsedTime progress={progress} running={running} />
         </div>
-        <b>{items.length} jobs</b>
+        <b>
+          {developerMode
+            ? `${items.length} jobs`
+            : `${discoveryOnlyItems.length + matchOnlyItems.length + applicationAttemptItems.length} shown`}
+        </b>
       </header>
       {running && <PipelineDepthNote stage={progress.stage} />}
       <div className="pipeline-board">
@@ -3250,6 +3543,10 @@ function FindApplicationsProgress({
           phase="validation"
           placeholders={discoverySlots}
           sourceGroups={sourceGroups}
+          minimumMatchScore={minimumMatchScore}
+          promotionBusy={promotionBusy}
+          onPromote={onPromote}
+          onOpenItem={onOpenItem}
         />
         <span className="pipeline-arrow" aria-hidden="true">→</span>
         <PipelineColumn
@@ -3259,6 +3556,10 @@ function FindApplicationsProgress({
           items={matchOnlyItems}
           currentItemIds={currentItemIds}
           phase="match"
+          minimumMatchScore={minimumMatchScore}
+          promotionBusy={promotionBusy}
+          onPromote={onPromote}
+          onOpenItem={onOpenItem}
         />
         <span className="pipeline-arrow" aria-hidden="true">→</span>
         <PipelineColumn
@@ -3269,9 +3570,13 @@ function FindApplicationsProgress({
           currentItemIds={currentItemIds}
           phase="application_outcome"
           currentRunEmptyMessage={preparedCurrentRunEmptyMessage}
+          minimumMatchScore={minimumMatchScore}
+          promotionBusy={promotionBusy}
+          onPromote={onPromote}
+          onOpenItem={onOpenItem}
         />
       </div>
-      {activityEvents.length > 0 && (
+      {developerMode && activityEvents.length > 0 && (
         <div className="pipeline-events">
           {[...activityEvents].reverse().map((event) => (
             <span key={event.id}>
@@ -3297,8 +3602,8 @@ function PipelineDepthNote({
     stage === "looking"
       ? "RolegAIn is running multiple evidence-guided searches and collecting concrete vacancies from the public web—not returning a quick title or keyword list."
       : stage === "verifying"
-        ? "Every vacancy is reopened and checked for availability, role details and constraints before its requirements are compared with your evidence."
-        : "Each selected job is handled independently: form inspection, company research, requirement matching, grounded drafting and verification all happen before the application is marked ready.";
+        ? "Every vacancy is reopened and checked for availability, role details and constraints. Match & rank then confirms a reachable application route before comparing requirements with your evidence."
+        : "Only selected ranked jobs enter this stage. Each is handled independently through full form inspection and mapping, company research, grounded drafting and verification before the application is marked ready.";
   return (
     <div className={`pipeline-depth-note ${compact ? "compact" : ""}`}>
       <Sparkles size={15} />
@@ -3386,6 +3691,10 @@ function PipelineColumn({
   placeholders = 0,
   currentRunEmptyMessage,
   sourceGroups = [],
+  minimumMatchScore,
+  promotionBusy,
+  onPromote,
+  onOpenItem,
 }: {
   step: string;
   title: string;
@@ -3396,6 +3705,13 @@ function PipelineColumn({
   placeholders?: number;
   currentRunEmptyMessage?: string;
   sourceGroups?: ReturnType<typeof marketplaceSourceGroups>;
+  minimumMatchScore: number;
+  promotionBusy: boolean;
+  onPromote: (jobId: string) => void;
+  onOpenItem: (
+    item: JobSearchWorkspace["jobHistory"][number],
+    stage: "validation" | "match" | "application",
+  ) => void;
 }) {
   const displayStage =
     phase === "validation"
@@ -3412,21 +3728,21 @@ function PipelineColumn({
     >[number],
   ) => {
     const state = pipelineItemState(item, phase);
+    const manualReview =
+      displayStage !== "application" && isManualReviewPipelineItem(item);
+    const lowMatch =
+      displayStage === "match" &&
+      isLowMatchPipelineItem(item, minimumMatchScore);
+    const promotable = manualReview || lowMatch;
     return (
       <article className={`pipeline-job state-${state}`} key={`${phase}-${item.id}`} title={item.reason}>
         <span className="pipeline-state-icon">
           {state === "running" ? <LoaderCircle className="spin" size={13} /> : state === "passed" ? <Check size={13} /> : state === "failed" ? <X size={13} /> : state === "bench" ? <Clock3 size={13} /> : state === "selected" ? <ChevronRight size={13} /> : <span />}
         </span>
-        <a
-          href={item.sourceUrl || undefined}
-          target="_blank"
-          rel="noreferrer"
-          onClick={() =>
-            void trackAnalyticsEvent("job_source_opened", {
-              jobId: item.id,
-              stage: phase,
-            })
-          }
+        <button
+          className="pipeline-job-open"
+          type="button"
+          onClick={() => onOpenItem(item, displayStage)}
         >
           <strong>
             <span className="inline-job-number">{jobNumberLabel(item.jobNumber)}</span>
@@ -3434,11 +3750,33 @@ function PipelineColumn({
           </strong>
           <span>{item.company || "Source pending"}</span>
           {phase === "match" && typeof item.fit === "number" && <em>{item.fit}% match</em>}
-          {phase === "validation" && item.validationDisposition && (
+          {manualReview ? (
+            <em className="pipeline-unable-status">Unable to verify</em>
+          ) : phase === "validation" && item.validationDisposition ? (
             <em>{item.validationDisposition.replace(/_/g, " ")}</em>
+          ) : null}
+          {item.reason && (state === "failed" || promotable) && <small>{item.reason}</small>}
+          {manualReview && (
+            <small className="pipeline-action-reason">
+              Try reviewing the original listing manually.
+            </small>
           )}
-          {item.reason && state === "failed" && <small>{item.reason}</small>}
-        </a>
+          {lowMatch && (
+            <small className="pipeline-action-reason">
+              Below your {minimumMatchScore}% automatic application threshold
+            </small>
+          )}
+        </button>
+        {promotable && (
+          <button
+            className="pipeline-promote-action"
+            type="button"
+            disabled={promotionBusy}
+            onClick={() => onPromote(item.id)}
+          >
+            <Plus size={11} /> Move to applications
+          </button>
+        )}
       </article>
     );
   };
@@ -3829,7 +4167,7 @@ function ApplicationsView({
           </button>
           <button
             className="primary"
-            disabled={busy || beta.remainingApplications <= 0}
+            disabled={busy}
             onClick={() => setAdding((value) => !value)}
           >
             <Plus size={15} /> Add application
@@ -4117,7 +4455,7 @@ function ApplicationEditor({
               })
             }
           >
-            <Globe2 size={15} /> View job <ArrowUpRight size={14} />
+            <Globe2 size={15} /> Open original job <ArrowUpRight size={14} />
           </a>
           <button
             disabled={!changed || busy || verified}
@@ -4652,14 +4990,18 @@ function ApplicationEditor({
               <span>
                 <strong>
                   {formNeedsManualReview
-                    ? "Employer form needs manual review"
+                    ? app.addedBy === "user"
+                      ? "Manual application tracking"
+                      : "Employer form needs manual review"
                     : missingRequiredFields.length
                     ? `${missingRequiredFields.length} ${missingRequiredFields.length === 1 ? "field will" : "fields will"} remain blank`
                     : "Ready for employer review"}
                 </strong>
                 <small>
                   {formNeedsManualReview
-                    ? "The vacancy is verified, but this form could not be mapped automatically. Open it here and complete protected, sign-in, CAPTCHA, or unsupported controls manually."
+                    ? app.addedBy === "user"
+                      ? "RolegAIn has not verified or mapped this employer form. Review the original listing, apply manually, then record the outcome here."
+                      : "The vacancy is verified, but this form could not be mapped automatically. Open it here and complete protected, sign-in, CAPTCHA, or unsupported controls manually."
                     : missingRequiredFields.length
                     ? `The employer form will still open. Complete ${missingRequiredFields.map((field) => field.label).join(", ")} there if the employer requires it.`
                     : changed
@@ -4864,7 +5206,12 @@ function ApplicationAnswerAdjuster({
 
 function employerProxyUrl(applyUrl: string) {
   const employer = new URL(applyUrl);
-  const port = window.location.port ? `:${window.location.port}` : "";
+  // Vite only proxies path-based API requests; employer subdomains must reach
+  // the RolegAIn server directly during local development.
+  const localServerPort = window.location.port === "5173"
+    ? "4317"
+    : window.location.port;
+  const port = localServerPort ? `:${localServerPort}` : "";
   return `${window.location.protocol}//${employer.hostname}.localhost${port}${employer.pathname}${employer.search}${employer.hash}`;
 }
 
@@ -4884,6 +5231,9 @@ function AddApplicationForm({
         <div>
           <span className="section-label">New opportunity</span>
           <h2>Add application</h2>
+          <small className="manual-application-note">
+            Add an employer link for manual application and outcome tracking.
+          </small>
         </div>
         <button className="icon-btn" onClick={onCancel}>
           <X size={15} />
@@ -4920,7 +5270,7 @@ function AddApplicationForm({
           disabled={busy || !value.company || !value.title || !value.applyUrl}
           onClick={() => onAdd(value)}
         >
-          <Plus size={15} /> Prepare application
+          <Plus size={15} /> Add for tracking
         </button>
       </div>
     </section>
@@ -5008,6 +5358,8 @@ function applicationStatusLabel(application: ApplicationDraft) {
   if (application.outcome === "rejected_by_user") return "Rejected by user";
   if (application.outcome === "unsuccessful") return "Unsuccessful";
   if (application.outcome === "applied_waiting") return "Applied · waiting";
+  if (application.addedBy === "user" && !application.liveFormValidated)
+    return "Manual tracking";
   return statusLabel(application.status);
 }
 function statusTitle(status: ApplicationDraft["status"]) {
@@ -5020,6 +5372,8 @@ function applicationStatusTitle(application: ApplicationDraft) {
   if (application.outcome === "rejected_by_user") return "Rejected by you";
   if (application.outcome === "unsuccessful") return "Application unsuccessful";
   if (application.outcome === "applied_waiting") return "Applied · waiting";
+  if (application.addedBy === "user" && !application.liveFormValidated)
+    return "Manual application tracking";
   return statusTitle(application.status);
 }
 function fileToBase64(file: File): Promise<string> {

@@ -318,6 +318,9 @@
   border: 1px solid #a9c8ed;
   color: #244e7b;
 }
+.analysis-progress-primary {
+  margin-top: 0;
+}
 .analysis-progress > svg {
   margin-top: 1px;
 }

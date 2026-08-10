@@ -51,12 +51,20 @@ import {
   PROFILE_REVIEW_FIELDS,
 } from "../../search-match-shared/evidence-review.js";
 import { normalizeCompensationText } from "../../search-match-shared/opportunity.js";
+import {
+  normalizeJobUrl,
+  preferPipelineItem,
+  samePipelineVacancy,
+} from "../../search-match-shared/job-identity.js";
 import type {
   OpportunityResearchProvider,
   OpportunityProgressUpdate,
 } from "../../search-match-shared/types.js";
 import { VacancySourceInventory } from "../../02-search/v1/02-vacancy-source-expansion/inventory/index.js";
-import type { CoverLetterWriter } from "../../04-application-preparation/types.js";
+import type {
+  ApplicationContentDraft,
+  CoverLetterWriter,
+} from "../../04-application-preparation/types.js";
 import { renderTailoredCvDocx } from "../../04-application-preparation/06-cv-tailoring/document.js";
 import {
   compatibleCandidateValue,
@@ -1167,7 +1175,7 @@ export class JobSearchService {
       const reusableBench = revalidated.opportunities.filter(
         (job) =>
           hasReusableAssessment(job) &&
-          evidenceFitForSelection(job) >= applicationMinimumFit(),
+          job.fit >= minimumMatchScore(workspace),
       );
       const discoveryLimit = discoveryLimitAfterBenchValidation({
         remainingApplications: remaining,
@@ -1185,7 +1193,7 @@ export class JobSearchService {
               seenUrls: [] as string[],
             }
           : this.opportunityResearch.researchAndAssess &&
-              !this.opportunityResearch.precheckApplications
+              !this.opportunityResearch.prevalidateForMatching
               ? await this.opportunityResearch.researchAndAssess(workspace, {
                   excludeApplyUrls: applicationUrls,
                   limit: discoveryLimit,
@@ -1410,16 +1418,16 @@ export class JobSearchService {
     } = input;
     workspace.phase = "applications";
     let viableCandidates = candidates;
-    if (this.opportunityResearch!.precheckApplications) {
+    if (this.opportunityResearch!.prevalidateForMatching) {
       setSearchStage(
         workspace,
         "verifying",
         workspace.searchConfig.discoveryTarget,
         candidates.length,
-        `Checking whether ${candidates.length} verified ${candidates.length === 1 ? "vacancy has" : "vacancies have"} a reachable employer application before evidence matching.`,
+        `Match prevalidation: checking whether ${candidates.length} verified ${candidates.length === 1 ? "vacancy has" : "vacancies have"} a reachable employer application route before evidence matching.`,
       );
       await this.saveCandidate(workspace);
-      const viability = await this.opportunityResearch!.precheckApplications(
+      const viability = await this.opportunityResearch!.prevalidateForMatching(
         workspace,
         candidates,
         reportProgress,
@@ -1443,7 +1451,7 @@ export class JobSearchService {
       "verifying",
       workspace.searchConfig.discoveryTarget,
       viableCandidates.length,
-      `Scoring ${viableCandidates.length} application-ready ${viableCandidates.length === 1 ? "vacancy" : "vacancies"} against required and preferred evidence.`,
+      `Application routes prevalidated; scoring ${viableCandidates.length} ${viableCandidates.length === 1 ? "vacancy" : "vacancies"} against required and preferred evidence in Match & rank.`,
     );
     await this.saveCandidate(workspace);
     const assessmentResults = this.opportunityResearch!.assess
@@ -1510,7 +1518,11 @@ export class JobSearchService {
     mergeResearchFailures(workspace, assessmentFailures);
     const ranked = mergeUniqueJobs(assessed).sort((a, b) => b.fit - a.fit);
     const successTarget = selectionLimit ?? workspace.searchConfig.applicationTarget;
-    const eligibleJobs = selectPhase2ApplicationPortfolio(ranked, ranked.length);
+    const eligibleJobs = selectPhase2ApplicationPortfolio(
+      ranked,
+      ranked.length,
+      minimumMatchScore(workspace),
+    );
     const preparedBefore = preparedVerifiedJobIds(workspace).size;
     let result = workspace;
 
@@ -1825,6 +1837,15 @@ export class JobSearchService {
   async resetUserCompletely(
     candidateId = CANDIDATE_ID,
   ): Promise<JobSearchWorkspace> {
+    // Reset is an explicit cancellation boundary. Direct callers (outside the
+    // HTTP route) must not have to stop in-process work first, and deletion
+    // must not race late callbacks that could recreate the old workspace.
+    if (
+      this.activeFindMore.has(candidateId) ||
+      this.activeAnalyses.has(candidateId) ||
+      this.activeProfileSourceSync.has(candidateId)
+    )
+      await this.stopBackgroundWork(candidateId);
     await this.deleteUserCompletely(candidateId);
 
     await Promise.all([
@@ -2128,9 +2149,146 @@ export class JobSearchService {
     );
   }
 
+  /**
+   * Re-open and re-read every currently managed employer form, then regenerate
+   * grounded answers against the fresh live schema. This intentionally does
+   * not search for new jobs or submit any application.
+   */
+  async reinspectApplications(
+    candidateId = CANDIDATE_ID,
+    onlyJobIds?: string[],
+  ): Promise<JobSearchWorkspace> {
+    const workspace = await this.get(candidateId);
+    if (!this.opportunityResearch?.inspectApplications)
+      throw new Error("Live application inspection is not configured");
+    if (!this.coverLetterWriter)
+      throw new Error("Application drafting is not configured");
+    if (this.activeFindMore.has(workspace.candidateId))
+      throw new Error("Wait for the active job search to finish before refilling applications");
+
+    const requested = onlyJobIds?.length ? new Set(onlyJobIds) : undefined;
+    const existingByJobId = new Map(
+      workspace.applications.map((application) => [application.jobId, application]),
+    );
+    const jobs = workspace.opportunities.filter(
+      (job) => existingByJobId.has(job.id) && (!requested || requested.has(job.id)),
+    );
+    if (!jobs.length) throw new Error("No saved applications matched the refill request");
+
+    const inspection = await this.opportunityResearch.inspectApplications(
+      workspace,
+      jobs,
+    );
+    await this.assignJobNumbers(inspection.failures);
+    mergeResearchFailures(workspace, inspection.failures);
+    normalizeApplications(inspection.applications);
+
+    const freshByJobId = new Map(
+      inspection.applications.map((application) => [application.jobId, application]),
+    );
+    for (const job of jobs) {
+      const previous = existingByJobId.get(job.id)!;
+      let fresh = freshByJobId.get(job.id);
+      if (!fresh) continue;
+      if (
+        !fresh.liveFormValidated &&
+        previous.liveFormValidated &&
+        previous.formSchema?.verifiedByAgent &&
+        previous.formFields.length > 0
+      ) {
+        freshByJobId.set(job.id, previous);
+        continue;
+      }
+      fresh.addedBy = previous.addedBy;
+      fresh.coverLetterChat = previous.coverLetterChat;
+      fresh.companyResearch = previous.companyResearch;
+      fresh.tailoredCv = previous.tailoredCv;
+      fresh.outcome = previous.outcome;
+      for (const field of fresh.formFields) {
+        const prior = previous.formFields.find(
+          (candidate) =>
+            candidate.source === "user" &&
+            candidate.value.trim() &&
+            ((field.canonicalKey && candidate.canonicalKey === field.canonicalKey) ||
+              candidate.label.trim().toLowerCase() === field.label.trim().toLowerCase()),
+        );
+        if (!prior) continue;
+        field.value = prior.value;
+        field.source = "user";
+        field.confidence = 100;
+      }
+    }
+
+    workspace.applications = workspace.applications.map(
+      (application) => freshByJobId.get(application.jobId) || application,
+    );
+    const verifiable = inspection.applications.filter(
+      applicationIsPreparedForVerification,
+    );
+    const drafting: Array<{
+      application: ApplicationDraft;
+      drafts: ApplicationContentDraft[];
+      error?: string;
+    }> = [];
+    for (const application of verifiable) {
+      try {
+        drafting.push({
+          application,
+          drafts: await this.coverLetterWriter.draft(workspace, [application.id]),
+        });
+      } catch (error) {
+        drafting.push({
+          application,
+          drafts: [],
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    for (const result of drafting)
+      if (result.drafts.length)
+        applyGeneratedDrafts(
+          workspace,
+          result.drafts,
+          result.drafts.map((draft) => draft.applicationId),
+        );
+      else {
+        result.application.status = "needs_input";
+        result.application.missingQuestions = [
+          ...new Set([
+            ...result.application.missingQuestions,
+            result.error || "Grounded application answers could not be regenerated",
+          ]),
+        ];
+      }
+
+    normalizeApplications(workspace.applications);
+    workspace.jobHistory = normalizeJobHistory(workspace);
+    for (const job of jobs) {
+      const application = workspace.applications.find((item) => item.jobId === job.id);
+      if (!application) continue;
+      upsertJobHistory(workspace, {
+        ...pipelineIdentity(job),
+        validation: "passed",
+        match: "selected",
+        application: "selected",
+        applicationVerification: application.liveFormValidated ? "passed" : "failed",
+        applicationReady: application.status === "ready_to_send",
+        fit: job.fit,
+        reason: application.liveFormValidated
+          ? "Live employer form re-read by the browser-form agent"
+          : applicationVerificationBlockReason(application),
+      });
+    }
+    workspace.phase = "applications";
+    await this.saveCandidate(workspace);
+    return workspace;
+  }
+
   async updateSearchConfig(input: {
     discoveryTarget?: number;
     applicationTarget?: number;
+    minimumMatchScore?: number;
+    developerMode?: boolean;
   }, candidateId = CANDIDATE_ID): Promise<JobSearchWorkspace> {
     const workspace = await this.get(candidateId);
     workspace.searchConfig = {
@@ -2142,6 +2300,19 @@ export class JobSearchService {
         1,
         Math.min(10, Math.round(input.applicationTarget ?? workspace.searchConfig.applicationTarget)),
       ),
+      minimumMatchScore: Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round(
+            input.minimumMatchScore ??
+              workspace.searchConfig.minimumMatchScore ??
+              applicationMinimumFit(),
+          ),
+        ),
+      ),
+      developerMode:
+        input.developerMode ?? workspace.searchConfig.developerMode ?? false,
     };
     await this.saveCandidate(workspace);
     return workspace;
@@ -2187,14 +2358,8 @@ export class JobSearchService {
     workspace.opportunities.push(opportunity);
     const application = applicationFor(opportunity, workspace);
     application.addedBy = "user";
+    refreshApplicationReadiness(application);
     workspace.applications.push(application);
-    if (!this.coverLetterWriter)
-      throw new Error("Cover letter generation is not configured");
-    applyGeneratedDrafts(
-      workspace,
-      await this.coverLetterWriter.draft(workspace, [application.id]),
-      [application.id],
-    );
     workspace.jobHistory = normalizeJobHistory(workspace);
     workspace.phase = "applications";
     await this.saveCandidate(workspace);
@@ -2211,6 +2376,7 @@ export class JobSearchService {
     );
     if (existingApplication) {
       existingApplication.addedBy = "user";
+      workspace.jobHistory = normalizeJobHistory(workspace);
       workspace.phase = "applications";
       await this.saveCandidate(workspace);
       return workspace;
@@ -2249,36 +2415,14 @@ export class JobSearchService {
     }
     if (!opportunity) throw new Error("The selected job is no longer available");
 
-    let application: ApplicationDraft | undefined;
-    if (this.opportunityResearch?.inspectApplications) {
-      try {
-        const inspected = await this.opportunityResearch.inspectApplications(
-          workspace,
-          [opportunity],
-        );
-        application = inspected.applications.find(
-          (candidate) => candidate.jobId === opportunity!.id,
-        );
-      } catch {
-        // Manual promotion must still produce a manageable draft when the
-        // employer form cannot be inspected automatically.
-      }
-    }
-    application ??= applicationFor(opportunity, workspace);
+    // Manual tracking is deliberately independent of form inspection, LLM
+    // drafting, and beta preparation allowance. The candidate can open the
+    // original employer page and use Applications to track the outcome.
+    const application = applicationFor(opportunity, workspace);
     application.addedBy = "user";
     normalizeApplications([application]);
+    refreshApplicationReadiness(application);
     workspace.applications.push(application);
-
-    if (this.coverLetterWriter) {
-      try {
-        const drafts = await this.coverLetterWriter.draft(workspace, [
-          application.id,
-        ]);
-        applyGeneratedDrafts(workspace, drafts, [application.id]);
-      } catch {
-        // The draft remains in Applications for manual completion.
-      }
-    }
     workspace.searchReadyOpportunities =
       workspace.searchReadyOpportunities.filter((item) => item.id !== jobId);
     workspace.searchValidationIssues = workspace.searchValidationIssues.filter(
@@ -2296,7 +2440,9 @@ export class JobSearchService {
       applicationVerification: "waiting",
       applicationReady: application.status === "ready_to_send",
       fit: opportunity.fit,
-      reason: "Added manually to the candidate's application list",
+      reason: failure
+        ? "Unable to verify automatically; moved to Applications for manual review"
+        : "Below the automatic match threshold; moved to Applications for manual tracking",
     });
     workspace.phase = "applications";
     await this.saveCandidate(workspace);
@@ -2954,7 +3100,12 @@ function emptyWorkspace(
     seenJobUrls: [],
     searchSourceBacklog: [],
     searchSourceBacklogInitialized: true,
-    searchConfig: { discoveryTarget: 26, applicationTarget: 5 },
+    searchConfig: {
+      discoveryTarget: 26,
+      applicationTarget: 5,
+      minimumMatchScore: 35,
+      developerMode: false,
+    },
     sharedAnswers: {},
     profileSetupStep: 1,
     discoveryNeedsRun: true,
@@ -3026,6 +3177,16 @@ function normalizeWorkspace(
       1,
       Math.min(10, workspace.searchConfig?.applicationTarget ?? 5),
     ),
+    minimumMatchScore: Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(
+          workspace.searchConfig?.minimumMatchScore ?? applicationMinimumFit(),
+        ),
+      ),
+    ),
+    developerMode: workspace.searchConfig?.developerMode === true,
   };
   workspace.discoveryNeedsRun ??=
     !workspace.searchProgress && workspace.jobHistory.length === 0;
@@ -3572,14 +3733,15 @@ export function discoveryLimitAfterBenchValidation(input: {
 export function selectPhase2ApplicationPortfolio(
   ranked: JobOpportunity[],
   limit: number,
+  minimumScore = applicationMinimumFit(),
 ) {
   return ranked
-    .filter((job) => evidenceFitForSelection(job) >= applicationMinimumFit())
+    .filter((job) => job.fit >= minimumScore)
     .slice(0, Math.max(0, limit));
 }
 
-function evidenceFitForSelection(job: JobOpportunity) {
-  return job.scoreBreakdown?.rawEvidenceFit ?? job.fit;
+function minimumMatchScore(workspace: JobSearchWorkspace) {
+  return workspace.searchConfig.minimumMatchScore ?? applicationMinimumFit();
 }
 
 function mergeFailures(...groups: JobResearchFailure[][]) {
@@ -3645,11 +3807,11 @@ function sameSearchVacancy(
   const leftUrls = new Set(
     [left.sourceUrl, left.applyUrl]
       .filter((value): value is string => Boolean(value?.trim()))
-      .map(normalizeUrl),
+      .map(normalizeJobUrl),
   );
   return [right.sourceUrl, right.applyUrl]
     .filter((value): value is string => Boolean(value?.trim()))
-    .some((value) => leftUrls.has(normalizeUrl(value)));
+    .some((value) => leftUrls.has(normalizeJobUrl(value)));
 }
 
 function searchSeedAuthorityScore(
@@ -4166,7 +4328,9 @@ function normalizeJobHistory(workspace: JobSearchWorkspace) {
     ...workspace.rejectedOpportunities,
     ...workspace.searchValidationIssues,
   ]) {
-    const atMatch = failure.stage === "requirements";
+    const atMatch =
+      failure.stage === "match_prevalidation" ||
+      failure.stage === "requirements";
     const atApplication = failure.stage === "form";
     add({
       id: failure.id,
@@ -4204,7 +4368,7 @@ function normalizeJobHistory(workspace: JobSearchWorkspace) {
         item.id === job.id ||
         (job.jobNumber && item.jobNumber === job.jobNumber),
     );
-    add({
+    const canonicalItem: SearchPipelineItem = {
       ...pipelineIdentity(job),
       validation: "passed",
       match: application?.addedBy === "user" ? "selected" : "passed",
@@ -4233,7 +4397,8 @@ function normalizeJobHistory(workspace: JobSearchWorkspace) {
       ...(application?.addedBy === "user"
         ? { reason: "Added manually to the candidate's application list" }
         : {}),
-    });
+    };
+    upsertPipelineItem(history, canonicalItem, true);
   }
   return history.sort(
     (a, b) => (b.jobNumber ?? -1) - (a.jobNumber ?? -1),
@@ -4288,14 +4453,28 @@ function upsertJobHistory(
 function upsertPipelineItem(
   items: SearchPipelineItem[],
   incoming: SearchPipelineItem,
+  preferIncoming = false,
 ) {
   const existing = items.find(
     (item) =>
       item.id === incoming.id ||
-      (incoming.jobNumber && item.jobNumber === incoming.jobNumber),
+      (incoming.jobNumber && item.jobNumber === incoming.jobNumber) ||
+      samePipelineVacancy(item, incoming),
   );
-  if (existing) Object.assign(existing, incoming);
-  else items.push(structuredClone(incoming));
+  if (!existing) {
+    items.push(structuredClone(incoming));
+    return;
+  }
+  if (
+    preferIncoming ||
+    existing.id === incoming.id ||
+    existing.jobNumber === incoming.jobNumber
+  ) {
+    Object.assign(existing, incoming);
+    return;
+  }
+  const preferred = preferPipelineItem(existing, incoming);
+  if (preferred === incoming) Object.assign(existing, incoming);
 }
 
 function field(

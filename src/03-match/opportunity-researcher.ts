@@ -16,9 +16,9 @@ import { matchOpportunitiesV1 } from "./v1/index.js";
 import { matchOpportunitiesV2 } from "./v2/index.js";
 import {
   inspectOpportunityApplications,
-  precheckOpportunityApplications,
 } from "./02-application-inspection/index.js";
 import { streamSearchToMatch } from "./orchestration/search-to-match-stream.js";
+import { prevalidateOpportunitiesForMatching } from "./orchestration/application-prevalidation.js";
 import { BrowserPool } from "../search-match-shared/browser-pool.js";
 import type {
   OpportunityProgressReporter,
@@ -71,7 +71,7 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
     return this.browsers.cancel(candidateId);
   }
 
-  /** Run search, requirement matching, and form inspection. */
+  /** Run search, match-stage route prevalidation, matching, then form inspection. */
   async run(
     workspace: JobSearchWorkspace,
     options: {
@@ -80,18 +80,36 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
       onProgress?: OpportunityProgressReporter;
     } = {},
   ): Promise<OpportunityResearchResult> {
-    const research = await this.researchAndAssess(workspace, options);
-    const inspection = research.opportunities.length
-      ? await this.inspectApplications(
+    const research = await this.research(workspace, options);
+    const viability = research.opportunities.length
+      ? await this.prevalidateForMatching(
           workspace,
           research.opportunities,
           options.onProgress,
         )
+      : { opportunities: [], failures: [] };
+    const assessment = viability.opportunities.length
+      ? await this.assess(workspace, viability.opportunities, options.onProgress)
+      : { opportunities: [], failures: [] };
+    const matched = Array.isArray(assessment)
+      ? { opportunities: assessment, failures: [] }
+      : assessment;
+    const inspection = matched.opportunities.length
+      ? await this.inspectApplications(
+          workspace,
+          matched.opportunities,
+          options.onProgress,
+        )
       : { applications: [], failures: [] };
     return {
-      opportunities: research.opportunities,
+      opportunities: matched.opportunities,
       applications: inspection.applications,
-      failures: [...(research.failures ?? []), ...inspection.failures],
+      failures: [
+        ...(research.failures ?? []),
+        ...viability.failures,
+        ...matched.failures,
+        ...inspection.failures,
+      ],
       seenUrls: research.seenUrls ?? [],
     };
   }
@@ -172,12 +190,12 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
     });
   }
 
-  precheckApplications(
+  prevalidateForMatching(
     workspace: JobSearchWorkspace,
     opportunities: JobOpportunity[],
     onProgress?: OpportunityProgressReporter,
   ) {
-    return precheckOpportunityApplications({
+    return prevalidateOpportunitiesForMatching({
       codex: this.codex,
       cwd: this.cwd,
       browsers: this.browsers,

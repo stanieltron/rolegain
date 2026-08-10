@@ -176,9 +176,13 @@ export const prepareSearchReadyApplications = () =>
   workspacePost("/api/job-search/prepare-ready", {});
 export const findMoreApplications = () =>
   workspacePost("/api/job-search/find-more", {});
+export const reinspectApplications = (jobIds?: string[]) =>
+  workspacePost("/api/job-search/reinspect-applications", { jobIds });
 export const updateSearchConfig = (body: {
   discoveryTarget: number;
   applicationTarget: number;
+  minimumMatchScore?: number;
+  developerMode?: boolean;
 }) => workspacePost("/api/job-search/search-config", body);
 export const addOpportunity = (
   body: Pick<JobOpportunity, "company" | "title" | "applyUrl"> &
@@ -232,6 +236,7 @@ export const setApplicationOutcome = (
   });
 async function get<T>(url: string): Promise<T> {
   const response = await fetch(url, {
+    cache: "no-store",
     headers: await authorizationHeader(),
   });
   if (!response.ok) throw new Error(await error(response));
@@ -284,6 +289,8 @@ function normalizeWorkspace(workspace: JobSearchWorkspace): JobSearchWorkspace {
   workspace.seenJobUrls ??= [];
   workspace.searchSourceBacklog ??= [];
   workspace.searchConfig ??= { discoveryTarget: 26, applicationTarget: 5 };
+  workspace.searchConfig.minimumMatchScore ??= 35;
+  workspace.searchConfig.developerMode ??= false;
   workspace.applications = (workspace.applications ?? []).map(
     (application) => ({
       ...application,

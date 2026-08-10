@@ -2,8 +2,79 @@ import type {
   SearchPipelineItem,
   SearchPipelineState,
 } from "../contracts/job-search.js";
+import {
+  preferPipelineItem,
+  samePipelineVacancy,
+} from "../search-match-shared/job-identity.js";
 
 export type PipelineDisplayStage = "validation" | "match" | "application";
+
+export function coalescePipelineItems(items: SearchPipelineItem[]) {
+  const result: SearchPipelineItem[] = [];
+  for (const candidate of items) {
+    const existingIndex = result.findIndex(
+      (item) => item.id === candidate.id || samePipelineVacancy(item, candidate),
+    );
+    if (existingIndex < 0) {
+      result.push(candidate);
+      continue;
+    }
+    const existing = result[existingIndex];
+    result[existingIndex] =
+      existing.id === candidate.id
+        ? candidate
+        : preferPipelineItem(existing, candidate);
+  }
+  return result;
+}
+
+export function isManualReviewPipelineItem(item: SearchPipelineItem) {
+  return item.validationDisposition === "manual_review";
+}
+
+export function isLowMatchPipelineItem(
+  item: SearchPipelineItem,
+  minimumMatchScore: number,
+) {
+  return (
+    pipelineDisplayStage(item) === "match" &&
+    item.match === "passed" &&
+    typeof item.fit === "number" &&
+    item.fit < minimumMatchScore
+  );
+}
+
+/**
+ * Normal mode is an action-oriented view: terminal diagnostics disappear,
+ * except for manual-review and below-threshold jobs the candidate can choose
+ * to promote. Developer mode preserves the complete state-machine history.
+ */
+export function pipelineItemVisible(
+  item: SearchPipelineItem,
+  stage: PipelineDisplayStage,
+  developerMode: boolean,
+  minimumMatchScore: number,
+) {
+  if (developerMode) return true;
+  if (stage !== "application" && isManualReviewPipelineItem(item)) return true;
+  if (stage === "match" && isLowMatchPipelineItem(item, minimumMatchScore))
+    return true;
+
+  const state =
+    stage === "validation"
+      ? item.validation
+      : stage === "match"
+        ? item.match
+        : applicationOutcomeState(item);
+  if (state === "failed" || state === "bench") return false;
+  if (stage === "match" && item.application === "bench") return false;
+  if (
+    stage === "application" &&
+    (item.application === "bench" || item.applicationVerification === "bench")
+  )
+    return false;
+  return true;
+}
 
 export function isApplicationAttempt(item: SearchPipelineItem) {
   return (
@@ -44,7 +115,11 @@ export function settlePipelineItemForDisplay(
     validation: item.validation === "running" ? "bench" : item.validation,
     match: item.match === "running" ? "bench" : item.match,
     application:
-      item.application === "running" ? "failed" : item.application,
+      item.application === "running"
+        ? "failed"
+        : item.application === "waiting" && item.match === "passed"
+          ? "bench"
+          : item.application,
     applicationVerification:
       item.applicationVerification === "running"
         ? "failed"

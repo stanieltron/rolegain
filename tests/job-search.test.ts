@@ -17,6 +17,7 @@ import type {
   JobSearchWorkspace,
 } from "../src/contracts/job-search.js";
 import type { CoverLetterWriter } from "../src/04-application-preparation/types.js";
+import type { CandidateAnalyzer } from "../src/01-evidence-ingestion/types.js";
 import { compatibleCandidateValue } from "../src/search-match-shared/candidate-facts.js";
 import {
   calculateOpportunityConfidence,
@@ -246,7 +247,28 @@ describe("job-search lifecycle", () => {
     ).toBe(20);
   });
 
-  it("checks application reachability before starting requirement matching", async () => {
+  it("persists pipeline display mode and the automatic application threshold", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-search-settings-"));
+    const service = serviceFor(root);
+    await service.initialize();
+
+    const updated = await service.updateSearchConfig({
+      minimumMatchScore: 70,
+      developerMode: true,
+    });
+    expect(updated.searchConfig).toMatchObject({
+      discoveryTarget: 26,
+      applicationTarget: 5,
+      minimumMatchScore: 70,
+      developerMode: true,
+    });
+
+    const reloaded = await service.get();
+    expect(reloaded.searchConfig.minimumMatchScore).toBe(70);
+    expect(reloaded.searchConfig.developerMode).toBe(true);
+  });
+
+  it("keeps application-route prevalidation in Match & rank before requirement matching", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "rolegain-form-precheck-"));
     const jobs: JobOpportunity[] = ["reachable-1", "blocked", "reachable-2"].map(
       (id, index) => ({
@@ -271,12 +293,49 @@ describe("job-search lifecycle", () => {
     const events: string[] = [];
     const assessedIds: string[] = [];
     const research = {
-      async research() {
+      async research(
+        _workspace: JobSearchWorkspace,
+        options?: {
+          onProgress?: (
+            update: import("../src/search-match-shared/types.js").OpportunityProgressUpdate,
+          ) => void | Promise<void>;
+        },
+      ) {
         events.push("search");
+        for (const job of jobs)
+          await options?.onProgress?.({
+            item: {
+              id: job.id,
+              company: job.company,
+              title: job.title,
+              sourceUrl: job.sourceUrl,
+            },
+            phase: "validation",
+            state: "passed",
+          });
         return { opportunities: jobs, applications: [], failures: [] };
       },
-      async precheckApplications() {
-        events.push("precheck");
+      async prevalidateForMatching(
+        _workspace: JobSearchWorkspace,
+        opportunities: JobOpportunity[],
+        onProgress?: (update: import("../src/search-match-shared/types.js").OpportunityProgressUpdate) => void | Promise<void>,
+      ) {
+        events.push("prevalidate");
+        for (const job of opportunities)
+          await onProgress?.({
+            item: {
+              id: job.id,
+              company: job.company,
+              title: job.title,
+              sourceUrl: job.sourceUrl,
+            },
+            phase: "match",
+            state: job.id === "blocked" ? "failed" : "running",
+            reason:
+              job.id === "blocked"
+                ? "No reachable employer application form was found"
+                : undefined,
+          });
         return {
           opportunities: jobs.filter((job) => job.id !== "blocked"),
           failures: [
@@ -287,7 +346,7 @@ describe("job-search lifecycle", () => {
               location: "Remote",
               sourceUrl: jobs[1].sourceUrl,
               applyUrl: jobs[1].applyUrl,
-              stage: "form" as const,
+              stage: "match_prevalidation" as const,
               reason: "No reachable employer application form was found",
               capturedAt: "2026-08-10T00:00:00.000Z",
             },
@@ -298,7 +357,7 @@ describe("job-search lifecycle", () => {
         _workspace: JobSearchWorkspace,
         opportunities: JobOpportunity[],
       ) {
-        expect(events).toContain("precheck");
+        expect(events).toContain("prevalidate");
         assessedIds.push(...opportunities.map((job) => job.id));
         events.push(`match:${opportunities[0].id}`);
         return opportunities;
@@ -307,6 +366,7 @@ describe("job-search lifecycle", () => {
         workspace: JobSearchWorkspace,
         opportunities: JobOpportunity[],
       ) {
+        events.push(`inspect:${opportunities[0].id}`);
         return {
           applications: opportunities.map((job): ApplicationDraft => ({
             id: `app-${job.id}`,
@@ -363,10 +423,22 @@ describe("job-search lifecycle", () => {
     const result = await service.prepareApplications();
 
     expect(events[0]).toBe("search");
-    expect(events[1]).toBe("precheck");
+    expect(events[1]).toBe("prevalidate");
     expect(assessedIds.sort()).toEqual(["reachable-1", "reachable-2"]);
+    expect(events.findIndex((event) => event.startsWith("inspect:"))).toBeGreaterThan(
+      Math.max(
+        events.findIndex((event) => event === "match:reachable-1"),
+        events.findIndex((event) => event === "match:reachable-2"),
+      ),
+    );
     expect(result.applications.filter((item) => item.addedBy === "agent")).toHaveLength(2);
     expect(result.searchValidationIssues.some((item) => item.id === "blocked")).toBe(true);
+    expect(result.jobHistory.find((item) => item.id === "blocked")).toMatchObject({
+      validation: "passed",
+      match: "failed",
+      application: "waiting",
+      applicationVerification: "waiting",
+    });
   });
 
   it("isolates parallel matching and application-verification failures per job", async () => {
@@ -1448,6 +1520,78 @@ describe("job-search lifecycle", () => {
       .toHaveLength(3);
   });
 
+  it("moves an unverifiable job into manual tracking without automation", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-manual-track-"));
+    const seedService = new JobSearchService(root);
+    await seedService.initialize();
+    const seed = await seedService.get();
+    seed.searchValidationIssues = [
+      {
+        id: "manual-job",
+        jobNumber: 21,
+        company: "Manual Employer",
+        title: "Protocol Engineer",
+        location: "Remote",
+        sourceUrl: "https://jobs.example.test/manual-job",
+        applyUrl: "https://jobs.example.test/manual-job/apply",
+        stage: "vacancy_validation",
+        reason: "Employer page remained inaccessible after live recovery",
+        disposition: "manual_review",
+        capturedAt: "2026-08-10T00:00:00.000Z",
+      },
+    ];
+    await writeFile(
+      path.join(root, "job-search", "candidates", "candidate-1.json"),
+      `${JSON.stringify(seed, null, 2)}\n`,
+      "utf8",
+    );
+
+    let inspectionCalls = 0;
+    let draftingCalls = 0;
+    const service = new JobSearchService(
+      root,
+      undefined,
+      {
+        async research() {
+          return { opportunities: [], applications: [], failures: [] };
+        },
+        async inspectApplications() {
+          inspectionCalls += 1;
+          throw new Error("Manual tracking must not inspect the form");
+        },
+      },
+      {
+        ...deterministicCoverLetterWriter,
+        async draft() {
+          draftingCalls += 1;
+          throw new Error("Manual tracking must not call the LLM");
+        },
+      },
+    );
+    await service.initialize();
+
+    const promoted = await service.promoteOpportunity("manual-job");
+    const application = promoted.applications.find(
+      (candidate) => candidate.jobId === "manual-job",
+    );
+    expect(inspectionCalls).toBe(0);
+    expect(draftingCalls).toBe(0);
+    expect(application).toMatchObject({
+      addedBy: "user",
+      liveFormValidated: false,
+      status: "needs_input",
+    });
+    expect(application?.missingQuestions).toContain(
+      "Employer form requires manual review",
+    );
+    expect(promoted.jobHistory.find((item) => item.id === "manual-job"))
+      .toMatchObject({
+        application: "selected",
+        reason:
+          "Unable to verify automatically; moved to Applications for manual review",
+      });
+  });
+
   it("inspects eight applications at once, publishes five successes, and benches overflow", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "rolegain-refill-quota-"));
     let researchCalls = 0;
@@ -2073,6 +2217,55 @@ describe("job-search lifecycle", () => {
     ).toEqual({ version: 2, nextJobNumber: 1, byKey: {} });
   });
 
+  it("cancels and drains active candidate analysis before resetting the user", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-reset-active-user-"));
+    let analysisStarted!: () => void;
+    let releaseAnalysis!: () => void;
+    const started = new Promise<void>((resolve) => {
+      analysisStarted = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseAnalysis = resolve;
+    });
+    const analyzer: CandidateAnalyzer = {
+      analyze: async (workspace) => {
+        analysisStarted();
+        await released;
+        return {
+          threadId: "late-analysis",
+          profile: {
+            ...workspace.profile,
+            headline: "This late result must be discarded",
+          },
+          sourceInsights: workspace.sources.map((source) => ({
+            sourceId: source.id,
+            insights: [],
+            knowledgeMarkdown: "Late analysis output",
+          })),
+        };
+      },
+    };
+    const service = new JobSearchService(root, analyzer);
+    await service.initialize();
+    await service.addSource({
+      kind: "cv",
+      name: "active-cv.txt",
+      content: "Active Candidate\nactive@example.test\nPlatform engineer",
+    });
+    service.queueCandidateAnalysis("candidate-1");
+    await started;
+
+    const resetting = service.resetUserCompletely();
+    releaseAnalysis();
+    const reset = await resetting;
+
+    expect(reset.phase).toBe("intake");
+    expect(reset.profile.headline).toBe("");
+    expect(reset.sources).toEqual([]);
+    expect(reset.intelligence.status).toBe("idle");
+    expect((await service.get()).profile.headline).toBe("");
+  });
+
   it("retains failed vacancy links and reasons even when nothing passes", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "rolegain-failures-"));
     const failure: JobResearchFailure = {
@@ -2323,6 +2516,65 @@ describe("job-search lifecycle", () => {
     expect(
       coalesceSearchVerificationSeeds([boardRecord, canonicalRecord]),
     ).toEqual([canonicalRecord]);
+  });
+
+  it("repairs stale Greenhouse hostname duplicates in persisted pipeline history", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-pipeline-alias-"));
+    const seedService = new JobSearchService(root);
+    await seedService.initialize();
+    const seed = await seedService.get();
+    const template = (await deterministicResearch.research(seed)).opportunities[0];
+    const canonical: JobOpportunity = {
+      ...template,
+      id: "canonical-alpha",
+      jobNumber: 38,
+      company: "Defuse Labs",
+      title: "Alpha Researcher",
+      sourceUrl:
+        "https://job-boards.greenhouse.io/defuselabs/jobs/4942035101",
+      applyUrl:
+        "https://job-boards.greenhouse.io/defuselabs/jobs/4942035101",
+    };
+    const distinct: JobOpportunity = {
+      ...canonical,
+      id: "distinct-alpha",
+      jobNumber: 39,
+      location: "Europe",
+      sourceUrl:
+        "https://job-boards.greenhouse.io/defuselabs/jobs/4942035102",
+      applyUrl:
+        "https://job-boards.greenhouse.io/defuselabs/jobs/4942035102",
+    };
+    seed.opportunities = [canonical, distinct];
+    seed.jobHistory = [
+      {
+        id: "legacy-alpha",
+        jobNumber: 8,
+        company: "Defuse Labs",
+        title: "Alpha Researcher",
+        sourceUrl: "https://boards.greenhouse.io/defuselabs/jobs/4942035101",
+        validation: "passed",
+        match: "waiting",
+        application: "waiting",
+        applicationVerification: "waiting",
+      },
+    ];
+    await writeFile(
+      path.join(root, "job-search", "candidates", "candidate-1.json"),
+      `${JSON.stringify(seed, null, 2)}\n`,
+      "utf8",
+    );
+
+    const normalized = await new JobSearchService(root).get();
+    const alphaItems = normalized.jobHistory.filter(
+      (candidate) => candidate.title === "Alpha Researcher",
+    );
+    expect(alphaItems.map((candidate) => candidate.id)).toEqual([
+      "distinct-alpha",
+      "canonical-alpha",
+    ]);
+    expect(alphaItems.find((candidate) => candidate.id === "canonical-alpha"))
+      .toMatchObject({ jobNumber: 38, match: "passed" });
   });
 
   it("keeps permanent job numbers across service restarts", async () => {
@@ -2621,7 +2873,7 @@ describe("job-search lifecycle", () => {
     ]);
   });
 
-  it("uses raw evidence fit rather than calibrated display fit for application eligibility", () => {
+  it("uses the visible match score and user threshold for application eligibility", () => {
     const [eligible, calibratedOnly] = [
       { id: "eligible", fit: 90, rawEvidenceFit: 60 },
       { id: "calibrated-only", fit: 70, rawEvidenceFit: 30 },
@@ -2652,10 +2904,15 @@ describe("job-search lifecycle", () => {
       },
     })) as JobOpportunity[];
     expect(
-      selectPhase2ApplicationPortfolio([eligible, calibratedOnly], 2).map(
+      selectPhase2ApplicationPortfolio([eligible, calibratedOnly], 2, 75).map(
         (job) => job.id,
       ),
     ).toEqual(["eligible"]);
+    expect(
+      selectPhase2ApplicationPortfolio([eligible, calibratedOnly], 2, 65).map(
+        (job) => job.id,
+      ),
+    ).toEqual(["eligible", "calibrated-only"]);
   });
 
   it("accepts affirmative remote vacancies for a remote candidate without using current residence", async () => {

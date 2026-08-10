@@ -253,6 +253,7 @@ describe.sequential("administrator HTTP surface", () => {
     expect(paused.status).toBe(200);
 
     const service = await fetch(`${base}/api/service-status`);
+    expect(service.headers.get("cache-control")).toBe("private, no-store");
     expect(await service.json()).toMatchObject({ codexEnabled: false });
 
     const blocked = await fetch(`${base}/api/job-search/analyze`, {

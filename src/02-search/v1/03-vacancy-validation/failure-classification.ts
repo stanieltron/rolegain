@@ -22,6 +22,8 @@ export function classifySearchValidationFailure(
 
   if (stage === "form")
     return { disposition: "manual_review", reasonCode: "application_form" };
+  if (stage === "match_prevalidation")
+    return { disposition: "manual_review", reasonCode: "application_form" };
   if (stage === "requirements")
     return { disposition: "unresolved", reasonCode: "matching_verification" };
   if (stage === "expired")

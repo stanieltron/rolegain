@@ -52,6 +52,8 @@ export const sourceSchema = z
 export const searchConfigSchema = z.object({
   discoveryTarget: z.coerce.number().int().min(5).max(50),
   applicationTarget: z.coerce.number().int().min(1).max(10),
+  minimumMatchScore: z.coerce.number().int().min(0).max(100).optional(),
+  developerMode: z.boolean().optional(),
 });
 
 export const opportunitySchema = z.object({

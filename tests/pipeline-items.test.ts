@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { SearchPipelineItem } from "../src/contracts/job-search.js";
 import {
   applicationOutcomeState,
+  coalescePipelineItems,
   isApplicationAttempt,
+  isLowMatchPipelineItem,
+  isManualReviewPipelineItem,
   pipelineDisplayStage,
+  pipelineItemVisible,
   settlePipelineItemForDisplay,
   sortApplicationAttempts,
   sortPipelineRows,
@@ -24,6 +28,49 @@ const item = (
 });
 
 describe("pipeline application classification", () => {
+  it("collapses legacy and canonical Greenhouse records onto the completed job", () => {
+    const legacy = item({
+      id: "legacy-alpha",
+      jobNumber: 8,
+      company: "Defuse Labs",
+      title: "Alpha Researcher",
+      sourceUrl: "https://boards.greenhouse.io/defuselabs/jobs/4942035101",
+      match: "waiting",
+      application: "waiting",
+    });
+    const canonical = item({
+      id: "canonical-alpha",
+      jobNumber: 38,
+      company: "Defuse Labs",
+      title: "Alpha Researcher",
+      sourceUrl:
+        "https://job-boards.greenhouse.io/defuselabs/jobs/4942035101",
+      application: "passed",
+      applicationVerification: "passed",
+      applicationReady: true,
+    });
+
+    expect(coalescePipelineItems([canonical, legacy])).toEqual([canonical]);
+  });
+
+  it("keeps distinct same-title Greenhouse vacancies separate", () => {
+    const first = item({
+      id: "alpha-one",
+      company: "Defuse Labs",
+      title: "Alpha Researcher",
+      sourceUrl: "https://boards.greenhouse.io/defuselabs/jobs/4942035101",
+    });
+    const second = item({
+      id: "alpha-two",
+      company: "Defuse Labs",
+      title: "Alpha Researcher",
+      sourceUrl:
+        "https://job-boards.greenhouse.io/defuselabs/jobs/4942035102",
+    });
+
+    expect(coalescePipelineItems([first, second])).toEqual([first, second]);
+  });
+
   it("moves selected and failed application attempts out of matching", () => {
     const failed = item({
       application: "failed",
@@ -42,6 +89,12 @@ describe("pipeline application classification", () => {
     const stale = item({ match: "running" });
     expect(settlePipelineItemForDisplay(stale, true).match).toBe("bench");
     expect(settlePipelineItemForDisplay(stale, false).match).toBe("running");
+    expect(
+      settlePipelineItemForDisplay(
+        item({ application: "waiting", match: "passed" }),
+        true,
+      ).application,
+    ).toBe("bench");
   });
 
   it("places failed application attempts after ready and active attempts", () => {
@@ -81,6 +134,47 @@ describe("pipeline application classification", () => {
         item({ application: "failed", applicationVerification: "failed" }),
       ),
     ).toBe("application");
+  });
+
+  it("hides terminal failures and benches outside developer mode", () => {
+    const failedApplication = item({
+      application: "failed",
+      applicationVerification: "failed",
+    });
+    expect(
+      pipelineItemVisible(failedApplication, "application", false, 70),
+    ).toBe(false);
+    expect(
+      pipelineItemVisible(failedApplication, "application", true, 70),
+    ).toBe(true);
+    expect(pipelineItemVisible(item(), "match", false, 70)).toBe(false);
+  });
+
+  it("keeps manual-review and below-threshold matches actionable", () => {
+    const manualReview = item({
+      validation: "failed",
+      match: "waiting",
+      application: "waiting",
+      validationDisposition: "manual_review",
+    });
+    const lowMatch = item({ fit: 64 });
+    expect(isManualReviewPipelineItem(manualReview)).toBe(true);
+    expect(
+      pipelineItemVisible(manualReview, "validation", false, 70),
+    ).toBe(true);
+    expect(isLowMatchPipelineItem(lowMatch, 70)).toBe(true);
+    expect(pipelineItemVisible(lowMatch, "match", false, 70)).toBe(true);
+  });
+
+  it("does not expose failed application mapping as a normal-mode manual review", () => {
+    const failedMapping = item({
+      application: "failed",
+      applicationVerification: "failed",
+      validationDisposition: "manual_review",
+    });
+    expect(
+      pipelineItemVisible(failedMapping, "application", false, 70),
+    ).toBe(false);
   });
 
   it("sorts by current run, then success, then ascending job number", () => {

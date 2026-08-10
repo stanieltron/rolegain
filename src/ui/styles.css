@@ -182,6 +182,47 @@ button {
   margin: 0 2px 9px;
   font-size: 12px;
 }
+.settings-section {
+  border-bottom: 1px solid var(--rg-color-border);
+  display: grid;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 0 2px 12px;
+}
+.settings-toggle,
+.settings-threshold {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+.settings-toggle > span,
+.settings-threshold > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.settings-toggle strong,
+.settings-threshold strong {
+  font-size: 10px;
+}
+.settings-popover .settings-section small {
+  margin: 0;
+  font-size: 8px;
+}
+.settings-toggle input {
+  accent-color: #2565b1;
+  flex: 0 0 auto;
+}
+.settings-threshold select {
+  border: var(--rg-border-width) solid var(--rg-color-border);
+  border-radius: var(--rg-radius-md);
+  background: var(--rg-color-surface);
+  color: var(--rg-color-ink);
+  flex: 0 0 66px;
+  font-size: 10px;
+  padding: 6px;
+}
 .reset-user-action {
   width: 100%;
   border: 1px solid #f0c6c6;
@@ -1733,17 +1774,34 @@ main {
   min-height: 49px;
   padding: 7px;
 }
-.pipeline-job a { color: inherit; display: flex; flex-direction: column; min-width: 0; text-decoration: none; }
-.pipeline-job a:hover strong { color: #2565b1; }
+.pipeline-job a,
+.pipeline-job-open {
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-decoration: none;
+}
+.pipeline-job-open {
+  background: transparent;
+  border: 0;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+}
+.pipeline-job a:hover strong,
+.pipeline-job-open:hover strong { color: #2565b1; }
 .pipeline-job strong,
 .pipeline-job a > span,
+.pipeline-job-open > span,
 .pipeline-job small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .pipeline-job strong { color: #303a40; font-size: 9px; }
-.pipeline-job a > span { color: #758087; font-size: 8px; margin-top: 2px; }
+.pipeline-job a > span,
+.pipeline-job-open > span { color: #758087; font-size: 8px; margin-top: 2px; }
 .pipeline-job em {
   color: #236a46;
   font-size: 8px;
@@ -1752,6 +1810,23 @@ main {
   margin-top: 4px;
 }
 .pipeline-job small { color: #a7463b; font-size: 8px; margin-top: 4px; }
+.pipeline-job .pipeline-action-reason { color: #9a6415; white-space: normal; }
+.pipeline-job .pipeline-unable-status { color: #a7463b; }
+.pipeline-promote-action {
+  align-items: center;
+  background: #fff8e8;
+  border: 1px solid #e7c67e;
+  border-radius: 4px;
+  color: #7f5817;
+  display: inline-flex;
+  font-size: 8px;
+  font-weight: 750;
+  gap: 4px;
+  grid-column: 2;
+  justify-self: start;
+  padding: 4px 6px;
+}
+.pipeline-promote-action:hover { background: #fff1ce; }
 .pipeline-state-icon { color: #8a949a; display: grid; height: 15px; place-items: center; width: 15px; }
 .pipeline-job.state-running { border-left-color: #2b71d1; background: #f7faff; }
 .pipeline-job.state-running .pipeline-state-icon { color: #2b71d1; }
@@ -1763,6 +1838,140 @@ main {
 .pipeline-job.state-bench .pipeline-state-icon { color: #a66a16; }
 .pipeline-job.state-selected { border-left-color: #7a5bcc; background: #faf8ff; }
 .pipeline-job.state-selected .pipeline-state-icon { color: #6748b7; }
+.pipeline-details-backdrop {
+  align-items: flex-start;
+  background: rgba(24, 31, 36, 0.54);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 42px 18px;
+  position: fixed;
+  z-index: 40;
+}
+.pipeline-details-dialog {
+  background: #fff;
+  border-radius: 9px;
+  box-shadow: 0 24px 70px rgba(17, 24, 29, 0.28);
+  display: grid;
+  gap: 14px;
+  max-width: 760px;
+  padding: 18px;
+  width: 100%;
+}
+.pipeline-details-toolbar {
+  align-items: center;
+  border-bottom: 1px solid #e3e7e9;
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 12px;
+}
+.pipeline-details-toolbar a {
+  align-items: center;
+  color: #245f9f;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 750;
+  gap: 6px;
+  text-decoration: none;
+}
+.pipeline-details-toolbar button {
+  background: transparent;
+  border: 0;
+  color: #5e6970;
+  display: grid;
+  padding: 4px;
+  place-items: center;
+}
+.pipeline-details-heading {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto 1fr;
+}
+.pipeline-details-heading > span {
+  background: #edf2f5;
+  border-radius: 14px;
+  color: #51616b;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 6px 9px;
+}
+.pipeline-details-heading small {
+  color: #68747b;
+  font-size: 10px;
+  font-weight: 700;
+}
+.pipeline-details-heading h2 {
+  font-size: 20px;
+  margin: 3px 0 8px;
+}
+.pipeline-details-warning {
+  align-items: flex-start;
+  background: #fff5f2;
+  border: 1px solid #ebc0b9;
+  color: #a14339;
+  display: flex;
+  gap: 9px;
+  padding: 11px 12px;
+}
+.pipeline-details-warning.low-match {
+  background: #fff9eb;
+  border-color: #ead39d;
+  color: #8d6218;
+}
+.pipeline-details-warning > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pipeline-details-warning strong { font-size: 11px; }
+.pipeline-details-warning small { color: inherit; font-size: 9px; line-height: 1.45; }
+.pipeline-details-reason,
+.pipeline-details-summary {
+  color: #526068;
+  font-size: 10px;
+  line-height: 1.55;
+  margin: 0;
+}
+.pipeline-details-reason {
+  background: #f6f8f9;
+  border-left: 3px solid #aeb9c0;
+  padding: 9px 11px;
+}
+.pipeline-details-description {
+  border: 1px solid #e0e4e6;
+  font-size: 10px;
+  padding: 10px 12px;
+}
+.pipeline-details-description summary { cursor: pointer; font-weight: 750; }
+.pipeline-details-description p { line-height: 1.55; white-space: pre-wrap; }
+.pipeline-details-actions {
+  align-items: center;
+  border-top: 1px solid #e3e7e9;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding-top: 14px;
+}
+.pipeline-details-actions > span {
+  color: #66737b;
+  font-size: 9px;
+  line-height: 1.45;
+  max-width: 430px;
+}
+.pipeline-details-actions button {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+.manual-application-note {
+  color: #6d7880;
+  display: block;
+  font-size: 9px;
+  margin-top: 4px;
+}
 .pipeline-placeholder { align-items: center; border-left-color: #d9dee1; color: #a5adb2; grid-template-columns: 20px 1fr; }
 .pipeline-placeholder > span { font-size: 8px; font-weight: 750; }
 .pipeline-placeholder > div { display: grid; gap: 5px; }

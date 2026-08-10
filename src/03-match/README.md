@@ -6,7 +6,8 @@
 [Next pipeline](../04-application-preparation/README.md)
 
 Match consumes live validated opportunities and the exact canonical evidence
-run, including its small evidence knowledge base. The knowledge index routes
+run, including its small evidence knowledge base. Match first prevalidates that
+the employer application route is reachable, then the knowledge index routes
 broad vacancy wording to bounded topic and source context; canonical claims
 remain the only scoring authority. Match scores requirement fit, independently
 verifies and repairs the matrix in v1, or uses the calibrated one-pass matcher
@@ -27,7 +28,7 @@ v2, and search v2 together. See the
 | [`v2/`](./v2/README.md) | Version-pinned calibrated one-pass matching | `index.ts`, `contracts.ts`, `schemas.ts`, `README.md` |
 | [`shared/01-requirement-matching/`](./shared/01-requirement-matching/README.md) | Shared deterministic citation, scoring, and call mechanics | Internal shared implementation |
 | [`02-application-inspection/`](./02-application-inspection/README.md) | Navigate employer application paths and verify observed form schemas | Hybrid |
-| [`orchestration/`](./orchestration/README.md) | Stream validated vacancies into bounded matching workers | Deterministic |
+| [`orchestration/`](./orchestration/README.md) | Prevalidate application reachability inside Match & rank, then stream vacancies into bounded matching workers | Deterministic |
 | [`opportunity-researcher.ts`](./opportunity-researcher.ts) | Compatibility facade that composes search plus match for product flows | Deterministic composition |
 
 The reusable search/match types and deterministic helpers live in

@@ -13,6 +13,10 @@ audits that mapping. It never submits the form.
 `LiveOpportunityResearcher.inspectApplications()` calls it after requirement
 matching and portfolio selection.
 
+The earlier match-stage reachability gate is not application inspection. It
+only confirms that an employer application route can be reached and never
+extracts, maps, or fills form fields.
+
 ## Internal flow
 
 ```mermaid

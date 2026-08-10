@@ -134,10 +134,7 @@ export async function routeRequest(
   if (
     request.method === "POST" &&
     dependencies.configuration.authMode === "supabase" &&
-    (
-      pathname === "/api/job-search/reset-user" ||
-      pathname === "/api/job-search/reset-jobs"
-    )
+    pathname === "/api/job-search/reset-jobs"
   )
     await dependencies.platform.assertLlmAllowance(userId);
   if (request.method === "GET" && pathname === "/api/workflows/events") {
@@ -247,12 +244,7 @@ export async function routeRequest(
     request.method === "POST" &&
     pathname === "/api/job-search/background/stop"
   ) {
-    if (dependencies.workflows) await dependencies.workflows.cancel(userId);
-    else {
-      const stopping = dependencies.jobSearch.stopBackgroundWork(userId);
-      await dependencies.codex.pauseTurnsForUser(userId);
-      await stopping;
-    }
+    await cancelBackgroundWork(dependencies, userId);
     let workspace = await dependencies.jobSearch.get(userId);
     if (dependencies.workflows)
       workspace = attachWorkflowExecution(
@@ -572,6 +564,8 @@ export async function routeRequest(
     request.method === "POST" &&
     pathname === "/api/job-search/reset-user"
   ) {
+    await cancelBackgroundWork(dependencies, userId);
+    await dependencies.workflows?.purgeUserJobs(userId);
     const workspace = await dependencies.jobSearch.resetUserCompletely(userId);
     await dependencies.artifacts.delete(userId);
     sendJson(response, 200, workspace);
@@ -608,6 +602,21 @@ export async function routeRequest(
   }
   if (
     request.method === "POST" &&
+    pathname === "/api/job-search/reinspect-applications"
+  ) {
+    const body = await readJson(request);
+    const jobIds = Array.isArray(body.jobIds)
+      ? body.jobIds.filter((value): value is string => typeof value === "string")
+      : undefined;
+    sendJson(
+      response,
+      200,
+      await dependencies.jobSearch.reinspectApplications(userId, jobIds),
+    );
+    return;
+  }
+  if (
+    request.method === "POST" &&
     pathname === "/api/job-search/search-config"
   ) {
     const body = validate(searchConfigSchema, await readJson(request));
@@ -620,6 +629,8 @@ export async function routeRequest(
           dependencies.configuration.authMode === "supabase"
             ? 5
             : body.applicationTarget,
+        minimumMatchScore: body.minimumMatchScore,
+        developerMode: body.developerMode,
       }, userId),
     );
     return;
@@ -628,18 +639,10 @@ export async function routeRequest(
     request.method === "POST" &&
     pathname === "/api/job-search/opportunities"
   ) {
-    if (dependencies.configuration.authMode === "supabase")
-      await dependencies.platform.assertApplicationAvailable(userId);
     const body = validate(opportunitySchema, await readJson(request));
     const workspace = await dependencies.jobSearch.addOpportunity(
       body as never,
       userId,
-    );
-    await dependencies.platform.recordApplications(
-      userId,
-      workspace.applications
-        .filter((application) => Boolean(application.addedBy))
-        .map((application) => application.id),
     );
     sendJson(
       response,
@@ -652,17 +655,9 @@ export async function routeRequest(
     /^\/api\/job-search\/opportunities\/([a-z0-9-]+)\/promote$/i,
   );
   if (request.method === "POST" && promoteOpportunityMatch) {
-    if (dependencies.configuration.authMode === "supabase")
-      await dependencies.platform.assertApplicationAvailable(userId);
     const workspace = await dependencies.jobSearch.promoteOpportunity(
       promoteOpportunityMatch[1],
       userId,
-    );
-    await dependencies.platform.recordApplications(
-      userId,
-      workspace.applications
-        .filter((application) => Boolean(application.addedBy))
-        .map((application) => application.id),
     );
     sendJson(
       response,
@@ -813,6 +808,22 @@ export async function routeRequest(
   );
 }
 
+async function cancelBackgroundWork(
+  dependencies: RouteDependencies,
+  userId: string,
+): Promise<void> {
+  if (dependencies.workflows) {
+    await dependencies.workflows.cancel(userId);
+    return;
+  }
+  // Start the service drain before terminating the model process so its
+  // stopped snapshot is already guarding against late writes when the turn
+  // rejects.
+  const stopping = dependencies.jobSearch.stopBackgroundWork(userId);
+  await dependencies.codex.pauseTurnsForUser(userId);
+  await stopping;
+}
+
 async function resumePausedWorkIfPresent(
   response: ServerResponse,
   dependencies: RouteDependencies,
@@ -888,6 +899,7 @@ function codexRequiredPath(pathname: string) {
     pathname === "/api/job-search/prepare" ||
     pathname === "/api/job-search/prepare-ready" ||
     pathname === "/api/job-search/find-more" ||
+    pathname === "/api/job-search/reinspect-applications" ||
     pathname === "/api/job-search/background/continue" ||
     pathname === "/api/job-search/opportunities" ||
     /^\/api\/job-search\/opportunities\/[^/]+\/promote$/i.test(pathname) ||

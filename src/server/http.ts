@@ -29,6 +29,7 @@ export function sendJson(
   if (response.headersSent) return;
   response.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "private, no-store",
   });
   response.end(JSON.stringify(body));
 }

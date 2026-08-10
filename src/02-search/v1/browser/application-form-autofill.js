@@ -37,7 +37,9 @@
       .then((response) => (response.ok ? response.json() : null))
       .catch(() => null);
     if (!payload?.fields) return;
+    await revealEmployerForm(payload.fields);
     await waitForEmployerForm(payload.fields);
+    assignRenderedControlIds();
     let filled = 0;
     const failures = [];
     for (const field of payload.fields) {
@@ -45,7 +47,8 @@
       if (await fillField(field)) filled += 1;
       else failures.push(field.label || field.externalName || field.id);
     }
-    if (payload.cv && await attachCv(payload.cv)) filled += 1;
+    const cvField = payload.fields.find((field) => field.canonicalKey === "cv");
+    if (payload.cv && await attachCv(payload.cv, cvField)) filled += 1;
     else if (payload.fields.some((field) => field.canonicalKey === "cv"))
       failures.push("Resume/CV");
     document.documentElement.dataset.rolegainFilled = String(filled);
@@ -58,10 +61,17 @@
       .map((field) => field.externalName)
       .filter(Boolean);
     while (Date.now() < deadline) {
+      assignRenderedControlIds();
       const found = externalNames.length
         ? externalNames.some((name) =>
             document.querySelector(
               `[data-field-path="${CSS.escape(name)}"]`,
+            ),
+          ) || fields.some((field) =>
+            (field.browserControlIds || []).some((id) =>
+              document.querySelector(
+                `[data-rolegain-control-id="${CSS.escape(id)}"]`,
+              ),
             ),
           )
         : document.querySelector("form input, form textarea, form select");
@@ -148,9 +158,9 @@
       return true;
     }
 
-    const combobox = direct?.matches('[role="combobox"]')
+    const combobox = direct?.matches('[role="combobox"], .multiselect')
       ? direct
-      : root.querySelector('[role="combobox"]');
+      : root.querySelector('[role="combobox"], .multiselect');
     if (combobox && await fillCombobox(combobox, root, field.value)) return true;
 
     if (field.type === "select") {
@@ -197,6 +207,26 @@
   }
 
   function findControl(field) {
+    assignRenderedControlIds();
+    const rendered = (field.browserControlIds || [])
+      .map((id) =>
+        document.querySelector(
+          `[data-rolegain-control-id="${CSS.escape(id)}"]`,
+        ),
+      )
+      .filter(Boolean);
+    if (rendered.length) {
+      const compatible = rendered.find((control) => {
+        if (field.type === "file") return control.matches('input[type="file"]');
+        if (field.type === "textarea")
+          return control.matches('textarea, [contenteditable="true"]');
+        if (field.type === "select")
+          return control.matches('select, [role="combobox"], .multiselect');
+        return !control.matches('input[type="file"]');
+      });
+      if (compatible) return compatible;
+      return rendered[0];
+    }
     const external = String(field.externalName || "").trim();
     if (external) {
       const byDataPath = document.querySelector(
@@ -211,7 +241,7 @@
       if (byId?.matches("input, textarea, select, [role=combobox]")) return byId;
     }
     const expected = normalize(field.label || external);
-    return [...document.querySelectorAll("input, textarea, select, [role=combobox]")].find(
+    return [...document.querySelectorAll("input, textarea, select, [role=combobox], .multiselect[tabindex]")].find(
       (control) => normalize(controlLabel(control)) === expected,
     );
   }
@@ -224,12 +254,19 @@
       .split(/\s+/)
       .map((id) => document.getElementById(id)?.textContent || "")
       .join(" ");
+    const fieldRoot = control.closest(
+      '[data-field-path], fieldset, .form-group, .form-field, [class*="question"], [class*="field"]',
+    );
+    const contextual = fieldRoot?.querySelector(
+      '.ashby-application-form-question-title, legend, [data-testid*="label" i], .input-label, [class*="input-label"], [class*="field-label"], [class*="question-title"]',
+    );
     return (
       explicit?.textContent ||
       control.closest("label")?.textContent ||
       control.closest("fieldset")?.querySelector("legend")?.textContent ||
       labelledBy ||
       control.getAttribute("aria-label") ||
+      contextual?.textContent ||
       control.getAttribute("placeholder") ||
       control.getAttribute("name") ||
       ""
@@ -246,6 +283,7 @@
       const options = [
         ...document.querySelectorAll('[role="option"]'),
         ...root.querySelectorAll('[role="menuitem"]'),
+        ...document.querySelectorAll('.multiselect__option'),
       ];
       const exact = options.find(
         (option) => normalize(option.textContent) === expected,
@@ -268,8 +306,15 @@
     return false;
   }
 
-  async function attachCv(cv) {
-    const input = document.querySelector(
+  async function attachCv(cv, field) {
+    assignRenderedControlIds();
+    const input = (field?.browserControlIds || [])
+      .map((id) =>
+        document.querySelector(
+          `[data-rolegain-control-id="${CSS.escape(id)}"]`,
+        ),
+      )
+      .find((control) => control?.matches('input[type="file"]')) || document.querySelector(
       'input[type="file"][required], input[type="file"]#_systemfield_resume, input[type="file"][name*="resume" i], input[type="file"][name*="cv" i]',
     );
     if (!input) return false;
@@ -294,6 +339,76 @@
       .replace(/\s+/g, " ")
       .trim()
       .toLowerCase();
+  }
+
+  async function revealEmployerForm(fields) {
+    for (let step = 0; step < 4; step += 1) {
+      assignRenderedControlIds();
+      if (fields.some((field) =>
+        (field.browserControlIds || []).some((id) =>
+          document.querySelector(
+            `[data-rolegain-control-id="${CSS.escape(id)}"]`,
+          ),
+        ),
+      )) return;
+      const control = [...document.querySelectorAll('button, a, [role="button"]')]
+        .filter((item) => item.getClientRects().length > 0)
+        .find((item) => /^(?:apply|apply here|apply now|apply today|view and apply|i(?:'|’)?m interested|apply for (?:this|the)?\s*(?:job|role|position|opening)|apply on (?:the )?(?:company|employer) (?:site|website)|start application|open application|continue to application|visit job opening page|go to job page|view job opening|postuler|candidater)$/i.test(
+          String(item.textContent || item.getAttribute("aria-label") || "")
+            .replace(/\s+/g, " ")
+            .trim(),
+        ));
+      if (!control) return;
+      control.click();
+      await delay(500);
+    }
+  }
+
+  function assignRenderedControlIds() {
+    const scope = applicationScope();
+    if (!scope) return [];
+    const controls = [...scope.querySelectorAll(
+      'input, textarea, select, [contenteditable="true"], [role="combobox"], .multiselect[tabindex]',
+    )].filter((control, index, all) => {
+      const type = String(control.type || "").toLowerCase();
+      if (
+        control.disabled ||
+        control.getAttribute("aria-hidden") === "true" ||
+        (type !== "file" && control.getClientRects().length === 0) ||
+        ["hidden", "submit", "button", "reset", "image"].includes(type)
+      ) return false;
+      return all.indexOf(control) === index;
+    });
+    controls.forEach((control, index) =>
+      control.setAttribute("data-rolegain-control-id", `rolegain-control-${index + 1}`),
+    );
+    return controls;
+  }
+
+  function applicationScope() {
+    const scopes = [...new Set([
+      ...document.querySelectorAll("form"),
+      ...document.querySelectorAll(
+        '[data-testid*="application" i], [class*="application-form" i], [id*="application-form" i], .ashby-application-form-container',
+      ),
+    ])].filter((scope) => scope.getClientRects().length > 0);
+    const score = (scope) => {
+      const controls = [...scope.querySelectorAll(
+        'input, textarea, select, [contenteditable="true"], [role="combobox"], .multiselect[tabindex]',
+      )].filter((control) =>
+        !control.disabled &&
+        control.getAttribute("aria-hidden") !== "true" &&
+        (control.type === "file" || control.getClientRects().length > 0),
+      );
+      const identity = normalize(
+        `${scope.getAttribute("action")} ${scope.id} ${scope.className} ${scope.querySelector("h1,h2,h3,legend")?.textContent}`,
+      );
+      return controls.length +
+        (/apply|application|candidate|recruit/.test(identity) ? 12 : 0) +
+        (controls.some((item) => item.type === "file") ? 8 : 0) -
+        (/search|filter|newsletter|cookie|login|sign.?in/.test(identity) ? 20 : 0);
+    };
+    return scopes.sort((left, right) => score(right) - score(left))[0];
   }
 
   function delay(milliseconds) {

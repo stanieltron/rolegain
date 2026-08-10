@@ -263,7 +263,12 @@ export interface JobResearchFailure {
   location: string;
   sourceUrl: string;
   applyUrl: string;
-  stage: "vacancy_validation" | "requirements" | "form" | "expired";
+  stage:
+    | "vacancy_validation"
+    | "match_prevalidation"
+    | "requirements"
+    | "form"
+    | "expired";
   /** Search-stage disposition. Only `rejected` is a confirmed hard exclusion. */
   disposition?: SearchValidationDisposition;
   reasonCode?: SearchValidationReasonCode;
@@ -360,6 +365,8 @@ export interface FormField {
   id: string;
   canonicalKey?: string;
   externalName?: string;
+  /** Rendered-control ids selected by the form-reading agent for safe replay. */
+  browserControlIds?: string[];
   label: string;
   type:
     | "text"
@@ -493,6 +500,10 @@ export interface JobSearchWorkspace {
   searchConfig: {
     discoveryTarget: number;
     applicationTarget: number;
+    /** User-visible calibrated match score required for automatic application preparation. */
+    minimumMatchScore?: number;
+    /** Shows diagnostic failures, benches, and event history in the pipeline UI. */
+    developerMode?: boolean;
   };
   sharedAnswers: Record<string, string>;
   /** Persisted position in the gated Profile setup wizard. */

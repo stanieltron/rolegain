@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import type { CodexExecClient } from "../../codex-runtime/client.js";
@@ -12,6 +13,8 @@ import {
 import type { WorkflowFailureNotifier } from "../notifications/workflow-error-email.js";
 
 const QUEUE = "rolegain-workflows";
+const CANCELLATION_POLL_INTERVAL_MS = 250;
+const CANCELLATION_DRAIN_TIMEOUT_MS = 30_000;
 export const DEFAULT_WORKFLOW_QUEUE_POOL_SIZE = 1;
 export const DEFAULT_WORKER_WORKFLOW_QUEUE_POOL_SIZE = 2;
 export const DEFAULT_WORKER_CONCURRENCY = 1;
@@ -207,6 +210,7 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
       this.service.stopBackgroundWork(userId),
       this.codex.pauseTurnsForUser(userId),
     ]);
+    await this.waitForCancelledRuns(result.rows.map((row) => row.id));
   }
 
   async purgeUserJobs(userId: string) {
@@ -235,6 +239,12 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
         [payload.runId],
       );
       if (!state.rows[0] || state.rows[0].cancellation_requested_at) return;
+      let monitoring = true;
+      const cancellationMonitor = this.monitorCancellation(
+        payload.runId,
+        payload.userId,
+        () => monitoring,
+      );
       try {
         await this.platform.assertCodexEnabled();
         await this.platform.assertLlmAllowance(payload.userId);
@@ -243,6 +253,8 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
           { userId: payload.userId, workflowRunId: payload.runId },
           () => this.execute(payload),
         );
+        if (await this.cancellationRequested(payload.runId))
+          throw new Error("Workflow cancelled by user");
         const workspace = await this.service.get(payload.userId);
         await this.platform.recordApplications(
           payload.userId,
@@ -264,30 +276,30 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
       } catch (error) {
         const message =
           error instanceof Error ? error.message : String(error);
+        if (await this.cancellationRequested(payload.runId)) {
+          await this.pool.query(
+            `update rolegain_workflow_runs
+             set status = 'cancelled', error = null, completed_at = now()
+             where id = $1`,
+            [payload.runId],
+          );
+          return;
+        }
         console.error(
           `Rolegain workflow ${payload.runId} (${payload.type}) failed`,
           error,
         );
-        const cancellation = await this.pool.query<{
-          cancellation_requested_at: Date | null;
-        }>(
-          "select cancellation_requested_at from rolegain_workflow_runs where id = $1",
-          [payload.runId],
-        );
-        if (!cancellation.rows[0]?.cancellation_requested_at)
-          await this.service
-            .markWorkflowFailed(
-              payload.type,
-              message,
-              payload.userId,
-              payload.resourceId,
-            )
-            .catch(() => undefined);
+        await this.service
+          .markWorkflowFailed(
+            payload.type,
+            message,
+            payload.userId,
+            payload.resourceId,
+          )
+          .catch(() => undefined);
         await this.pool.query(
           `update rolegain_workflow_runs
-           set status = case when cancellation_requested_at is null then 'failed' else 'cancelled' end,
-               error = $2,
-               completed_at = now()
+           set status = 'failed', error = $2, completed_at = now()
            where id = $1`,
           [
             payload.runId,
@@ -317,8 +329,56 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
           );
         });
         throw error;
+      } finally {
+        monitoring = false;
+        await cancellationMonitor;
       }
     });
+  }
+
+  private async cancellationRequested(runId: string): Promise<boolean> {
+    const result = await this.pool.query<{
+      cancellation_requested_at: Date | null;
+    }>(
+      "select cancellation_requested_at from rolegain_workflow_runs where id = $1",
+      [runId],
+    );
+    return Boolean(result.rows[0]?.cancellation_requested_at);
+  }
+
+  private async monitorCancellation(
+    runId: string,
+    userId: string,
+    isMonitoring: () => boolean,
+  ): Promise<void> {
+    while (isMonitoring()) {
+      await delay(CANCELLATION_POLL_INTERVAL_MS);
+      if (!isMonitoring()) return;
+      if (!(await this.cancellationRequested(runId))) continue;
+      await Promise.allSettled([
+        this.service.stopBackgroundWork(userId),
+        this.codex.pauseTurnsForUser(userId),
+      ]);
+      return;
+    }
+  }
+
+  private async waitForCancelledRuns(runIds: string[]): Promise<void> {
+    if (!runIds.length) return;
+    const deadline = Date.now() + CANCELLATION_DRAIN_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const result = await this.pool.query<{ active: string }>(
+        `select count(*)::text as active
+         from rolegain_workflow_runs
+         where id = any($1::uuid[]) and status = 'running'`,
+        [runIds],
+      );
+      if (Number(result.rows[0]?.active ?? 0) === 0) return;
+      await delay(CANCELLATION_POLL_INTERVAL_MS);
+    }
+    throw new Error(
+      "The running workflow did not stop within 30 seconds; user data was not reset",
+    );
   }
 
   /**

@@ -65,6 +65,18 @@ describe("search-stage verification classification", () => {
     });
   });
 
+  it("classifies application-route prevalidation as a match-stage review issue", () => {
+    expect(
+      classifySearchValidationFailure(
+        "No reachable employer application form was found",
+        "match_prevalidation",
+      ),
+    ).toEqual({
+      disposition: "manual_review",
+      reasonCode: "application_form",
+    });
+  });
+
   it("does not turn matching-verifier defects into search rejection", () => {
     expect(classifySearchValidationFailure("Requirement matrix is incomplete", "requirements")).toEqual({
       disposition: "unresolved",

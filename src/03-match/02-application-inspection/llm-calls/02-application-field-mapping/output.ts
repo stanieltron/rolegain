@@ -1,20 +1,42 @@
 export interface ApplicationFieldMappingOutput {
-  fields: Array<{ fieldId: string; canonicalKey: string }>;
+  fields: Array<{
+    fieldId: string;
+    controlIds: string[];
+    label: string;
+    canonicalKey: string;
+    type: "text" | "email" | "tel" | "textarea" | "select" | "file" | "date" | "checkbox";
+    required: boolean;
+    options: string[];
+  }>;
+  ignoredControlIds: string[];
 }
 
 export const outputSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["fields"],
+  required: ["fields", "ignoredControlIds"],
   properties: {
     fields: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["fieldId", "canonicalKey"],
+        required: [
+          "fieldId",
+          "controlIds",
+          "label",
+          "canonicalKey",
+          "type",
+          "required",
+          "options",
+        ],
         properties: {
           fieldId: { type: "string" },
+          controlIds: {
+            type: "array",
+            items: { type: "string" },
+          },
+          label: { type: "string" },
           canonicalKey: {
             type: "string",
             enum: [
@@ -29,11 +51,27 @@ export const outputSchema = {
               "eeoc_disability_status", "other",
             ],
           },
+          type: {
+            type: "string",
+            enum: [
+              "text", "email", "tel", "textarea", "select", "file",
+              "date", "checkbox",
+            ],
+          },
+          required: { type: "boolean" },
+          options: {
+            type: "array",
+            items: { type: "string" },
+          },
         },
       },
+    },
+    ignoredControlIds: {
+      type: "array",
+      items: { type: "string" },
     },
   },
 } as const;
 
 export const outputDescription =
-  "One canonical-key mapping for every observed field id.";
+  "A complete logical form model that accounts for every rendered control id.";

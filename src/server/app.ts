@@ -132,7 +132,8 @@ export async function createRolegainApp(
           dependencies.database &&
           request.method !== "GET" &&
           request.method !== "HEAD" &&
-          pathname !== "/api/job-search/background/stop"
+          pathname !== "/api/job-search/background/stop" &&
+          pathname !== "/api/job-search/reset-user"
         )
           await withUserLock(
             dependencies.sessionDatabase || dependencies.database,

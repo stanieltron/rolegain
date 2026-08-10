@@ -8,10 +8,6 @@ import { repairMojibake } from "../../infrastructure/text-encoding.js";
 import { guardPublicPage } from "../../02-search/v1/03-vacancy-validation/index.js";
 import type { BrowserPool } from "../../search-match-shared/browser-pool.js";
 import {
-  mapParallelOrdered,
-  vacancyValidationConcurrency,
-} from "../../search-match-shared/parallel.js";
-import {
   adapterForUrl,
   candidateFromOpportunity,
   cvName,
@@ -49,77 +45,7 @@ import {
   type ApplicationSchemaVerificationOutput,
 } from "./llm-calls/03-application-schema-verification/index.js";
 
-/**
- * Cheap, deterministic-first application reachability check. This deliberately
- * runs before evidence matching: a vacancy without a reachable employer form
- * should not consume the more expensive matching and drafting stages.
- */
-export async function precheckOpportunityApplications(input: {
-  codex?: CodexExecClient;
-  cwd: string;
-  browsers: BrowserPool;
-  workspace: JobSearchWorkspace;
-  opportunities: JobOpportunity[];
-  onProgress?: OpportunityProgressReporter;
-}) {
-  const { codex, cwd, browsers, workspace, opportunities, onProgress } = input;
-  const executionGeneration = browsers.currentGeneration(workspace.candidateId);
-  const browser = await browsers.launch.bind(browsers)(
-    workspace.candidateId,
-    executionGeneration,
-  );
-  try {
-    const results = await mapParallelOrdered(
-      opportunities,
-      vacancyValidationConcurrency(),
-      async (opportunity) => {
-        await onProgress?.({
-          item: progressItemFromOpportunity(opportunity),
-          phase: "application",
-          state: "running",
-        });
-        try {
-          const applicationUrl = await findReachableApplicationForm(
-            browser,
-            opportunity.applyUrl,
-            codex,
-            cwd,
-          );
-          const viable = { ...opportunity, applyUrl: applicationUrl };
-          await onProgress?.({
-            item: progressItemFromOpportunity(viable),
-            phase: "application",
-            state: "passed",
-          });
-          return { opportunity: viable };
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
-          await onProgress?.({
-            item: progressItemFromOpportunity(opportunity),
-            phase: "application",
-            state: "failed",
-            reason,
-          });
-          return {
-            failure: failureFromOpportunity(opportunity, "form", reason),
-          };
-        }
-      },
-    );
-    return {
-      opportunities: results
-        .map((item) => item.opportunity)
-        .filter((item): item is JobOpportunity => Boolean(item)),
-      failures: results
-        .map((item) => item.failure)
-        .filter((item): item is JobResearchFailure => Boolean(item)),
-    };
-  } finally {
-    await browsers.close(browser);
-  }
-}
-
-async function findReachableApplicationForm(
+export async function findReachableApplicationForm(
   browser: Browser,
   applyUrl: string,
   codex?: CodexExecClient,
@@ -198,89 +124,94 @@ export async function inspectOpportunityApplications(input: {
 }) {
   const { codex, cwd, browsers, workspace, opportunities, onProgress } = input;
   const executionGeneration = browsers.currentGeneration(workspace.candidateId);
-    const browser = await browsers.launch.bind(browsers)(
-      workspace.candidateId,
-      executionGeneration,
-    );
-    try {
-      const results = await Promise.all(
-        opportunities.map(async (opportunity) => {
-          await onProgress?.({
-            item: progressItemFromOpportunity(opportunity),
-            phase: "application",
-            state: "running",
-          });
-          const candidate = candidateFromOpportunity(opportunity);
-          try {
-            const inspected = await inspectLiveApplication(
-              browser,
-              candidate,
-              workspace,
-              codex,
-              cwd,
-            );
-            await onProgress?.({
-              item: progressItemFromOpportunity(opportunity),
-              phase: "application",
-              state: inspected.formValidated ? "passed" : "failed",
-              reason: inspected.formValidated
-                ? undefined
-                : "Application form could not be fully mapped",
-            });
-            return {
-              application: applicationFromLiveForm(
+  const browser = await browsers.launch.bind(browsers)(
+    workspace.candidateId,
+    executionGeneration,
+  );
+  try {
+    // One browser-form reader at a time. Parallel pages contend for the same
+    // browser/model runtime and can cause otherwise valid forms to be reported
+    // as unavailable during a multi-application replay.
+    const results: Array<{
+      application: ApplicationDraft;
+      failure?: JobResearchFailure;
+    }> = [];
+    for (const opportunity of opportunities) {
+      await onProgress?.({
+        item: progressItemFromOpportunity(opportunity),
+        phase: "application",
+        state: "running",
+      });
+      const candidate = candidateFromOpportunity(opportunity);
+      try {
+        const inspected = await inspectLiveApplication(
+          browser,
+          candidate,
+          workspace,
+          codex,
+          cwd,
+        );
+        await onProgress?.({
+          item: progressItemFromOpportunity(opportunity),
+          phase: "application",
+          state: inspected.formValidated ? "passed" : "failed",
+          reason: inspected.formValidated
+            ? undefined
+            : "Application form could not be fully mapped",
+        });
+        results.push({
+          application: applicationFromLiveForm(
+            opportunity,
+            inspected.fields,
+            workspace,
+            inspected.adapter,
+            inspected.formValidated,
+            inspected.schemaAudit,
+          ),
+          failure: inspected.formValidated
+            ? undefined
+            : failureFromOpportunity(
                 opportunity,
-                inspected.fields,
-                workspace,
-                inspected.adapter,
-                inspected.formValidated,
-                inspected.schemaAudit,
+                "form",
+                "The employer form is protected, blocked, or could not be mapped automatically",
               ),
-              failure: inspected.formValidated
-                ? undefined
-                : failureFromOpportunity(
-                    opportunity,
-                    "form",
-                    "The employer form is protected, blocked, or could not be mapped automatically",
-                  ),
-            };
-          } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
-            await onProgress?.({
-              item: progressItemFromOpportunity(opportunity),
-              phase: "application",
-              state: "failed",
-              reason,
-            });
-            return {
-              application: applicationFromLiveForm(
-                opportunity,
-                [],
-                workspace,
-                adapterForUrl(opportunity.applyUrl),
-                false,
-                {
-                  observedQuestionCount: 0,
-                  mappedQuestionCount: 0,
-                  fingerprint: "",
-                  issues: ["Employer form could not be inspected"],
-                  verifiedByAgent: false,
-                },
-              ),
-              failure: failureFromOpportunity(opportunity, "form", reason),
-            };
-          }
-        }),
-      );
-      return {
-        applications: results.map((item) => item.application),
-        failures: results
-          .map((item) => item.failure)
-          .filter((item): item is JobResearchFailure => Boolean(item)),
-      };
-    } finally {
-      await browsers.close(browser);
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        await onProgress?.({
+          item: progressItemFromOpportunity(opportunity),
+          phase: "application",
+          state: "failed",
+          reason,
+        });
+        results.push({
+          application: applicationFromLiveForm(
+            opportunity,
+            [],
+            workspace,
+            adapterForUrl(opportunity.applyUrl),
+            false,
+            {
+              observedQuestionCount: 0,
+              mappedQuestionCount: 0,
+              fingerprint: "",
+              issues: ["Employer form could not be inspected"],
+              verifiedByAgent: false,
+            },
+          ),
+          failure: failureFromOpportunity(opportunity, "form", reason),
+        });
+      }
     }
+    return {
+      applications: results.map((item) => item.application),
+      failures: results
+        .map((item) => item.failure)
+        .filter((item): item is JobResearchFailure => Boolean(item)),
+    };
+  } finally {
+    await browsers.close(browser);
+  }
 }
 
 export async function inspectLiveApplication(
@@ -474,14 +405,28 @@ export async function inspectLiveApplication(
         .catch(() => []);
       await page.keyboard.press("Escape").catch(() => undefined);
     }
-    let fields = result.entries
-      .filter((entry) => entry.label && entry.externalName)
-      .map((entry, index) => mapLiveField(entry, index, workspace))
-      .filter((field): field is FormField => Boolean(field));
-    if (codex && fields.length)
-      fields = await interpretApplicationFields(codex, cwd, fields, workspace);
+    let observedEntries = result.entries;
+    let fields: FormField[];
+    if (codex) {
+      const renderedControls = await observeRenderedApplicationForm(page);
+      if (!renderedControls.length)
+        throw new Error("The live browser did not expose any rendered application controls");
+      const agentRead = await interpretApplicationFields(
+        codex,
+        cwd,
+        renderedControls,
+        workspace,
+      );
+      observedEntries = agentRead.observed;
+      fields = agentRead.fields;
+    } else {
+      fields = observedEntries
+        .filter((entry) => entry.label && entry.externalName)
+        .map((entry, index) => mapLiveField(entry, index, workspace))
+        .filter((field): field is FormField => Boolean(field));
+    }
     const deterministicIssues = auditApplicationFieldMapping(
-      result.entries,
+      observedEntries,
       fields,
     );
     const agentIssues =
@@ -489,25 +434,21 @@ export async function inspectLiveApplication(
         ? await auditApplicationFieldsWithAgent(
             codex,
             cwd,
-            result.entries,
+            observedEntries,
             fields,
           )
         : [];
-    // The independent agent is useful for detecting suspicious mappings, but
-    // semantic representation differences (URL as text, radio as select,
-    // optional EEO aliases) must not reject a structurally complete employer
-    // form. Deterministic one-to-one structural coverage remains the gate.
-    const issues = [...new Set(deterministicIssues)];
+    const issues = [...new Set([...deterministicIssues, ...agentIssues])];
     const schemaAudit: ApplicationSchemaAudit = {
-      observedQuestionCount: result.entries.length,
+      observedQuestionCount: observedEntries.length,
       mappedQuestionCount: fields.length,
-      fingerprint: applicationSchemaFingerprint(result.entries),
+      fingerprint: applicationSchemaFingerprint(observedEntries),
       issues,
       verifiedByAgent: Boolean(
         codex && deterministicIssues.length === 0 && agentIssues.length === 0,
       ),
     };
-    const credibleEmployerForm = applicationFieldSetLooksCredible(result.entries);
+    const credibleEmployerForm = applicationFieldSetLooksCredible(observedEntries);
     return {
       compensation:
         extractCompensation(result.text) ||
@@ -663,6 +604,178 @@ export async function observeApplicationPage(page: Page) {
   };
 }
 
+/**
+ * Builds an accessibility-style observation of the live rendered form for the
+ * form-reading agent. It deliberately preserves every physical control and
+ * its surrounding visible text; semantic grouping and labeling happen in the
+ * model instead of in brittle site-specific DOM heuristics.
+ */
+export async function observeRenderedApplicationForm(
+  page: Page,
+): Promise<ObservedApplicationField[]> {
+  await page.evaluate(
+    "globalThis.__name = globalThis.__name || ((target) => target)",
+  );
+  return page.evaluate(() => {
+    const clean = (value: unknown) =>
+      String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+    const visible = (element: Element) => {
+      const input = element as HTMLInputElement;
+      const type = (input.type || "").toLowerCase();
+      return !input.disabled &&
+        element.getAttribute("aria-hidden") !== "true" &&
+        (type === "file" || element.getClientRects().length > 0);
+    };
+    const formScopes = [...new Set([
+      ...document.querySelectorAll("form"),
+      ...document.querySelectorAll(
+        '[data-testid*="application" i], [class*="application-form" i], [id*="application-form" i], .ashby-application-form-container',
+      ),
+    ])].filter((scope) => scope.getClientRects().length > 0);
+    const scoreScope = (scope: Element) => {
+      const controls = [
+        ...scope.querySelectorAll(
+          'input, textarea, select, [contenteditable="true"], [role="combobox"], .multiselect[tabindex]',
+        ),
+      ].filter(visible);
+      const identity = clean(
+        `${scope.getAttribute("action")} ${scope.id} ${scope.className} ${scope.querySelector("h1,h2,h3,legend")?.textContent}`,
+      ).toLowerCase();
+      return controls.length +
+        (/apply|application|candidate|recruit/.test(identity) ? 12 : 0) +
+        (controls.some((item) => (item as HTMLInputElement).type === "file") ? 8 : 0) -
+        (/search|filter|newsletter|cookie|login|sign.?in/.test(identity) ? 20 : 0);
+    };
+    const scope = formScopes.sort((left, right) => scoreScope(right) - scoreScope(left))[0];
+    if (!scope) return [];
+
+    const candidates = [
+      ...scope.querySelectorAll(
+        'input, textarea, select, [contenteditable="true"], [role="combobox"], .multiselect[tabindex]',
+      ),
+    ].filter((control, index, all) => {
+      if (!visible(control)) return false;
+      const type = ((control as HTMLInputElement).type || "").toLowerCase();
+      if (["hidden", "submit", "button", "reset", "image"].includes(type))
+        return false;
+      return all.indexOf(control) === index;
+    });
+
+    return candidates.map((control, index) => {
+      const browserControlId = `rolegain-control-${index + 1}`;
+      control.setAttribute("data-rolegain-control-id", browserControlId);
+      const fieldRoot = control.closest(
+        '[data-field-path], fieldset, .form-group, .form-field, [class*="question"], [class*="field"]',
+      ) || control.parentElement || control;
+      const id = control.getAttribute("id") || "";
+      const explicit = id
+        ? document.querySelector(`label[for="${CSS.escape(id)}"]`)
+        : null;
+      const labelledBy = (control.getAttribute("aria-labelledby") || "")
+        .split(/\s+/)
+        .map((labelId) => document.getElementById(labelId)?.textContent || "")
+        .join(" ");
+      const contextualLabel = fieldRoot.querySelector(
+        '.ashby-application-form-question-title, legend, [data-testid*="label" i], .input-label, [class*="input-label"], [class*="field-label"], [class*="question-title"]',
+      );
+      const nearbyText: string[] = [];
+      const addContext = (value: unknown) => {
+        const text = clean(value);
+        if (
+          text &&
+          text.length <= 1_200 &&
+          !nearbyText.includes(text)
+        )
+          nearbyText.push(text);
+      };
+      addContext(explicit?.textContent);
+      addContext(control.closest("label")?.textContent);
+      addContext(labelledBy);
+      addContext(contextualLabel?.textContent);
+      addContext((fieldRoot as HTMLElement).innerText || fieldRoot.textContent);
+      let ancestor = fieldRoot.parentElement;
+      for (let depth = 0; ancestor && ancestor !== scope && depth < 4; depth += 1) {
+        addContext((ancestor as HTMLElement).innerText || ancestor.textContent);
+        ancestor = ancestor.parentElement;
+      }
+      let previous = control.parentElement?.previousElementSibling;
+      for (let count = 0; previous && count < 2; count += 1) {
+        addContext((previous as HTMLElement).innerText || previous.textContent);
+        previous = previous.previousElementSibling;
+      }
+      const placeholder = control.getAttribute("placeholder") || "";
+      const name = control.getAttribute("name") || "";
+      const nonGenericContext = nearbyText.find(
+        (text) => !/^(?:not specified|choose|select|select\.\.\.)$/i.test(text),
+      );
+      const label = clean(
+        explicit?.textContent ||
+          control.closest("label")?.textContent ||
+          labelledBy ||
+          control.getAttribute("aria-label") ||
+          contextualLabel?.textContent ||
+          nonGenericContext ||
+          placeholder ||
+          name ||
+          id ||
+          browserControlId,
+      );
+      const nativeOptions = control instanceof HTMLSelectElement
+        ? [...control.options]
+            .map((option) => clean(option.textContent || option.value))
+            .filter(Boolean)
+        : [];
+      const customRoot = control.matches(".multiselect")
+        ? control
+        : control.closest(".multiselect");
+      const customOptions = customRoot
+        ? [...customRoot.querySelectorAll(".multiselect__option, [role=option]")]
+            .map((option) => clean(option.textContent))
+            .filter((option) => option && !/no results|list is empty/i.test(option))
+        : [];
+      const input = control as HTMLInputElement;
+      const inputType = control.matches('.multiselect, [role="combobox"]')
+        ? "select"
+        : control.tagName === "TEXTAREA"
+          ? "textarea"
+          : control.tagName === "SELECT"
+            ? "select"
+            : input.type || "text";
+      const choiceOptions = ["radio", "checkbox"].includes(inputType)
+        ? [clean(
+            explicit?.textContent ||
+              control.closest("label")?.textContent ||
+              control.getAttribute("aria-label") ||
+              input.value,
+          )].filter(Boolean)
+        : [];
+      const rootText = clean(fieldRoot.textContent);
+      return {
+        browserControlIds: [browserControlId],
+        label,
+        externalName: name || id || browserControlId,
+        tag: control.tagName.toLowerCase(),
+        inputType,
+        placeholder,
+        required: Boolean(
+          input.required ||
+            control.getAttribute("aria-required") === "true" ||
+            fieldRoot.getAttribute("aria-required") === "true" ||
+            fieldRoot.querySelector(".required-marker, [class*=required-marker]") ||
+            /(?:^|\s)required(?:\s|$)|\*/i.test(rootText),
+        ),
+        options: [...new Set([...nativeOptions, ...customOptions, ...choiceOptions])],
+        hasCombobox: control.matches('.multiselect, [role="combobox"]') ||
+          Boolean(fieldRoot.querySelector('[role="combobox"], .multiselect')),
+        allowsManualEntry: /enter manually/i.test(rootText),
+        nearbyText,
+      };
+    });
+  });
+}
+
 export function isUnsafeApplicationAction(control: {
   text: string;
   ariaLabel: string;
@@ -681,13 +794,12 @@ export function isUnsafeApplicationAction(control: {
 export async function interpretApplicationFields(
   codex: CodexExecClient,
   cwd: string,
-  fields: FormField[],
+  observedControls: ObservedApplicationField[],
   workspace: JobSearchWorkspace,
-) {
+): Promise<{ fields: FormField[]; observed: ObservedApplicationField[] }> {
   const runtime = await codex.start();
   const model =
-    process.env.ROLEGAIN_FAST_MODEL ||
-    runtime.models.find((item) => item.id === "gpt-5.4-mini")?.id ||
+    process.env.ROLEGAIN_MODEL ||
     runtime.model;
   const thread = await codex.startThread({
     cwd,
@@ -706,19 +818,92 @@ export async function interpretApplicationFields(
     effort: APPLICATION_FIELD_MAPPING_COMMAND.effort,
     timeoutMs: APPLICATION_FIELD_MAPPING_COMMAND.timeoutMs,
     outputSchema: applicationFieldInterpretationSchema,
-    prompt: buildApplicationFieldMappingInput(fields),
+    prompt: buildApplicationFieldMappingInput(observedControls),
   });
   const parsed = JSON.parse(result.finalText) as ApplicationFieldMappingOutput;
-  const allowed = new Set(fields.map((field) => field.id));
-  const mappings = new Map(
-    parsed.fields
-      .filter((field) => allowed.has(field.fieldId) && field.canonicalKey !== "other")
-      .map((field) => [field.fieldId, field.canonicalKey]),
+  const controlById = new Map(
+    observedControls.flatMap((field) =>
+      (field.browserControlIds || []).map((controlId) => [controlId, field] as const),
+    ),
   );
-  return fields.map((field) => {
+  const expectedControlIds = [...controlById.keys()];
+  const assignedControlIds = [
+    ...parsed.fields.flatMap((field) => field.controlIds),
+    ...parsed.ignoredControlIds,
+  ];
+  const unknownControlIds = assignedControlIds.filter(
+    (controlId) => !controlById.has(controlId),
+  );
+  const missingControlIds = expectedControlIds.filter(
+    (controlId) => !assignedControlIds.includes(controlId),
+  );
+  const duplicateControlIds = assignedControlIds.filter(
+    (controlId, index) => assignedControlIds.indexOf(controlId) !== index,
+  );
+  if (
+    unknownControlIds.length ||
+    missingControlIds.length ||
+    duplicateControlIds.length
+  )
+    throw new Error(
+      `The browser-form reader did not account for every rendered control safely: ${JSON.stringify({
+        unknownControlIds: [...new Set(unknownControlIds)],
+        missingControlIds,
+        duplicateControlIds: [...new Set(duplicateControlIds)],
+        ignoredControlIds: parsed.ignoredControlIds,
+      })}`,
+    );
+
+  const logicalObserved = parsed.fields.map((mapped) => {
+    const members = mapped.controlIds
+      .map((controlId) => controlById.get(controlId))
+      .filter((field): field is ObservedApplicationField => Boolean(field));
+    const options = [
+      ...new Set([
+        ...members.flatMap((field) => field.options),
+        ...mapped.options,
+      ]),
+    ];
+    const primary = members[0];
+    const inputType = mapped.type === "file"
+      ? "file"
+      : mapped.type === "textarea"
+        ? "textarea"
+        : mapped.type === "select"
+          ? "select"
+          : mapped.type === "checkbox"
+            ? "checkbox"
+            : mapped.type;
+    return {
+      browserControlIds: mapped.controlIds,
+      label: repairMojibake(mapped.label.trim()),
+      externalName: mapped.fieldId,
+      tag: mapped.type === "textarea"
+        ? "textarea"
+        : mapped.type === "select"
+          ? "select"
+          : "input",
+      inputType,
+      placeholder: primary?.placeholder || "",
+      required: mapped.required || members.some((field) => field.required),
+      options,
+      hasCombobox: members.some((field) => field.hasCombobox),
+      allowsManualEntry: members.some((field) => field.allowsManualEntry),
+      nearbyText: [...new Set(members.flatMap((field) => field.nearbyText || []))],
+      _canonicalKey: mapped.canonicalKey,
+    };
+  });
+  if (!logicalObserved.length)
+    throw new Error("The browser-form reader returned no employer questions");
+
+  const fields = logicalObserved.map((entry, index) => {
+    const field = mapLiveField(entry, index, workspace);
+    if (!field)
+      throw new Error(`The browser-form reader returned an unusable label for ${entry.externalName}`);
+    field.browserControlIds = entry.browserControlIds;
     const canonicalKey = preserveStructuralCanonicalKey(
       field,
-      mappings.get(field.id) || field.canonicalKey,
+      entry._canonicalKey || field.canonicalKey,
     );
     if (!canonicalKey || canonicalKey === field.canonicalKey || field.value.trim())
       return { ...field, canonicalKey };
@@ -735,6 +920,10 @@ export async function interpretApplicationFields(
       confidence: value ? mapped.confidence : 0,
     };
   });
+  return {
+    fields,
+    observed: logicalObserved.map(({ _canonicalKey: _ignored, ...entry }) => entry),
+  };
 }
 
 export function preserveStructuralCanonicalKey(

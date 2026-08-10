@@ -674,9 +674,41 @@ function validateCallSpecificInvariants(
     case "application.navigate":
       validateNavigationDecision(root, false, defects);
       break;
-    case "application.field-map":
+    case "application.field-map": {
       uniqueValues(root.fields, "fieldId", "$.fields", defects);
+      uniqueStrings(root.ignoredControlIds, "$.ignoredControlIds", defects);
+      const assignedControlIds: string[] = [];
+      for (const [index, field] of asArray(root.fields).entries()) {
+        if (!isObject(field)) continue;
+        uniqueStrings(field.controlIds, `$.fields[${index}].controlIds`, defects);
+        const controlIds = asArray(field.controlIds).filter(
+          (value): value is string => typeof value === "string",
+        );
+        if (controlIds.length === 0)
+          defects.push({
+            code: "MISSING_REFERENCE",
+            path: `$.fields[${index}].controlIds`,
+            message: "Every logical field must reference at least one rendered control",
+          });
+        assignedControlIds.push(...controlIds);
+      }
+      assignedControlIds.push(
+        ...asArray(root.ignoredControlIds).filter(
+          (value): value is string => typeof value === "string",
+        ),
+      );
+      const duplicates = assignedControlIds.filter(
+        (value, index) => assignedControlIds.indexOf(value) !== index,
+      );
+      if (duplicates.length)
+        defects.push({
+          code: "DUPLICATE_IDENTITY",
+          path: "$.fields",
+          message: "Rendered control ids must be assigned exactly once",
+          received: [...new Set(duplicates)],
+        });
       break;
+    }
     case "application.schema-verify":
       uniqueStrings(root.issues, "$.issues", defects);
       break;

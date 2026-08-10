@@ -393,6 +393,60 @@ describe("deterministic LLM result gateway", () => {
     );
   });
 
+  it("rejects browser-form mappings that assign one rendered control twice", () => {
+    const result = evaluateResultGateway({
+      callId: "application.field-map",
+      finalText: JSON.stringify({
+        fields: [
+          {
+            fieldId: "rolegain-control-1",
+            controlIds: ["rolegain-control-1"],
+            label: "First name",
+            canonicalKey: "first_name",
+            type: "text",
+            required: true,
+          },
+          {
+            fieldId: "rolegain-control-2",
+            controlIds: ["rolegain-control-1", "rolegain-control-2"],
+            label: "Last name",
+            canonicalKey: "last_name",
+            type: "text",
+            required: true,
+          },
+        ],
+        ignoredControlIds: [],
+      }),
+      outputSchema: objectSchema,
+      prompt: "input",
+    });
+    expect(result.report.defects).toContainEqual(
+      expect.objectContaining({ code: "DUPLICATE_IDENTITY" }),
+    );
+  });
+
+  it("accepts a semantic logical field id distinct from its browser control id", () => {
+    const result = evaluateResultGateway({
+      callId: "application.field-map",
+      finalText: JSON.stringify({
+        fields: [
+          {
+            fieldId: "first_name",
+            controlIds: ["rolegain-control-1"],
+            label: "First name",
+            canonicalKey: "first_name",
+            type: "text",
+            required: true,
+          },
+        ],
+        ignoredControlIds: [],
+      }),
+      outputSchema: objectSchema,
+      prompt: "input",
+    });
+    expect(result.report.accepted).toBe(true);
+  });
+
   it("fails closed when a new LLM call lacks a gateway registration", () => {
     const result = evaluateResultGateway({
       callId: "unregistered.call",

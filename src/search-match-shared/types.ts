@@ -46,6 +46,8 @@ export interface ApplicationSchemaAudit {
 }
 
 export interface ObservedApplicationField {
+  /** Stable ids assigned to the rendered controls for this browser inspection. */
+  browserControlIds?: string[];
   label: string;
   externalName: string;
   tag: string;
@@ -55,6 +57,8 @@ export interface ObservedApplicationField {
   options: string[];
   hasCombobox: boolean;
   allowsManualEntry: boolean;
+  /** Visible text surrounding the control, supplied to the form-reading agent. */
+  nearbyText?: string[];
 }
 
 export interface OpportunityProgressUpdate {
@@ -121,7 +125,7 @@ export interface OpportunityResearchProvider {
     | JobOpportunity[]
     | { opportunities: JobOpportunity[]; failures: JobResearchFailure[] }
   >;
-  precheckApplications?(
+  prevalidateForMatching?(
     workspace: JobSearchWorkspace,
     opportunities: JobOpportunity[],
     onProgress?: OpportunityProgressReporter,

@@ -392,11 +392,12 @@ export const LLM_EVAL_CASES: LlmEvalCase[] = [
     prompt: "Map name, email, CV, and cover letter fields to canonical keys.",
     expected: {
       fields: [
-        { fieldId: "field-name", canonicalKey: "name" },
-        { fieldId: "field-email", canonicalKey: "email" },
-        { fieldId: "field-cv", canonicalKey: "cv" },
-        { fieldId: "field-cover", canonicalKey: "cover_letter" },
+        { fieldId: "field-name", controlIds: ["field-name"], label: "Name", canonicalKey: "name", type: "text", required: true, options: [] },
+        { fieldId: "field-email", controlIds: ["field-email"], label: "Email", canonicalKey: "email", type: "email", required: true, options: [] },
+        { fieldId: "field-cv", controlIds: ["field-cv"], label: "Resume/CV", canonicalKey: "cv", type: "file", required: true, options: [] },
+        { fieldId: "field-cover", controlIds: ["field-cover"], label: "Cover letter", canonicalKey: "cover_letter", type: "textarea", required: false, options: [] },
       ],
+      ignoredControlIds: [],
     },
     schema: applicationFieldMapSchema,
     semanticChecks: ["maps every field id", "uses canonical keys only"],
