@@ -59,6 +59,8 @@ export interface StartThreadOptions {
   model?: string;
   approvalPolicy?: "untrusted" | "on-request" | "never";
   developerInstructions: string;
+  /** Optional version-specific production skill for a shared call id. */
+  skillName?: string;
   webSearch?: {
     mode: "disabled" | "cached" | "live";
   };
@@ -229,7 +231,7 @@ export class CodexExecClient {
         effort: options.effort || "medium",
         role: context.role,
         rolePrompt: context.developerInstructions,
-        skillName: skillForLlmCall(context.callId),
+        skillName: context.skillName ?? skillForLlmCall(context.callId),
         outputSchema: options.outputSchema,
         sandbox: options.sandbox,
         approvalPolicy:

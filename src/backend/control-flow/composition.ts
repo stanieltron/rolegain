@@ -121,6 +121,7 @@ export async function createRolegainDependencies(
           codex,
           root,
           () => platform.evidenceChunkLimit(),
+          dataRoot,
         )
       : new CodexCandidateAnalyzerV1(
           codex,

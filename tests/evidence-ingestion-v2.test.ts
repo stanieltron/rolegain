@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { CodexCandidateAnalyzerV2 } from "../src/01-evidence-ingestion/v2/index.js";
 import {
+  EVIDENCE_INGESTION_V2_SKILL,
   EVIDENCE_V2_CHUNK_MAX_CHARS,
   chunkSourceForAnalysisV2,
   evidenceAnalysisConcurrencyV2,
@@ -38,6 +39,7 @@ describe("evidence ingestion v2", () => {
   it("runs one reader call per chunk and synthesis without coverage or repair", async () => {
     const workspace = mockWorkspaceWithCv();
     const roles: string[] = [];
+    const skills: Array<string | undefined> = [];
     const readerEfforts: Array<StartTurnOptions["effort"]> = [];
     const threadRoles = new Map<string, string>();
     const codex = {
@@ -53,6 +55,7 @@ describe("evidence ingestion v2", () => {
       }),
       startThread: async (options: StartThreadOptions) => {
         roles.push(options.role);
+        skills.push(options.skillName);
         const id = `thread-${roles.length}`;
         threadRoles.set(id, options.role);
         return { id, modelProvider: "openai" };
@@ -102,6 +105,8 @@ describe("evidence ingestion v2", () => {
     expect(roles).not.toContain("candidate-source-coverage-verifier");
     expect(roles).not.toContain("candidate-source-repairer");
     expect(readerEfforts).toEqual(["low"]);
+    expect(skills[roles.indexOf("candidate-source-reader")])
+      .toBe(EVIDENCE_INGESTION_V2_SKILL);
     expect(result.profile.headline).toBe("Platform Engineer");
     expect(result.sourceInsights[0].sourceId).toBe(workspace.sources[0].id);
     expect(result.sourceInsights[0].insights).toHaveLength(1);
@@ -134,6 +139,14 @@ describe("evidence ingestion v2", () => {
     expect(evidenceAnalysisConcurrencyV2({ ROLEGAIN_ANALYSIS_CONCURRENCY: "3" })).toBe(20);
     expect(evidenceAnalysisConcurrencyV2({ ROLEGAIN_EVIDENCE_V2_CONCURRENCY: "4" })).toBe(4);
     expect(evidenceAnalysisConcurrencyV2({ ROLEGAIN_EVIDENCE_V2_CONCURRENCY: "99" })).toBe(20);
+  });
+
+  it("explicitly permits project evidence and calibrates dense-page completeness", () => {
+    const job = prepareCandidateSourceChunks(mockWorkspaceWithCv()).jobs[0];
+    const prompt = buildLeanChunkInput(job);
+
+    expect(prompt).toContain("Project-level evidence is explicitly permitted");
+    expect(prompt).toContain("Return at most 34 distinct claims");
   });
 
   it("keeps the lean contract inside the exact-quote gateway without failing the chunk", () => {
@@ -211,6 +224,9 @@ describe("evidence ingestion v2", () => {
       "ownership",
       "quote",
     ]);
+    const claimsSchema = (leanChunkOutputSchema.properties as Record<string, unknown>)
+      .claims as Record<string, unknown>;
+    expect(claimsSchema.maxItems).toBe(34);
   });
 
   it("atomizes list-shaped profile facts before shared v1/v2 provenance verification", () => {

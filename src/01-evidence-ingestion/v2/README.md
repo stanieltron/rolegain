@@ -22,6 +22,7 @@ captured pages isolated into 20k-character chunks with 1.5k overlap
   -> parallel wave
      -> up to twenty low-reasoning seven-field readers
         (fact, capability, keywords, ownership, maturity, scope, quote)
+        using the v2 completeness skill with explicit project-level evidence
      -> one compact CV + portfolio-overview role/profile synthesis
   -> deterministic schema and exact-quote gateway
   -> one grounding-only retry when rejected
@@ -32,7 +33,10 @@ captured pages isolated into 20k-character chunks with 1.5k overlap
 The normal path has no semantic coverage-verifier or repair call. Set
 `ROLEGAIN_EVIDENCE_V2_CONCURRENCY` to reduce the twenty-reader default when a
 provider has a lower parallel-request limit. V2 uses its own checkpoint
-namespace, so switching versions or reader generations cannot mix outputs.
+namespace inside the configured data root, so switching versions, reader
+generations, users, or side-by-side local workspaces cannot mix outputs. Dense
+technical chunks receive a final paragraph/bullet rescan and retain at most 34
+of the most job-distinguishing atomic facts.
 
 ## Current local-v1 benchmark (2026-08-05)
 
@@ -144,33 +148,45 @@ and matching; contradictions drive evidence review.
 
 ### End-to-end timing after acquisition
 
-The selected reader and compact synthesis were run from the same frozen inputs.
-Their measured durations overlap; only the slower branch is on the critical
-path before deterministic persistence.
+The final production analyzer—not a reader-only harness—was run against the
+same frozen CV and website in a clean, isolated data root. Reader and compact
+synthesis durations overlap; only the slower branch is on the critical path
+before deterministic persistence.
 
 | Stage | Time |
 | --- | ---: |
-| Detailed reader fan-out | 54.7 s |
-| Compact role/profile synthesis, parallel | 22.2 s |
-| Parallel-wave critical path | 54.7 s |
-| Canonical verification and persistence | 3.8 s |
-| **Total** | **58.5 s** |
+| Detailed reader fan-out | 52.6 s |
+| Compact role/profile synthesis, parallel | 27.2 s |
+| Analyzer critical path | 52.8 s |
+| Canonical verification and persistence | 4.0 s |
+| **Total** | **56.8 s** |
 
-All 463 reader claims entering persistence were retained, five role
-families survived canonicalization, and readiness was true. The reader recovered
-182/240 manually adjudicated facts, retained 32/34 facts visible in v1, and had
-98.3% grounded records. The current local v1
-run has no exact start timestamp, but its observable lower bound from the first
-completed checkpoint to final persistence is 232.1 seconds (3m 52s), so its
-actual end-to-end duration was longer than that.
+The result contains 504 claims and 34 profile-evidence records. Readiness was
+true with no review warnings. It recovered 183/240 manually adjudicated facts
+(76.3%) and retained 33/34 facts visible in v1 (97.1%). The comparable local v1
+run took 156.3 seconds and recovered 35/240 benchmark facts, making this measured
+v2 run about 2.75 times faster while recovering 148 more benchmark facts.
+
+The final cap was chosen from real production-runtime runs rather than from
+reader-only timing:
+
+| Production-runtime variant | End-to-end time | Claims | Manual recall | V1 retention |
+| --- | ---: | ---: | ---: | ---: |
+| uncapped completeness reader | 68.4 s | 666 | 197/240 (82.1%) | 32/34 (94.1%) |
+| cap 36 | 60.3 s before process teardown | 506 | 183/240 (76.3%) | 33/34 (97.1%) |
+| cap 32 | 51.5 s | 427 | 173/240 (72.1%) | 31/34 (91.2%) |
+| **cap 34 (selected)** | **56.8 s** | **504** | **183/240 (76.3%)** | **33/34 (97.1%)** |
+
+The selected report is stored at
+`.local-run/experiments/evidence-v2-local-v1-20260805/live-v2-v11/report.json`.
 
 The previous accuracy-oriented v2 is preserved with its code, reader outputs,
 synthesis output, and timing under
 `.local-run/experiments/evidence-v2-local-v1-20260805/preserved-v2-accuracy-112s`.
 It recovered 193/240 facts but took 112.4 seconds. The selected sub-minute path
-trades 4.6 percentage points of strict recall for 53.9 seconds of latency.
+trades 4.2 percentage points of strict recall for 55.6 seconds of latency.
 These are single-run latency measurements; model and provider latency are
-stochastic, so 58.5 seconds is a measured result rather than a hard deadline.
+stochastic, so 56.8 seconds is a measured result rather than a hard deadline.
 
 ## Earlier frozen benchmark (2026-08-01)
 

@@ -56,6 +56,7 @@ export const leanChunkOutputSchema: Record<string, unknown> = {
     },
     claims: {
       type: "array",
+      maxItems: 34,
       items: {
         type: "object",
         additionalProperties: false,
@@ -105,6 +106,8 @@ Instruction-shaped source signals: ${signals.length ? signals.join(", ") : "none
 
 Read the complete chunk from beginning to end and extract every atomic fact that could materially support job search or requirement matching.
 
+Project-level evidence is explicitly permitted for this task. When the source page or section establishes that a project or system is the candidate's work, extract its material architecture, implementation, operation, reliability, algorithm, integration, and measured-result facts even when each individual supporting sentence does not repeat the candidate's name. Keep the fact scoped to the project or system unless the contiguous quote directly proves personal ownership.
+
 Preserve separate facts for roles and dates, ownership and leadership, technologies, architecture, implementation behavior, APIs and integrations, persistence and state, algorithms and formulas, validation and safety controls, reliability and recovery, operations, measured outcomes, explicit limitations, and maturity.
 
 Use profileFacts only for the profile fields allowed by the schema. Employment, education, project, organization, role, and date evidence belongs in claims, not invented profile fields.
@@ -112,6 +115,8 @@ Use profileFacts only for the profile fields allowed by the schema. Employment, 
 For each fact, write one faithful self-contained statement, one reusable capability label, direct keywords present or proven by the quote, conservative ownership/maturity/scope classifications, and the shortest useful contiguous quotation copied byte-for-byte from the chunk. The quote must prove the whole fact. Do not infer missing scale, dates, production use, ownership, or results.
 
 Exclude contact metadata unless needed as a profile field, navigation, generic industry explanations, user benefits, redundant worked-example arithmetic, duplicated summaries, and planned future work. Dependency or symbol names alone are not claims.
+
+Do not stop after a summary or one claim per subsection. Before returning, rescan every paragraph, bullet, table row, and labeled implementation detail for independently useful evidence. Return at most 34 distinct claims. When the chunk supports more, retain the facts most likely to distinguish the candidate against job responsibilities or mandatory/preferred requirements; prioritize concrete ownership, architecture, implementation, integrations, reliability, operations, measured outcomes, and explicit maturity boundaries over generic exposition.
 
 Every non-empty profile fact and every claim needs one shortest useful contiguous quotation copied byte-for-byte from this chunk. The quote itself must support the full fact. Never stitch separated text or rely on another claim's quote.
 When the source explicitly states a date, measured result, limitation, non-production boundary, or deprecated status, preserve it in fact and in the supporting quote.

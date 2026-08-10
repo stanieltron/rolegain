@@ -17,6 +17,7 @@ export class CodexCandidateAnalyzerV2 implements CandidateAnalyzer {
     private readonly codex: CodexExecClient,
     private readonly cwd: string,
     private readonly evidenceChunkLimit?: () => Promise<number>,
+    private readonly dataRoot?: string,
   ) {}
 
   async analyze(
@@ -31,6 +32,7 @@ export class CodexCandidateAnalyzerV2 implements CandidateAnalyzer {
       readCandidateSourceChunksV2({
         codex: this.codex,
         cwd: this.cwd,
+        dataRoot: this.dataRoot,
         workspace,
         maxChunks,
         onProgress,

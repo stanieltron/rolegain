@@ -413,6 +413,15 @@ function sanitizeChunkAnalysisGrounding(
         adjustments,
       ),
     );
+  if (Array.isArray(output.profileFacts))
+    output.profileFacts = output.profileFacts.filter((item, index) =>
+      keepGroundedEvidenceItem(
+        item,
+        sources,
+        `$.profileFacts[${index}]`,
+        adjustments,
+      ),
+    );
   if (!Array.isArray(output.claims)) return;
   output.claims = output.claims.filter((claim, claimIndex) => {
     if (!isObject(claim)) return true;

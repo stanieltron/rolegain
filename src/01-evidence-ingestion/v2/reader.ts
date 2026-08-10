@@ -33,7 +33,8 @@ import {
   type LeanChunkExtraction,
 } from "./lean-contract.js";
 
-export const EVIDENCE_INGESTION_V2_VERSION = "evidence-v2-parallel-low-v6";
+export const EVIDENCE_INGESTION_V2_VERSION = "evidence-v2-complete-low-v11";
+export const EVIDENCE_INGESTION_V2_SKILL = "rolegain-analyze-cv-chunk-v2";
 export const EVIDENCE_V2_CHUNK_MAX_CHARS = 20_000;
 export const EVIDENCE_V2_CHUNK_OVERLAP_CHARS = 1_500;
 
@@ -48,6 +49,7 @@ export const EVIDENCE_V2_CHUNK_OVERLAP_CHARS = 1_500;
 export async function readCandidateSourceChunksV2(input: {
   codex: CodexExecClient;
   cwd: string;
+  dataRoot?: string;
   workspace: JobSearchWorkspace;
   model?: string;
   maxChunks?: number;
@@ -70,8 +72,7 @@ export async function readCandidateSourceChunksV2(input: {
   });
 
   const checkpointRoot = path.join(
-    input.cwd,
-    "data",
+    input.dataRoot ?? path.join(input.cwd, "data"),
     "job-search",
     "analysis-checkpoints",
     input.workspace.candidateId,
@@ -144,6 +145,7 @@ async function analyzeOnePass(input: {
         model: input.model,
         approvalPolicy: SOURCE_READER_COMMAND.approvalPolicy,
         developerInstructions: leanChunkRolePrompt,
+        skillName: EVIDENCE_INGESTION_V2_SKILL,
       });
       const readerTurn = await input.codex.runTurn({
         threadId: readerThread.id,
