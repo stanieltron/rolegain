@@ -3570,11 +3570,19 @@ function RequirementBreakdown({
         </span>
       </summary>
       <div className="fit-basis">
-        Match score: mandatory qualifications weigh 3, core responsibilities 2,
-        and preferred qualifications 1. Explicit, strong-adjacent, and
-        weak-adjacent evidence receive different credit, adjusted by match and
-        claim confidence. Opportunity confidence and hard feasibility are kept
-        separate from fit.
+        Overall match is a fixed calibration of the underlying evidence score,
+        so job ordering remains unchanged while ordinary requirement-list
+        inflation is not presented as candidate failure. Mandatory
+        qualifications weigh 3, core responsibilities 2, and preferred
+        qualifications 0.5. Explicit, strong-adjacent, and weak-adjacent
+        evidence receive 100%, 85%, and 55% credit. Repeated capability themes
+        are capped, and verified-evidence confidence only fine-tunes the result.
+        {typeof job.scoreBreakdown?.rawEvidenceFit === "number" && (
+          <span>
+            {` Evidence score: ${job.scoreBreakdown.rawEvidenceFit}%; calibrated match: ${job.fit}%.`}
+          </span>
+        )}
+        Opportunity confidence and hard feasibility remain separate.
         {(job.portfolioCategory || typeof job.opportunityConfidence === "number") && (
           <span>
             {job.portfolioCategory

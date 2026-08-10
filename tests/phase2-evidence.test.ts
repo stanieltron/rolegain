@@ -265,11 +265,13 @@ describe("canonical Phase 2 evidence", () => {
     expect(assessorPrompt).toContain("knowledgeRoutesByJob");
     expect(assessorPrompt).toContain("This page is a routing and synthesis layer");
     expect(assessorPrompt).not.toContain("LEGACY_INSIGHT_SHOULD_NOT_BE_USED");
-    expect(assessed[0].fit).toBe(81);
+    expect(assessed[0].fit).toBe(100);
     expect(assessed[0].scoreBreakdown).toMatchObject({
-      requirementCoverage: 0.855,
+      requirementCoverage: 0.985,
       scopeOwnershipAlignment: 1,
       domainContextAlignment: 1,
+      rawEvidenceFit: 89,
+      calibratedFit: 100,
     });
     expect(assessed[0].evidenceRunId).toBe(
       fixture.workspace.intelligence.evidenceRun!.id,
@@ -351,7 +353,7 @@ describe("canonical Phase 2 evidence", () => {
     });
 
     expect(callIds).toEqual(["match.requirements"]);
-    expect(schemaRequired).not.toContain("normalizedCapability");
+    expect(schemaRequired).toContain("normalizedCapability");
     const assessed = Array.isArray(result) ? result : result.opportunities;
     expect(assessed[0].requirementMatches[0]).toMatchObject({
       matchClass: "explicit",
@@ -414,7 +416,8 @@ describe("canonical Phase 2 evidence", () => {
     ).assess(fixture.workspace, [job]);
     const assessed = Array.isArray(result) ? result : result.opportunities;
     expect(assessed[0].requirementMatches[0].status).toBe("partial");
-    expect(assessed[0].fit).toBe(46);
+    expect(assessed[0].fit).toBe(81);
+    expect(assessed[0].scoreBreakdown?.rawEvidenceFit).toBe(47);
   });
 });
 

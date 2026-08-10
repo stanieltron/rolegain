@@ -25,4 +25,10 @@ canonical citations, and deterministic final scoring/filtering. It skips the
 standard Tier-2, verifier, and repair calls because the frozen benchmark showed
 that chain was slower and less accurate than the calibrated first pass.
 
+The v2 row contract also supplies a normalized capability label. Deterministic
+scoring uses it to cap repeated requirement themes, gives materially higher
+credit to transferable evidence, discounts preferred wish-list items, and
+stores separate raw-evidence and calibrated display scores. Automated
+application eligibility continues to use only the raw evidence score.
+
 The empty-result recovery turn remains as a bounded structural fallback.

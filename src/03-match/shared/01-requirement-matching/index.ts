@@ -284,7 +284,7 @@ export async function assessOpportunityWithAgent(
         if (matchClass !== "contradicted") matchClass = "unsupported";
       }
       if (
-        status === "matched" &&
+        status !== "missing" &&
         evidence.some((entry) =>
           canonicalVerificationLedger.some(
             (citation) =>
@@ -358,7 +358,7 @@ export async function assessOpportunityWithAgent(
     );
     const review = verified.reviews.find((item) => item.jobId === opportunity.id);
     const portfolioCategory = phase2PortfolioCategory(
-      score.final,
+      score.rawEvidenceFit,
       requirementMatches,
       feasibilityGate.status,
       opportunity.opportunityConfidence ?? 0,
@@ -366,13 +366,13 @@ export async function assessOpportunityWithAgent(
     return [{
       ...opportunity,
       evidenceRunId: phase2Evidence.evidenceRunId,
-      fit: score.final,
+      fit: score.calibratedFit,
       scoreBreakdown: score,
       feasibilityGate,
       portfolioCategory,
       skepticalReview: {
-        acceptedScore: score.final,
-        revisedScore: score.final,
+        acceptedScore: score.calibratedFit,
+        revisedScore: score.calibratedFit,
         inflationFlags: review?.inflationFlags || [],
         feasibilityFlags: [
           ...(review?.feasibilityFlags || []),
@@ -752,16 +752,33 @@ export function calculateRequirementScore(
   requirements: RequirementMatch[],
   canonicalLedger: CanonicalClaimCitation[],
 ) {
+  const scoredRequirements = requirements.filter(
+    (item) => item.category !== "constraint",
+  );
+  const groupWeights = new Map<string, number>();
+  for (const [index, requirement] of scoredRequirements.entries()) {
+    const category = requirement.category ||
+      (requirement.kind === "preferred" ? "preferred" : "mandatory");
+    const weight = requirement.importanceWeight ?? requirementWeight(category);
+    const key = requirementCapabilityGroup(requirement, index);
+    groupWeights.set(key, (groupWeights.get(key) || 0) + weight);
+  }
   let earned = 0;
   let possible = 0;
   let scopeEarned = 0;
   let domainEarned = 0;
-  for (const requirement of requirements.filter(
-    (item) => item.category !== "constraint",
-  )) {
+  for (const [index, requirement] of scoredRequirements.entries()) {
     const category = requirement.category ||
       (requirement.kind === "preferred" ? "preferred" : "mandatory");
-    const weight = requirement.importanceWeight ?? requirementWeight(category);
+    const uncappedWeight =
+      requirement.importanceWeight ?? requirementWeight(category);
+    const groupWeight =
+      groupWeights.get(requirementCapabilityGroup(requirement, index)) ||
+      uncappedWeight;
+    const weight = uncappedWeight * Math.min(
+      1,
+      MAX_CAPABILITY_GROUP_WEIGHT / Math.max(groupWeight, 1),
+    );
     const matchClass = requirement.matchClass || normalizedMatchClass(requirement);
     const credit = requirement.credit ?? matchCredit(matchClass);
     const confidence = clamp01(requirement.confidence ?? 1);
@@ -775,8 +792,12 @@ export function calculateRequirementScore(
         )?.confidence ?? 1;
       }),
     );
+    const confidenceMultiplier = calibratedConfidenceMultiplier(
+      confidence,
+      claimConfidence,
+    );
     possible += weight;
-    earned += weight * credit * confidence * claimConfidence;
+    earned += weight * credit * confidenceMultiplier;
     scopeEarned += weight * (matchClass === "explicit" ? 1 : credit);
     domainEarned += weight * credit;
   }
@@ -784,19 +805,79 @@ export function calculateRequirementScore(
   const scopeOwnershipAlignment = possible === 0 ? 0 : clamp01(scopeEarned / possible);
   const domainContextAlignment = possible === 0 ? 0 : clamp01(domainEarned / possible);
   const softPreferenceFit = 0;
-  const final = Math.round(
+  const rawEvidenceFit = Math.round(
     65 * coverage +
       15 * scopeOwnershipAlignment +
       10 * domainContextAlignment +
       10 * softPreferenceFit,
   );
+  const calibratedFit = calibrateMatchPercentage(rawEvidenceFit);
   return {
     requirementCoverage: roundScore(coverage),
     scopeOwnershipAlignment: roundScore(scopeOwnershipAlignment),
     domainContextAlignment: roundScore(domainContextAlignment),
     softPreferenceFit,
-    final,
+    rawEvidenceFit,
+    calibratedFit,
+    possibleRequirementPoints: roundMetric(possible),
+    earnedRequirementPoints: roundMetric(earned),
+    final: calibratedFit,
   };
+}
+
+const MAX_CAPABILITY_GROUP_WEIGHT = 5;
+
+function requirementCapabilityGroup(
+  requirement: RequirementMatch,
+  index: number,
+) {
+  const normalized = requirement.normalizedCapability
+    ?.trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  return normalized ? `capability:${normalized}` : `requirement:${index}`;
+}
+
+/**
+ * Once a citation is deterministically valid, confidence may fine-tune its
+ * credit but must not erase a large part of an otherwise grounded match.
+ */
+export function calibratedConfidenceMultiplier(
+  matchConfidence: number,
+  claimConfidence: number,
+) {
+  return 0.85 + 0.15 * Math.min(
+    clamp01(matchConfidence),
+    clamp01(claimConfidence),
+  );
+}
+
+const MATCH_CALIBRATION_ANCHORS = [
+  [0, 0],
+  [15, 35],
+  [30, 65],
+  [45, 80],
+  [60, 90],
+  [75, 96],
+  [90, 100],
+] as const;
+
+/** Fixed monotonic calibration: preserves ranking while making the headline
+ * percentage comparable with ordinary job-site match expectations. */
+export function calibrateMatchPercentage(rawEvidenceFit: number) {
+  const raw = Math.max(0, Math.min(90, rawEvidenceFit));
+  for (let index = 1; index < MATCH_CALIBRATION_ANCHORS.length; index += 1) {
+    const [rightRaw, rightDisplay] = MATCH_CALIBRATION_ANCHORS[index];
+    if (raw > rightRaw) continue;
+    const [leftRaw, leftDisplay] = MATCH_CALIBRATION_ANCHORS[index - 1];
+    const progress = (raw - leftRaw) / (rightRaw - leftRaw);
+    return Math.round(leftDisplay + progress * (rightDisplay - leftDisplay));
+  }
+  return 100;
+}
+
+function roundMetric(value: number) {
+  return Math.round(value * 1000) / 1000;
 }
 
 export function normalizedMatchClass(
@@ -821,8 +902,8 @@ export function statusForMatchClass(
 
 export function matchCredit(matchClass: NonNullable<RequirementMatch["matchClass"]>) {
   if (matchClass === "explicit") return 1;
-  if (matchClass === "strong_adjacent") return 0.65;
-  if (matchClass === "weak_adjacent") return 0.3;
+  if (matchClass === "strong_adjacent") return 0.85;
+  if (matchClass === "weak_adjacent") return 0.55;
   if (matchClass === "contradicted") return -1;
   return 0;
 }
@@ -832,7 +913,7 @@ export function requirementWeight(
 ) {
   if (category === "mandatory") return 3;
   if (category === "responsibility") return 2;
-  if (category === "preferred") return 1;
+  if (category === "preferred") return 0.5;
   return 0;
 }
 

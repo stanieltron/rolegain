@@ -32,7 +32,12 @@ import { validatedDiscoveryTarget } from "../src/02-search/v1/01-discovery/index
 import { discoveryWorkIntent } from "../src/search-match-shared/search-intent.js";
 import { greenhouseJobApiUrl } from "../src/02-search/v1/03-vacancy-validation/index.js";
 import {
+  calibrateMatchPercentage,
+  calibratedConfidenceMultiplier,
   calculateRequirementFit,
+  calculateRequirementScore,
+  matchCredit,
+  requirementWeight,
   requirementIsExplicitQualification,
 } from "../src/03-match/shared/01-requirement-matching/index.js";
 import {
@@ -2399,7 +2404,7 @@ describe("job-search lifecycle", () => {
           ],
         },
       ]),
-    ).toBe(90);
+    ).toBe(100);
     expect(
       calculateOpportunityConfidence({
         sourceConfidence: 0.95,
@@ -2410,6 +2415,44 @@ describe("job-search lifecycle", () => {
         riskSignalCount: 0,
       }),
     ).toBe(0.983);
+  });
+
+  it("calibrates match scores without changing their ordering", () => {
+    expect([0, 15, 30, 45, 60, 75, 90].map(calibrateMatchPercentage)).toEqual([
+      0, 35, 65, 80, 90, 96, 100,
+    ]);
+    expect([9, 22, 35, 42].map(calibrateMatchPercentage)).toEqual([
+      21, 49, 70, 77,
+    ]);
+  });
+
+  it("gives transferable evidence useful credit and only fine-tunes grounded confidence", () => {
+    expect(matchCredit("explicit")).toBe(1);
+    expect(matchCredit("strong_adjacent")).toBe(0.85);
+    expect(matchCredit("weak_adjacent")).toBe(0.55);
+    expect(requirementWeight("preferred")).toBe(0.5);
+    expect(calibratedConfidenceMultiplier(0.98, 0.9)).toBeCloseTo(0.985);
+  });
+
+  it("caps repeated normalized capability themes without changing distinct requirements", () => {
+    const repeated = Array.from({ length: 4 }, (_, index) => ({
+      id: `validator-${index}`,
+      kind: "required" as const,
+      category: "mandatory" as const,
+      requirement: `Validator operation ${index}`,
+      normalizedCapability: "validator operations",
+      status: "missing" as const,
+      matchClass: "unsupported" as const,
+      confidence: 1,
+      explanation: "No evidence",
+      evidence: [],
+    }));
+    const distinct = repeated.map((item, index) => ({
+      ...item,
+      normalizedCapability: `distinct capability ${index}`,
+    }));
+    expect(calculateRequirementScore(repeated, []).possibleRequirementPoints).toBe(5);
+    expect(calculateRequirementScore(distinct, []).possibleRequirementPoints).toBe(12);
   });
 
   it("selects the top eligible jobs and excludes weak watchlist matches", () => {
@@ -2444,6 +2487,43 @@ describe("job-search lifecycle", () => {
       "a3",
       "b1",
     ]);
+  });
+
+  it("uses raw evidence fit rather than calibrated display fit for application eligibility", () => {
+    const [eligible, calibratedOnly] = [
+      { id: "eligible", fit: 90, rawEvidenceFit: 60 },
+      { id: "calibrated-only", fit: 70, rawEvidenceFit: 30 },
+    ].map(({ id, fit, rawEvidenceFit }) => ({
+      id,
+      company: "Acme",
+      title: id,
+      location: "Remote",
+      workplace: "Remote",
+      compensation: "Not disclosed",
+      sourceUrl: `https://example.test/${id}`,
+      applyUrl: `https://example.test/${id}/apply`,
+      capturedAt: "2026-08-10",
+      fit,
+      summary: id,
+      requirements: [],
+      requirementMatches: [],
+      strengths: [],
+      gaps: [],
+      scoreBreakdown: {
+        requirementCoverage: 0,
+        scopeOwnershipAlignment: 0,
+        domainContextAlignment: 0,
+        softPreferenceFit: 0,
+        rawEvidenceFit,
+        calibratedFit: fit,
+        final: fit,
+      },
+    })) as JobOpportunity[];
+    expect(
+      selectPhase2ApplicationPortfolio([eligible, calibratedOnly], 2).map(
+        (job) => job.id,
+      ),
+    ).toEqual(["eligible"]);
   });
 
   it("accepts affirmative remote vacancies for a remote candidate without using current residence", async () => {

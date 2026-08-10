@@ -227,6 +227,14 @@ export interface JobOpportunity {
     scopeOwnershipAlignment: number;
     domainContextAlignment: number;
     softPreferenceFit: number;
+    /** Uncalibrated evidence score used for ranking and application eligibility. */
+    rawEvidenceFit?: number;
+    /** User-facing monotonic calibration of rawEvidenceFit. */
+    calibratedFit?: number;
+    /** Sum of effective requirement weights after duplicate-capability caps. */
+    possibleRequirementPoints?: number;
+    /** Evidence-weighted points earned before component weighting. */
+    earnedRequirementPoints?: number;
     final: number;
   };
   skepticalReview?: {

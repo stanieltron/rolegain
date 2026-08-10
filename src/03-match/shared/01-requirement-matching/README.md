@@ -94,9 +94,19 @@ must pass another fresh verification or are rejected.
 
 ## Scoring
 
-`calculateRequirementScore()` applies deterministic category weights, match
-credit, confidence, evidence quality, and feasibility rules. The model never
-returns the final percentage.
+`calculateRequirementScore()` applies deterministic category weights of 3 for
+mandatory qualifications, 2 for responsibilities, 0.5 for preferred items,
+and 0 for constraints. Explicit evidence receives 1.0 credit,
+strong-adjacent evidence 0.85, weak-adjacent evidence 0.55, unsupported
+evidence 0, and contradicted evidence -1. Validated citation confidence only
+fine-tunes that credit through an 0.85–1.0 multiplier.
+
+Rows sharing a non-empty normalized capability are capped at five total weight
+points so verbose or repetitive job descriptions do not dominate the score.
+The deterministic raw evidence fit remains the ranking and application-
+eligibility authority. A fixed monotonic calibration produces the user-facing
+percentage without changing job order. Both values are persisted in the score
+breakdown. The model never returns either percentage.
 
 ## Output and persistence
 

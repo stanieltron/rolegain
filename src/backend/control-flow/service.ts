@@ -1167,7 +1167,7 @@ export class JobSearchService {
       const reusableBench = revalidated.opportunities.filter(
         (job) =>
           hasReusableAssessment(job) &&
-          job.fit >= applicationMinimumFit(),
+          evidenceFitForSelection(job) >= applicationMinimumFit(),
       );
       const discoveryLimit = discoveryLimitAfterBenchValidation({
         remainingApplications: remaining,
@@ -3496,8 +3496,12 @@ export function selectPhase2ApplicationPortfolio(
   limit: number,
 ) {
   return ranked
-    .filter((job) => job.fit >= applicationMinimumFit())
+    .filter((job) => evidenceFitForSelection(job) >= applicationMinimumFit())
     .slice(0, Math.max(0, limit));
+}
+
+function evidenceFitForSelection(job: JobOpportunity) {
+  return job.scoreBreakdown?.rawEvidenceFit ?? job.fit;
 }
 
 function mergeFailures(...groups: JobResearchFailure[][]) {
