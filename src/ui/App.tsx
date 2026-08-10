@@ -61,7 +61,6 @@ import {
   prepareSearchReadyApplications,
   promoteOpportunity,
   removeSource,
-  resetJobList,
   resetUser,
   refineApplicationField,
   refineCoverLetter,
@@ -69,11 +68,11 @@ import {
   reviewEvidenceContradiction,
   setApplicationOutcome,
   stopBackgroundWork,
+  streamWorkflowProgress,
   tailorApplicationCv,
   trackAnalyticsEvent,
   updateApplication,
   updateCandidateProfile,
-  updateSearchConfig,
 } from "./api.js";
 import { useAuthActions } from "./auth.js";
 import {
@@ -86,6 +85,7 @@ import type {
   BetaStatus,
   CanonicalEvidenceModel,
   ServiceStatus,
+  WorkflowProgressEvent,
 } from "./api.js";
 
 type View = "profile" | "discovery" | "applications";
@@ -327,6 +327,7 @@ export function App() {
   const [workspace, setWorkspace] = useState<JobSearchWorkspace>();
   const [beta, setBeta] = useState<BetaStatus>();
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus>();
+  const [liveProgressEvents, setLiveProgressEvents] = useState<WorkflowProgressEvent[]>([]);
   const [view, setView] = useState<View>("profile");
   const [selectedId, setSelectedId] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -462,6 +463,15 @@ export function App() {
           (application) => application.tailoredCv?.status === "processing",
         ) ??
           false));
+  useEffect(() => {
+    if (!monitoring) return;
+    const controller = new AbortController();
+    setLiveProgressEvents([]);
+    void streamWorkflowProgress((event) => {
+      setLiveProgressEvents((current) => [...current, event].slice(-30));
+    }, controller.signal);
+    return () => controller.abort();
+  }, [monitoring, workspace?.workflowExecution?.id]);
   useEffect(() => {
     if (!monitoring) return;
     const timer = window.setInterval(
@@ -794,6 +804,7 @@ export function App() {
               onBetaChange={setBeta}
               busy={busy}
               act={act}
+              liveEvents={liveProgressEvents}
               onContinue={() => {
                 setSelectedId(undefined);
                 setView("applications");
@@ -1504,6 +1515,46 @@ function ProfileView({
               </div>
             )}
           </section>
+          {highestStep >= 3 && (
+            <>
+              <PreferencesSection
+                workspace={workspace}
+                unanswered={unanswered}
+                busy={busy}
+                saveState={preferenceSaveState}
+                savePreference={savePreference}
+              />
+              {unanswered.length === 0 && workspace.discoveryNeedsRun && (
+                <section className="setup-nudge complete">
+                  <div>
+                    <CheckCircle2 size={20} />
+                    <span>
+                      <strong>Job information is complete</strong>
+                      <small>
+                        Start Discovery now, or review and edit your evidence below.
+                      </small>
+                    </span>
+                  </div>
+                  <button
+                    className="primary"
+                    disabled={busy}
+                    onClick={() =>
+                      void act(
+                        async () => {
+                          await finishIntake();
+                          return prepareApplications();
+                        },
+                        "discovery",
+                        "job-search",
+                      )
+                    }
+                  >
+                    Continue to Discovery <ChevronRight size={16} />
+                  </button>
+                </section>
+              )}
+            </>
+          )}
           <EvidenceLedger
             workspace={workspace}
             canonicalEvidence={canonicalEvidence}
@@ -1530,47 +1581,6 @@ function ProfileView({
                 void act(() => removeSource(sourceId));
             }}
           />
-        </div>
-      )}
-
-      {highestStep >= 3 && (
-        <div className="wizard-step-stack">
-          <PreferencesSection
-            workspace={workspace}
-            unanswered={unanswered}
-            busy={busy}
-            saveState={preferenceSaveState}
-            savePreference={savePreference}
-          />
-          {unanswered.length === 0 && workspace.discoveryNeedsRun && (
-            <section className="setup-nudge complete">
-              <div>
-                <CheckCircle2 size={20} />
-                <span>
-                  <strong>Job information is complete</strong>
-                  <small>
-                    Continue to the final step and start Discovery when ready.
-                  </small>
-                </span>
-              </div>
-              <button
-                className="primary"
-                disabled={busy}
-                onClick={() =>
-                  void act(
-                    async () => {
-                      await finishIntake();
-                      return prepareApplications();
-                    },
-                    "discovery",
-                    "job-search",
-                  )
-                }
-              >
-                Continue to Discovery <ChevronRight size={16} />
-              </button>
-            </section>
-          )}
         </div>
       )}
     </div>
@@ -2244,23 +2254,26 @@ function PreferencesSection({
   return (
     <section className="band questions" id="job-search-preferences">
       <div className="section-head">
-        <div>
-          <span className="section-label">Job preferences</span>
-          <h2>Information needed for job search</h2>
-          <p className={`autosave-note ${saveState}`} aria-live="polite">
-            {saveState === "saving" && <LoaderCircle className="spin" size={12} />}
-            {saveState === "saved" && <Check size={12} />}
-            {saveState === "error" && <AlertTriangle size={12} />}
-            <span>
-              {saveState === "saving"
-                ? "Saving changes…"
-                : saveState === "saved"
-                  ? "Changes saved"
-                  : saveState === "error"
-                    ? "Could not save changes"
-                    : "Changes save automatically. Compensation is optional."}
-            </span>
-          </p>
+        <div className="preferences-step-heading">
+          <span className="wizard-number">3</span>
+          <div>
+            <span className="section-label">Job preferences</span>
+            <h2>Information needed for job search</h2>
+            <p className={`autosave-note ${saveState}`} aria-live="polite">
+              {saveState === "saving" && <LoaderCircle className="spin" size={12} />}
+              {saveState === "saved" && <Check size={12} />}
+              {saveState === "error" && <AlertTriangle size={12} />}
+              <span>
+                {saveState === "saving"
+                  ? "Saving changes…"
+                  : saveState === "saved"
+                    ? "Changes saved"
+                    : saveState === "error"
+                      ? "Could not save changes"
+                      : "Changes save automatically. Compensation is optional."}
+              </span>
+            </p>
+          </div>
         </div>
         <span className="count">{unanswered.length} open</span>
       </div>
@@ -2680,10 +2693,12 @@ function DiscoveryView({
   act,
   onContinue,
   onBetaChange,
+  liveEvents,
 }: ViewProps & {
   beta: BetaStatus;
   onContinue: () => void;
   onBetaChange: (next: BetaStatus) => void;
+  liveEvents: WorkflowProgressEvent[];
 }) {
   const progress = workspace.searchProgress;
   const running =
@@ -2702,15 +2717,6 @@ function DiscoveryView({
   const currentPreparedItems = preparedPipelineItems.filter((item) =>
     currentItemIds.has(item.id),
   );
-  const hasDiscoveryData =
-    Boolean(progress) ||
-    workspace.opportunities.length > 0 ||
-    workspace.searchReadyOpportunities.length > 0 ||
-    workspace.applications.length > 0 ||
-    workspace.rejectedOpportunities.length > 0 ||
-    workspace.searchValidationIssues.length > 0 ||
-    workspace.jobHistory.length > 0 ||
-    workspace.seenJobUrls.length > 0;
   const applicationJobIds = new Set(
     workspace.applications.map((application) => application.jobId),
   );
@@ -2743,6 +2749,19 @@ function DiscoveryView({
   return (
     <div className="discovery-view">
       <BetaLimitCard beta={beta} onEnabled={onBetaChange} />
+      {prepared.length > 0 && (
+        <section className="discovery-continue discovery-continue-top">
+          <div>
+            <CheckCircle2 size={18} />
+            <span>
+              <strong>{prepared.length} applications are ready</strong>
+            </span>
+          </div>
+          <button className="primary" onClick={onContinue}>
+            Continue to applications <ChevronRight size={15} />
+          </button>
+        </section>
+      )}
       <section className="application-overview-toolbar discovery-toolbar">
         <div>
           <strong>{progress ? "Discover another batch" : "Start job discovery"}</strong>
@@ -2752,25 +2771,6 @@ function DiscoveryView({
           </span>
         </div>
         <div className="search-pool-controls">
-          <label>
-            Discover
-            <input
-              aria-label="Jobs to discover per search"
-              type="number"
-              min={5}
-              max={50}
-              value={workspace.searchConfig.discoveryTarget}
-              disabled={busy || running}
-              onChange={(event) =>
-                void act(() =>
-                  updateSearchConfig({
-                    ...workspace.searchConfig,
-                    discoveryTarget: Number(event.target.value),
-                  }),
-                )
-              }
-            />
-          </label>
           <button
             className="queue-find"
             disabled={busy || running || !beta.canStartBatch}
@@ -2791,32 +2791,6 @@ function DiscoveryView({
               ? "Prepare next 5"
               : "Start discovery"}
           </button>
-          <button
-            type="button"
-            className="reset-discovery"
-            disabled={
-              busy ||
-              running ||
-              !hasDiscoveryData ||
-              beta.remainingApplications <= 0
-            }
-            title={
-              running
-                ? "Stop the active discovery run before resetting it."
-                : "Clear all discovery results while keeping the candidate profile and evidence."
-            }
-            onClick={() => {
-              if (
-                window.confirm(
-                  "Reset discovery? This removes all discovered jobs, matches, rejected jobs, and prepared applications. Candidate profile and evidence will be kept.",
-                )
-              )
-                void act(resetJobList, "discovery");
-            }}
-          >
-            <RefreshCw size={13} />
-            Reset discovery
-          </button>
         </div>
       </section>
       {progress ? (
@@ -2826,6 +2800,7 @@ function DiscoveryView({
           preparedItems={preparedPipelineItems}
           currentItemIds={currentItemIds}
           applicationTarget={workspace.searchConfig.applicationTarget}
+          liveEvents={liveEvents}
         />
       ) : (
         <section className="discovery-empty">
@@ -2887,11 +2862,6 @@ function DiscoveryView({
               : "Passing jobs ranked by evidence match and reconsidered on the next discovery run."}
             jobs={readyForMatching.length ? readyForMatching : bench}
             showFit={!readyForMatching.length}
-            busy={busy || running || beta.remainingApplications <= 0}
-            onPromote={promote}
-          />
-          <ValidationIssuePool
-            failures={workspace.searchValidationIssues}
             busy={busy || running || beta.remainingApplications <= 0}
             onPromote={promote}
           />
@@ -3163,58 +3133,13 @@ function RejectedPool({
   );
 }
 
-function ValidationIssuePool({
-  failures,
-  busy,
-  onPromote,
-}: {
-  failures: JobSearchWorkspace["searchValidationIssues"];
-  busy: boolean;
-  onPromote: (jobId: string) => void;
-}) {
-  return (
-    <details className="pipeline-pool rejected-pool review-pool" open>
-      <summary>
-        <strong>Needs review or retry · {failures.length}</strong>
-        <span>Access restrictions, technical failures, source pages, and duplicates do not enter matching and are not confirmed rejections.</span>
-      </summary>
-      {failures.length ? failures.map((failure) => (
-        <article className="pipeline-pool-row" key={failure.id}>
-          <div>
-            <strong><span className="inline-job-number">{jobNumberLabel(failure.jobNumber)}</span>{failure.title}</strong>
-            <span>{failure.company} · {(failure.disposition ?? "unresolved").replace(/_/g, " ")}</span>
-            <small>{failure.reason}</small>
-          </div>
-          <div className="pipeline-pool-actions">
-            <a
-              href={failure.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              onClick={() =>
-                void trackAnalyticsEvent("job_source_opened", {
-                  jobId: failure.id,
-                  stage: "review",
-                })
-              }
-            >
-              {failure.disposition === "manual_review" ? "Check manually" : "View source"}
-            </a>
-            <button type="button" disabled={busy} onClick={() => onPromote(failure.id)}>
-              <Plus size={12} /> Add manually
-            </button>
-          </div>
-        </article>
-      )) : <div className="application-group-empty">No validation records need manual review or retry.</div>}
-    </details>
-  );
-}
-
 function FindApplicationsProgress({
   progress,
   allItems,
   preparedItems,
   currentItemIds,
   applicationTarget,
+  liveEvents,
   compact = false,
 }: {
   progress: JobSearchWorkspace["searchProgress"];
@@ -3222,6 +3147,7 @@ function FindApplicationsProgress({
   preparedItems: JobSearchWorkspace["jobHistory"];
   currentItemIds: Set<string>;
   applicationTarget: number;
+  liveEvents: WorkflowProgressEvent[];
   compact?: boolean;
 }) {
   if (!progress) return null;
@@ -3242,6 +3168,12 @@ function FindApplicationsProgress({
       </div>
     );
   const items = progress.items ?? [];
+  const activityEvents = [...(progress.events ?? []), ...liveEvents]
+    .filter((event, index, events) =>
+      events.findIndex((candidate) => candidate.id === event.id) === index,
+    )
+    .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+    .slice(-12);
   const discoverySlots = Math.max(
     0,
     (progress.stage === "looking" ? progress.target : items.length) - items.length,
@@ -3290,7 +3222,9 @@ function FindApplicationsProgress({
       ? `Waiting for ${pendingMatchCount} more ${pendingMatchCount === 1 ? "job" : "jobs"} to finish full evidence matching before selecting the top ${selectedApplicationCount} for application preparation.`
       : undefined;
   const activity =
-    progress.stage === "ready"
+    running && liveEvents.at(-1)?.message
+      ? liveEvents.at(-1)!.message
+      : progress.stage === "ready"
       ? progress.activity?.startsWith("Validation replay complete:")
         ? progress.activity
         : `${newPreparedCount} new applications are prepared and independently verified. Some may still need candidate information before submission.`
@@ -3337,9 +3271,9 @@ function FindApplicationsProgress({
           currentRunEmptyMessage={preparedCurrentRunEmptyMessage}
         />
       </div>
-      {!!progress.events?.length && (
+      {activityEvents.length > 0 && (
         <div className="pipeline-events">
-          {[...progress.events].slice(-4).reverse().map((event) => (
+          {[...activityEvents].reverse().map((event) => (
             <span key={event.id}>
               <time>{new Date(event.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
               {event.message}
@@ -3509,7 +3443,7 @@ function PipelineColumn({
     );
   };
   return (
-    <section className="pipeline-column">
+    <section className={`pipeline-column pipeline-column-${phase}`}>
       <header>
         <b>{step}</b>
         <div><strong>{title}</strong><span>{count}</span></div>

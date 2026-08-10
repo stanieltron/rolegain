@@ -93,6 +93,9 @@ export async function streamSearchToMatch(input: SearchToMatchStreamInput) {
           state: verified ? "passed" : "failed",
           fit: verified?.fit,
           reason: failures[0]?.reason,
+          activity: verified
+            ? `${verified.company} · ${verified.title}: assessed ${verified.requirementMatches.length} employer requirements, retained ${verified.strengths.length} evidence-backed strengths and ${verified.gaps.length} visible gaps; final fit ${verified.fit}%.`
+            : undefined,
         });
         return { opportunity: verified, failures };
       } catch (error) {

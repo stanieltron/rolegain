@@ -49,6 +49,33 @@ async function captureOne(
       timeout: configuration.navigationTimeoutMs,
     });
     httpStatus = response?.status() || 0;
+    await page.waitForFunction(
+      () =>
+        Boolean(document.title.trim()) &&
+        Boolean(document.body?.innerText?.trim().length),
+      undefined,
+      {
+        timeout: Math.min(
+          4_000,
+          Math.max(1_000, configuration.settleMs * 4),
+        ),
+      },
+    ).catch(() => undefined);
+    if (
+      /(?:^|\.)(?:ashbyhq\.com|greenhouse\.io|lever\.co|workable\.com)$/i.test(
+        supplied.hostname,
+      )
+    )
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll("a[href],button")].some((element) =>
+            /\bapply\b/i.test(
+              `${element.textContent || ""} ${element instanceof HTMLAnchorElement ? element.href : ""}`,
+            ),
+          ),
+        undefined,
+        { timeout: 2_500 },
+      ).catch(() => undefined);
     if (configuration.settleMs) await page.waitForTimeout(configuration.settleMs);
   } catch (error) {
     navigationError = error instanceof Error ? error.message : String(error);
@@ -72,19 +99,28 @@ async function captureOne(
     httpStatus >= 400
   ) {
     const recovered = await fetchPage(lead.url, configuration.navigationTimeoutMs);
+    const recoveredUseful = Boolean(
+      recovered.body.length > observed.body.length ||
+        (!observed.pageTitle && recovered.pageTitle) ||
+        (!observed.jobPosting && recovered.jobPosting) ||
+        (recovered.links.length > observed.links.length),
+    );
     fallback = {
       status: recovered.status,
       finalUrl: recovered.finalUrl,
       contentType: recovered.contentType,
       error: recovered.error,
-      recovered: recovered.body.length > observed.body.length,
+      recovered: recoveredUseful,
     };
-    if (recovered.body.length > observed.body.length)
+    if (recoveredUseful)
       observed = {
         ...observed,
         finalUrl: recovered.finalUrl,
         pageTitle: recovered.pageTitle || observed.pageTitle,
-        body: recovered.body,
+        body:
+          recovered.body.length > observed.body.length
+            ? recovered.body
+            : observed.body,
         links: recovered.links.length ? recovered.links : observed.links,
         jobPosting: recovered.jobPosting || observed.jobPosting,
       };
@@ -222,33 +258,12 @@ async function fetchPage(url: string, timeoutMs: number) {
       }
       const contentType = response.headers.get("content-type") || "";
       const html = await response.text();
-      const $ = load(html);
-      $("script,style,noscript").remove();
-      const links = $("a[href]")
-        .toArray()
-        .map((element) => {
-          const href = $(element).attr("href") || "";
-          try {
-            return {
-              text: clean($(element).text()),
-              url: new URL(href, response.url || current).toString(),
-            };
-          } catch {
-            return { text: "", url: "" };
-          }
-        })
-        .filter((link) =>
-          relevantLinkPattern.test(`${link.text} ${link.url}`),
-        );
-      const jobPosting = parseHtmlJobPosting(html);
+      const fallbackPage = parseFallbackHtml(html, response.url || current);
       return {
         status: response.status,
         finalUrl: response.url || current,
         contentType,
-        pageTitle: clean($("title").first().text()),
-        body: normalizeBody($("body").text()).slice(0, 50_000),
-        links,
-        jobPosting,
+        ...fallbackPage,
         error: "",
       };
     } catch (error) {
@@ -273,6 +288,59 @@ async function fetchPage(url: string, timeoutMs: number) {
     links: [] as SearchV2Link[],
     jobPosting: undefined,
     error: "Too many redirects",
+  };
+}
+
+export function parseFallbackHtml(html: string, baseUrl: string) {
+  const $ = load(html);
+  const pageTitle = clean(
+    $("title").first().text() ||
+      $('meta[property="og:title"]').attr("content"),
+  );
+  const metaDescription = normalizeBody(
+    $('meta[name="description"]').attr("content") ||
+      $('meta[property="og:description"]').attr("content") ||
+      $('meta[name="twitter:description"]').attr("content") ||
+      "",
+  );
+  const jobPosting = parseHtmlJobPosting(html);
+  $("script,style,noscript").remove();
+  const links = $("a[href]")
+    .toArray()
+    .map((element) => {
+      const href = $(element).attr("href") || "";
+      try {
+        return {
+          text: clean($(element).text()),
+          url: new URL(href, baseUrl).toString(),
+        };
+      } catch {
+        return { text: "", url: "" };
+      }
+    })
+    .filter((link) => relevantLinkPattern.test(`${link.text} ${link.url}`));
+  try {
+    const pageUrl = new URL(baseUrl);
+    if (
+      /(?:^|\.)ashbyhq\.com$/i.test(pageUrl.hostname) &&
+      pageUrl.pathname.split("/").filter(Boolean).length >= 2 &&
+      !/\/application\/?$/i.test(pageUrl.pathname)
+    )
+      links.push({
+        text: "Apply for this Job",
+        url: `${pageUrl.origin}${pageUrl.pathname.replace(/\/$/, "")}/application`,
+      });
+  } catch {
+    // The caller already validates public URLs; keep parsing defensive.
+  }
+  const staticBody = normalizeBody($("body").text());
+  const body = [staticBody, metaDescription, jobPosting?.description || ""]
+    .sort((left, right) => right.length - left.length)[0];
+  return {
+    pageTitle,
+    body: body.slice(0, 50_000),
+    links,
+    jobPosting,
   };
 }
 
@@ -359,23 +427,6 @@ export function extractSignals(
         capture.jobPosting ||
         capture.links.length,
     ),
-  };
-}
-
-export function inaccessibleDecision(capture: SearchV2Capture) {
-  if (capture.signals.hasUsableEvidence) return undefined;
-  return {
-    id: capture.id,
-    status: "reject" as const,
-    reason: "The browser and HTTP fallback produced no usable current-page evidence.",
-    title: capture.lead.title,
-    company: capture.lead.company,
-    location: capture.lead.location,
-    workplaceType: capture.lead.workplaceType,
-    employmentType: capture.lead.employmentType,
-    applyUrl: capture.finalUrl || capture.suppliedUrl,
-    compensation: capture.lead.compensation,
-    children: [],
   };
 }
 

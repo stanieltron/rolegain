@@ -78,6 +78,7 @@ import {
   FileWorkspaceStore,
   type WorkspaceStore,
 } from "../persistence/workspace-store.js";
+import type { TransientWorkflowProgressInput } from "../workflows/transient-progress.js";
 
 const CANDIDATE_ID = "candidate-1";
 
@@ -124,6 +125,10 @@ export class JobSearchService {
     private readonly workspaceStore: WorkspaceStore = new FileWorkspaceStore(
       path.join(root, "job-search", "candidates"),
     ),
+    private readonly publishTransientProgress?: (
+      userId: string,
+      event: TransientWorkflowProgressInput,
+    ) => Promise<void>,
   ) {
     this.directory = path.join(root, "job-search", "candidates");
     this.jobNumbersFile = path.join(root, "job-search", "job-numbers.json");
@@ -1093,6 +1098,8 @@ export class JobSearchService {
     let pendingProgressWrite = Promise.resolve();
     const reportProgress = async (update: OpportunityProgressUpdate) => {
       this.assertBackgroundExecutionRunning(workspace.candidateId);
+      this.emitTransientProgress(workspace.candidateId, update);
+      if (!update.item) return;
       if (update.item) await this.assignJobNumbers([update.item]);
       applyProgressUpdate(workspace, update);
       pendingProgressWrite = pendingProgressWrite.then(() =>
@@ -1349,6 +1356,8 @@ export class JobSearchService {
     let pendingProgressWrite = Promise.resolve();
     const reportProgress = async (update: OpportunityProgressUpdate) => {
       this.assertBackgroundExecutionRunning(workspace.candidateId);
+      this.emitTransientProgress(workspace.candidateId, update);
+      if (!update.item) return;
       if (update.item) await this.assignJobNumbers([update.item]);
       applyProgressUpdate(workspace, update);
       pendingProgressWrite = pendingProgressWrite.then(() =>
@@ -1728,6 +1737,8 @@ export class JobSearchService {
     workspace.searchValidationIssues = [];
     workspace.jobHistory = [];
     workspace.seenJobUrls = [];
+    workspace.searchSourceBacklog = [];
+    workspace.searchSourceBacklogInitialized = true;
     workspace.searchProgress = undefined;
     workspace.discoveryNeedsRun = true;
     workspace.phase = "search";
@@ -1878,6 +1889,7 @@ export class JobSearchService {
     let writes = Promise.resolve();
     const terminalUpdates = new Set<string>();
     const reportProgress = async (update: OpportunityProgressUpdate) => {
+      this.emitTransientProgress(workspace.candidateId, update);
       applyProgressUpdate(workspace, update);
       if (
         update.phase === "validation" &&
@@ -2645,6 +2657,17 @@ export class JobSearchService {
     }
   }
 
+  private emitTransientProgress(
+    userId: string,
+    update: OpportunityProgressUpdate,
+  ) {
+    const event = transientEventFromProgress(update);
+    if (!event || !this.publishTransientProgress) return;
+    void this.publishTransientProgress(userId, event).catch((error) =>
+      console.error("Transient workflow progress publish failed", error),
+    );
+  }
+
   private trackSearchTask(
     workspace: JobSearchWorkspace,
     mode: BackgroundSearchOperation,
@@ -2858,6 +2881,8 @@ function emptyWorkspace(
     searchValidationIssues: [],
     jobHistory: [],
     seenJobUrls: [],
+    searchSourceBacklog: [],
+    searchSourceBacklogInitialized: true,
     searchConfig: { discoveryTarget: 26, applicationTarget: 5 },
     sharedAnswers: {},
     profileSetupStep: 1,
@@ -2876,6 +2901,7 @@ function normalizeWorkspace(
   workspace.applications = workspace.applications ?? [];
   workspace.rejectedOpportunities = workspace.rejectedOpportunities ?? [];
   workspace.searchValidationIssues = workspace.searchValidationIssues ?? [];
+  workspace.searchSourceBacklog = workspace.searchSourceBacklog ?? [];
   workspace.backgroundExecution ??= { state: "running" };
   if (
     workspace.searchProgress?.stage === "failed" &&
@@ -3955,13 +3981,6 @@ function applyProgressUpdate(
 ) {
   if (!workspace.searchProgress) return;
   const progress = workspace.searchProgress;
-  if (update.activity && update.activity !== progress.activity) {
-    progress.activity = update.activity;
-    progress.events = [
-      ...(progress.events ?? []),
-      progressEvent(update.activity),
-    ].slice(-10);
-  }
   if (update.item) {
     progress.items ??= [];
     let item = progress.items.find(
@@ -4001,6 +4020,65 @@ function applyProgressUpdate(
     upsertJobHistory(workspace, item);
   }
   progress.updatedAt = new Date().toISOString();
+}
+
+function transientEventFromProgress(
+  update: OpportunityProgressUpdate,
+): TransientWorkflowProgressInput | undefined {
+  if (update.activity) return {
+    message: update.activity,
+    phase: update.phase,
+    state: update.state,
+    jobId: update.item?.id,
+    jobNumber: update.item?.jobNumber,
+    company: update.item?.company,
+    title: update.item?.title,
+    fit: update.fit,
+  };
+  if (!update.item || !update.phase || !update.state) return undefined;
+  const job = `${update.item.company || "Unknown company"} · ${update.item.title || "Untitled vacancy"}`;
+  const message =
+    update.phase === "validation"
+      ? update.state === "waiting"
+        ? `Queued ${job} for page capture and vacancy verification.`
+        : update.state === "passed"
+          ? `Verified ${job} as a live vacancy and passed it to matching.`
+          : update.state === "bench"
+            ? update.validationDisposition === "source_page"
+              ? `${job} is a source page; concrete vacancies are being expanded from it.`
+              : `${job} is retained for a later validation attempt${update.reason ? `: ${update.reason}` : "."}`
+            : `Validation stopped for ${job}${update.reason ? `: ${update.reason}` : "."}`
+      : update.phase === "match"
+        ? update.state === "running"
+          ? `Matching ${job} requirement by requirement against candidate evidence.`
+          : update.state === "passed"
+            ? `Completed evidence matching for ${job}${typeof update.fit === "number" ? ` with ${update.fit}% fit.` : "."}`
+            : `Matching stopped for ${job}${update.reason ? `: ${update.reason}` : "."}`
+        : update.phase === "application"
+          ? update.state === "running"
+            ? `Inspecting the live employer application form for ${job}.`
+            : update.state === "selected"
+              ? `Selected ${job} for application preparation.`
+              : update.state === "passed"
+                ? `Mapped the employer application form for ${job}.`
+                : update.state === "bench"
+                  ? `Kept ${job} as a scored replacement.`
+                  : `Application inspection stopped for ${job}${update.reason ? `: ${update.reason}` : "."}`
+          : update.state === "running"
+            ? `Verifying grounded application answers for ${job}.`
+            : update.state === "passed"
+              ? `Independently verified the prepared application for ${job}.`
+              : `Application verification stopped for ${job}${update.reason ? `: ${update.reason}` : "."}`;
+  return {
+    message,
+    phase: update.phase,
+    state: update.state,
+    jobId: update.item.id,
+    jobNumber: update.item.jobNumber,
+    company: update.item.company,
+    title: update.item.title,
+    fit: update.fit,
+  };
 }
 
 function normalizeJobHistory(workspace: JobSearchWorkspace) {

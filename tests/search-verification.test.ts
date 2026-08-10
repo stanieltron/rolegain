@@ -17,15 +17,23 @@ describe("search-stage verification classification", () => {
   });
 
   it.each([
-    ["Application link returned 404", "closed_or_unavailable"],
     ["Vacancy is closed", "closed_or_unavailable"],
     ["Vacancy valid-through date has passed", "closed_or_unavailable"],
     ["Workplace or location does not match the candidate constraint", "location_or_workplace"],
-    ["Employment type does not match the candidate preference", "hard_candidate_constraint"],
   ] as const)("keeps confirmed hard exclusions in rejected: %s", (reason, reasonCode) => {
     expect(classifySearchValidationFailure(reason, "vacancy_validation")).toEqual({
       disposition: "rejected",
       reasonCode,
+    });
+  });
+
+  it.each([
+    "Application link returned 404",
+    "Employment type does not match the candidate preference",
+  ])("retains nonterminal constraints or routing failures: %s", (reason) => {
+    expect(classifySearchValidationFailure(reason, "vacancy_validation")).toEqual({
+      disposition: "unresolved",
+      reasonCode: "technical_failure",
     });
   });
 

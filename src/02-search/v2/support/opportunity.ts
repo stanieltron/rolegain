@@ -138,9 +138,14 @@ export function searchV2Failure(
   reason: string,
 ): JobResearchFailure {
   const lower = reason.toLowerCase();
-  const reasonCode = /closed|expired|filled|no longer accepting/.test(lower)
+  const reasonCode =
+    /definite closure signal|explicit closure signal|page explicitly (?:says|states)|page (?:says|states).*(?:closed|expired|filled|no longer (?:available|accepting))|vacancy is (?:closed|expired)|job is (?:closed|expired)|(?:this|the) job is no longer (?:available|accepting)|position is filled|applications? (?:are|is) (?:currently )?closed|valid-through date has passed/.test(
+      lower,
+    )
     ? "closed_or_unavailable"
-    : /blocked|403|captcha|access|no usable/.test(lower)
+    : /workplace or location does not match|location mismatch/.test(lower)
+      ? "location_or_workplace"
+      : /blocked|403|captcha|access|no usable|inaccessible/.test(lower)
       ? "access_restricted"
       : /duplicate/.test(lower)
         ? "duplicate"
@@ -159,7 +164,14 @@ export function searchV2Failure(
     applyUrl: lead.url,
     stage: "vacancy_validation",
     disposition:
-      reasonCode === "technical_failure" ? "unresolved" : "rejected",
+      reasonCode === "closed_or_unavailable" ||
+      reasonCode === "location_or_workplace"
+        ? "rejected"
+        : reasonCode === "duplicate"
+          ? "duplicate"
+          : reasonCode === "access_restricted"
+            ? "manual_review"
+            : "unresolved",
     reasonCode,
     reason,
     capturedAt: new Date().toISOString(),
@@ -242,20 +254,30 @@ export function meetsSearchV2CompensationFloor(
 
 function selectDescription(capture: SearchV2Capture) {
   const structured = clean(capture.jobPosting?.description);
-  return structured.length >= 300 ? structured : capture.body.trim();
+  if (structured.length >= 300) return structured;
+  const body = capture.body.trim();
+  return body || clean(capture.lead.snippet);
 }
 
 function selectApplyUrl(
   capture: SearchV2Capture,
   decision: SearchV2Decision,
 ) {
-  if (isPublicWebUrl(decision.applyUrl)) return decision.applyUrl;
   const direct = capture.links.find((link) =>
     /\bapply\b/i.test(`${link.text} ${link.url}`),
   )?.url;
+  if (
+    isPublicWebUrl(decision.applyUrl) &&
+    (normalizeOpportunityUrl(decision.applyUrl) !==
+      normalizeOpportunityUrl(capture.finalUrl) ||
+      /\/application|\/apply\b/i.test(decision.applyUrl))
+  )
+    return decision.applyUrl;
   return isPublicWebUrl(direct || "")
     ? direct!
-    : capture.finalUrl || capture.suppliedUrl;
+    : isPublicWebUrl(decision.applyUrl)
+      ? decision.applyUrl
+      : capture.finalUrl || capture.suppliedUrl;
 }
 
 function authoritativeSourceConfidence(jobUrl: string, applyUrl: string) {

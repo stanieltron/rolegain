@@ -34,6 +34,11 @@ import type { Pool } from "pg";
 import { PlatformControl } from "../admin/platform-control.js";
 import { appendDiagnosticEvent } from "../../diagnostics/run-log.js";
 import { createWorkflowFailureNotifier } from "../notifications/workflow-error-email.js";
+import {
+  InMemoryTransientWorkflowProgressBus,
+  PostgresTransientWorkflowProgressBus,
+  type TransientWorkflowProgressBus,
+} from "../workflows/transient-progress.js";
 
 const defaultProjectRoot = process.cwd();
 
@@ -50,6 +55,7 @@ export interface RolegainDependencies {
   tokenCounter: TokenCounter;
   artifacts: ArtifactArchive;
   workflows?: WorkflowQueue;
+  transientProgress: TransientWorkflowProgressBus;
   platform: PlatformControl;
   close: () => Promise<void>;
 }
@@ -95,6 +101,9 @@ export async function createRolegainDependencies(
         )
       : new LocalArtifactArchive();
   await artifacts.initialize();
+  const transientProgress = database && sessionDatabase
+    ? new PostgresTransientWorkflowProgressBus(database, sessionDatabase)
+    : new InMemoryTransientWorkflowProgressBus();
   const codex = createLlmClient(root);
   codex.beforeTurn = () => platform.assertCodexEnabled();
   const researcher = new LiveOpportunityResearcher(
@@ -122,6 +131,7 @@ export async function createRolegainDependencies(
     writer,
     undefined,
     workspaceStore,
+    (userId, event) => transientProgress.publish(userId, event),
   );
   const defaultCandidateId =
     configuration.authMode === "local" ? "candidate-1" : false;
@@ -178,9 +188,11 @@ export async function createRolegainDependencies(
     tokenCounter,
     artifacts,
     workflows,
+    transientProgress,
     platform,
     close: async () => {
       await workflows?.close();
+      await transientProgress.close();
       await researcher.cancelAll();
       await codex.close();
       await database?.end();

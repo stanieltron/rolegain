@@ -3,7 +3,6 @@ import type { JobSearchWorkspace } from "../../../contracts/job-search.js";
 import type { CodexExecClient } from "../../../codex-runtime/client.js";
 import type { LlmCallId } from "../../../codex-runtime/skill-registry.js";
 import type { Phase2EvidenceContext } from "../../../search-match-shared/evidence-context.js";
-import { canonicalOpportunityIsExcluded } from "../../../search-match-shared/evidence-context.js";
 import { isPublicWebUrl, normalizeOpportunityUrl } from "../support/url.js";
 import type {
   SearchV2Capture,
@@ -11,12 +10,12 @@ import type {
   SearchV2Lead,
 } from "../contracts.js";
 import type { SearchV2Configuration } from "../config.js";
-import { inaccessibleDecision } from "./capture.js";
 import {
   buildClassificationPrompt,
   buildSearchPrompt,
   SEARCH_V2_CLASSIFIER_ROLE,
   SEARCH_V2_DISCOVERY_ROLE,
+  SEARCH_V2_RECOVERY_ROLE,
 } from "./prompts.js";
 import {
   classificationOutputSchema,
@@ -73,7 +72,6 @@ export async function discoverSearchV2Leads(input: {
   const seen = new Set(input.excludedUrls.map(normalizeOpportunityUrl));
   const leads: SearchV2Lead[] = [];
   for (const item of output.jobs) {
-    if (canonicalOpportunityIsExcluded(input.evidence, item.title)) continue;
     if (!isPublicWebUrl(item.url)) continue;
     const normalized = normalizeOpportunityUrl(item.url);
     if (seen.has(normalized)) continue;
@@ -104,14 +102,18 @@ export async function classifySearchV2Captures(input: {
   configuration: SearchV2Configuration;
 }): Promise<SearchV2Decision[]> {
   const decided = new Map<string, SearchV2Decision>();
-  const unresolved: SearchV2Capture[] = [];
-  for (const capture of input.captures) {
-    const inaccessible = inaccessibleDecision(capture);
-    if (inaccessible) decided.set(capture.id, inaccessible);
-    else unresolved.push(capture);
-  }
-  if (unresolved.length) {
-    const batches = chunk(unresolved, input.configuration.classificationBatchSize);
+  const captured = input.captures.filter(
+    (capture) => capture.signals.hasUsableEvidence,
+  );
+  const recovery = input.captures.filter(
+    (capture) => !capture.signals.hasUsableEvidence,
+  );
+  const classify = async (
+    captures: SearchV2Capture[],
+    liveRecovery: boolean,
+  ) => {
+    if (!captures.length) return [];
+    const batches = chunk(captures, input.configuration.classificationBatchSize);
     const outputs = await mapConcurrent(
       batches,
       input.configuration.classificationConcurrency,
@@ -123,26 +125,36 @@ export async function classifySearchV2Captures(input: {
           codex: input.codex,
           cwd: input.cwd,
           callId: "search.vacancy-verification",
-          role: "search-v2-page-classifier",
-          developerInstructions: SEARCH_V2_CLASSIFIER_ROLE,
-          prompt: buildClassificationPrompt(batch),
+          role: liveRecovery
+            ? "search-v2-page-recovery"
+            : "search-v2-page-classifier",
+          developerInstructions: liveRecovery
+            ? SEARCH_V2_RECOVERY_ROLE
+            : SEARCH_V2_CLASSIFIER_ROLE,
+          prompt: buildClassificationPrompt(batch, { liveRecovery }),
           schema: classificationOutputSchema,
           model,
-          webSearch: "disabled",
+          webSearch: liveRecovery ? "live" : "disabled",
           timeoutMs: 2 * 60_000,
         });
       },
     );
-    for (const decision of outputs.flatMap((output) => output.results))
-      if (unresolved.some((capture) => capture.id === decision.id))
-        decided.set(decision.id, sanitizeDecision(decision));
-  }
+    return outputs.flatMap((output) => output.results);
+  };
+  const [capturedDecisions, recoveryDecisions] = await Promise.all([
+    classify(captured, false).catch(() => []),
+    classify(recovery, true).catch(() => []),
+  ]);
+  for (const decision of [...capturedDecisions, ...recoveryDecisions])
+    if (input.captures.some((capture) => capture.id === decision.id))
+      decided.set(decision.id, sanitizeDecision(decision));
   return input.captures.map(
     (capture) =>
       decided.get(capture.id) || {
         id: capture.id,
         status: "reject",
-        reason: "The v2 classifier did not return this capture.",
+        reason:
+          "The page could not be classified after deterministic capture and live recovery; retry it in a later batch.",
         title: capture.lead.title,
         company: capture.lead.company,
         location: capture.lead.location,

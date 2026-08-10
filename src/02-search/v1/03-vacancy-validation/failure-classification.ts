@@ -45,21 +45,14 @@ export function classifySearchValidationFailure(
     return { disposition: "manual_review", reasonCode: "access_restricted" };
 
   if (
-    /workplace or location does not match|location does not match|outside (?:the )?(?:candidate|allowed) location|onsite requirement|hybrid requirement|work authorization|required citizenship|required security clearance/.test(
+    /workplace or location does not match|location does not match|outside (?:the )?(?:candidate|allowed) location|onsite requirement|hybrid requirement/.test(
       value,
     )
   )
     return { disposition: "rejected", reasonCode: "location_or_workplace" };
 
   if (
-    /employment type does not match|compensation does not satisfy|salary .*below|hard candidate constraint/.test(
-      value,
-    )
-  )
-    return { disposition: "rejected", reasonCode: "hard_candidate_constraint" };
-
-  if (
-    /page classified as closed_job|vacancy is closed|valid-through date has passed|vacancy .*closed|vacancy .*expired|job .*no longer (?:available|accepting)|position .*no longer|position .*filled|\b404\b|\b410\b|job not found|page not found|job doesn.?t exist|job does not exist|job .*removed|no longer resolves to a current job|application link does not resolve after retry/.test(
+    /page classified as closed_job|definite closure signal|explicit closure signal|page explicitly (?:says|states).*(?:closed|expired|filled|no longer (?:available|accepting))|vacancy is (?:closed|expired)|valid-through date has passed|(?:this|the) job is no longer (?:available|accepting)|position is filled|applications? (?:are|is) (?:currently )?closed/.test(
       value,
     )
   )

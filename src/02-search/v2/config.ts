@@ -50,7 +50,7 @@ export function searchV2Configuration(
     ),
     childrenPerSource: boundedInteger(
       environment.ROLEGAIN_SEARCH_V2_CHILDREN_PER_SOURCE,
-      8,
+      20,
       1,
       20,
     ),
@@ -68,4 +68,3 @@ function boundedInteger(
     ? Math.max(minimum, Math.min(maximum, parsed))
     : fallback;
 }
-

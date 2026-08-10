@@ -33,6 +33,7 @@ type RouteDependencies = Pick<
   | "configuration"
   | "tokenCounter"
   | "workflows"
+  | "transientProgress"
   | "artifacts"
   | "platform"
 > & {
@@ -139,6 +140,35 @@ export async function routeRequest(
     )
   )
     await dependencies.platform.assertLlmAllowance(userId);
+  if (request.method === "GET" && pathname === "/api/workflows/events") {
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    response.write("retry: 1500\n\n");
+    const unsubscribe = await dependencies.transientProgress.subscribe(
+      userId,
+      (event) => {
+        if (response.destroyed || response.writableEnded) return;
+        const { userId: _userId, ...safeEvent } = event;
+        response.write(`data: ${JSON.stringify(safeEvent)}\n\n`);
+      },
+    );
+    const heartbeat = setInterval(() => {
+      if (!response.destroyed && !response.writableEnded)
+        response.write(": keep-alive\n\n");
+    }, 15_000);
+    await new Promise<void>((resolve) => {
+      request.once("aborted", resolve);
+      response.once("close", resolve);
+    });
+    clearInterval(heartbeat);
+    unsubscribe();
+    if (!response.writableEnded) response.end();
+    return;
+  }
   if (request.method === "GET" && pathname === "/api/workflows/latest") {
     sendJson(response, 200, (await dependencies.workflows?.latest(userId)) ?? null);
     return;

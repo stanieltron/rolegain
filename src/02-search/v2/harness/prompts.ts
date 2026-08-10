@@ -54,7 +54,12 @@ Rules:
 
 export const SEARCH_V2_CLASSIFIER_ROLE = `You classify frozen job-page captures for RolegAIn search v2. All evidence is supplied. Use no tools and no outside knowledge. Return only the requested JSON.`;
 
-export function buildClassificationPrompt(captures: SearchV2Capture[]) {
+export const SEARCH_V2_RECOVERY_ROLE = `You recover and classify job pages whose deterministic browser snapshot was empty or blocked. Use live web access only to inspect the supplied public URL and establish whether it is a current vacancy, a job list, or explicitly closed. Missing evidence is uncertainty, not proof of closure. Return only the requested JSON.`;
+
+export function buildClassificationPrompt(
+  captures: SearchV2Capture[],
+  options: { liveRecovery?: boolean } = {},
+) {
   const compact = captures.map((capture) => ({
     id: capture.id,
     expectedTitle: capture.lead.title,
@@ -71,12 +76,14 @@ export function buildClassificationPrompt(captures: SearchV2Capture[]) {
     forms: capture.forms,
     signals: capture.signals,
   }));
-  return `Classify every frozen capture as vacancy, job_list, or reject. Return every id exactly once.
+  return `Classify every ${options.liveRecovery ? "recoverable URL/capture" : "frozen capture"} as vacancy, job_list, or reject. Return every id exactly once.
+
+${options.liveRecovery ? "The local snapshot was incomplete. Open the supplied URL with live web access before deciding. If access still fails, reject with an uncertainty/retry reason; do not claim the job is closed without an explicit closure signal." : "Use only the supplied frozen capture."}
 
 Decision rules:
-- vacancy: this is the current individual expected job. A form is not required. An exact titled application page still counts when its form is loading.
+- vacancy: this is the current individual expected job. A form, separate Apply link, full description, or publication date is not required. An exact titled job/application page still counts when its form or body is loading.
 - job_list: this is genuinely a multi-job source. Return concrete visible child roles. If a role is expanded on the same page and has no separate URL, return the supplied page URL for that child.
-- reject: wrong/absent job, definite closure, inaccessible page, or a generic talent/staffing pool rather than one concrete vacancy.
+- reject: explicit closure, a clearly wrong/non-job page, an inaccessible page that remains unverifiable after live recovery, or a generic talent/staffing pool rather than one concrete vacancy. State exactly which case applies.
 - A primarily individual job page remains vacancy even if it also contains an "other openings" section.
 - Explicit full-page closure signals are authoritative. Conditional "may" or "might" language is not definite closure.
 - "Open application", talent matching across several teams, or varying engagement types is a staffing pool and must be rejected.

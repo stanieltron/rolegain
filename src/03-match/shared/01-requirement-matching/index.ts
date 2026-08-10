@@ -106,6 +106,7 @@ export async function matchOpportunities(input: {
         phase: "match",
         state: "passed",
         fit: job.fit,
+        activity: `${job.company} · ${job.title}: assessed ${job.requirementMatches.length} employer requirements, retained ${job.strengths.length} evidence-backed strengths and ${job.gaps.length} visible gaps; final fit ${job.fit}%.`,
       }),
     ),
   );

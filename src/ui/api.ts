@@ -32,6 +32,19 @@ export interface ServiceStatus {
   maintenanceMessage?: string;
 }
 
+export interface WorkflowProgressEvent {
+  id: string;
+  createdAt: string;
+  message: string;
+  phase?: "validation" | "match" | "application" | "application_verification";
+  state?: "waiting" | "running" | "passed" | "failed" | "bench" | "selected";
+  jobId?: string;
+  jobNumber?: number;
+  company?: string;
+  title?: string;
+  fit?: number;
+}
+
 export const getWorkspace = () =>
   get<JobSearchWorkspace>("/api/job-search").then(normalizeWorkspace);
 export const getCanonicalEvidence = (candidateId: string) =>
@@ -59,6 +72,51 @@ export const reviewEvidenceContradiction = (
 export const getBetaStatus = () => get<BetaStatus>("/api/beta");
 export const getServiceStatus = () =>
   get<ServiceStatus>("/api/service-status");
+export async function streamWorkflowProgress(
+  onEvent: (event: WorkflowProgressEvent) => void,
+  signal: AbortSignal,
+) {
+  while (!signal.aborted) {
+    try {
+      const response = await fetch("/api/workflows/events", {
+        headers: await authorizationHeader(),
+        signal,
+      });
+      if (!response.ok || !response.body)
+        throw new Error(`Progress stream failed (${response.status})`);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (!signal.aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary >= 0) {
+          const frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const data = frame
+            .split("\n")
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).trimStart())
+            .join("\n");
+          if (data) onEvent(JSON.parse(data) as WorkflowProgressEvent);
+          boundary = buffer.indexOf("\n\n");
+        }
+      }
+    } catch (error) {
+      if (signal.aborted) return;
+      console.warn("Workflow progress stream disconnected", error);
+    }
+    await new Promise<void>((resolve) => {
+      const timer = window.setTimeout(resolve, 1_500);
+      signal.addEventListener("abort", () => {
+        window.clearTimeout(timer);
+        resolve();
+      }, { once: true });
+    });
+  }
+}
 export const enableReleaseUpdates = () =>
   post<BetaStatus>("/api/beta/release-updates", {});
 export const trackAnalyticsEvent = (
@@ -224,6 +282,7 @@ function normalizeWorkspace(workspace: JobSearchWorkspace): JobSearchWorkspace {
   workspace.searchValidationIssues ??= [];
   workspace.searchReadyOpportunities ??= [];
   workspace.seenJobUrls ??= [];
+  workspace.searchSourceBacklog ??= [];
   workspace.searchConfig ??= { discoveryTarget: 26, applicationTarget: 5 };
   workspace.applications = (workspace.applications ?? []).map(
     (application) => ({

@@ -435,6 +435,25 @@ export interface CoverLetterChatMessage {
   createdAt: string;
 }
 
+/** A discovered vacancy intentionally deferred or retained for another validation attempt. */
+export interface SearchSourceBacklogItem {
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  workplaceType: string;
+  employmentType: string;
+  sourceUrl: string;
+  query: string;
+  sourceClass: string;
+  snippet: string;
+  compensation: string;
+  wave: number;
+  sourceGroup?: JobSourceGroup;
+  discoveredAt: string;
+  attempts?: number;
+}
+
 export interface JobSearchWorkspace {
   id: string;
   candidateId: string;
@@ -459,6 +478,10 @@ export interface JobSearchWorkspace {
   /** Persistent latest pipeline state for every numbered job seen for this candidate. */
   jobHistory: SearchPipelineItem[];
   seenJobUrls: string[];
+  /** Deferred/retryable vacancies, consumed before another web-discovery call. */
+  searchSourceBacklog?: SearchSourceBacklogItem[];
+  /** Migration marker: older workspaces recover their deferred children from v2 audit files once. */
+  searchSourceBacklogInitialized?: boolean;
   searchConfig: {
     discoveryTarget: number;
     applicationTarget: number;
