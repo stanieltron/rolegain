@@ -196,6 +196,12 @@ export interface JobOpportunity {
   compensation: string;
   sourceUrl: string;
   applyUrl: string;
+  /** Result of the cheap pre-match employer-form check. Manual-review jobs are
+   * still evidence-matched, but are never auto-selected for form filling. */
+  applicationRoute?: {
+    status: "verified" | "manual_review";
+    reason?: string;
+  };
   capturedAt: string;
   fit: number;
   summary: string;
@@ -318,6 +324,8 @@ export interface SearchPipelineItem {
   reason?: string;
   validationDisposition?: SearchValidationDisposition;
   sourceGroup?: JobSourceGroup;
+  applicationRouteStatus?: "verified" | "manual_review";
+  applicationRouteReason?: string;
 }
 
 export interface SearchProgressEvent {

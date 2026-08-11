@@ -3,6 +3,7 @@ import type { SearchPipelineItem } from "../src/contracts/job-search.js";
 import {
   applicationOutcomeState,
   coalescePipelineItems,
+  deriveCurrentRunItemIds,
   isApplicationAttempt,
   isLowMatchPipelineItem,
   isManualReviewPipelineItem,
@@ -69,6 +70,43 @@ describe("pipeline application classification", () => {
     });
 
     expect(coalescePipelineItems([first, second])).toEqual([first, second]);
+  });
+
+  it("does not move a matched job back to discovery when a later run rediscovers it", () => {
+    const matched = item({
+      id: "stable-job",
+      jobNumber: 31,
+      fit: 77,
+      applicationRouteStatus: "manual_review",
+    });
+    const rediscoveredFailure = item({
+      id: "stable-job",
+      jobNumber: 31,
+      validation: "failed",
+      match: "waiting",
+      application: "waiting",
+      applicationVerification: "waiting",
+      reason: "Application page is blocked by bot verification",
+    });
+
+    expect(coalescePipelineItems([matched, rediscoveredFailure])).toEqual([
+      matched,
+    ]);
+  });
+
+  it("shows an active application retry instead of its older terminal failure", () => {
+    const failed = item({
+      id: "retried-job",
+      application: "failed",
+      applicationVerification: "failed",
+    });
+    const retrying = item({
+      id: "retried-job",
+      application: "passed",
+      applicationVerification: "running",
+    });
+
+    expect(coalescePipelineItems([failed, retrying])).toEqual([retrying]);
   });
 
   it("moves selected and failed application attempts out of matching", () => {
@@ -150,6 +188,33 @@ describe("pipeline application classification", () => {
     expect(pipelineItemVisible(item(), "match", false, 70)).toBe(false);
   });
 
+  it("always shows queued and running work outside developer mode", () => {
+    expect(
+      pipelineItemVisible(
+        item({ validation: "running", match: "waiting", application: "waiting" }),
+        "validation",
+        false,
+        70,
+      ),
+    ).toBe(true);
+    expect(
+      pipelineItemVisible(
+        item({ match: "running", application: "waiting" }),
+        "match",
+        false,
+        70,
+      ),
+    ).toBe(true);
+    expect(
+      pipelineItemVisible(
+        item({ application: "passed", applicationVerification: "running" }),
+        "application",
+        false,
+        70,
+      ),
+    ).toBe(true);
+  });
+
   it("keeps manual-review and below-threshold matches actionable", () => {
     const manualReview = item({
       validation: "failed",
@@ -158,12 +223,21 @@ describe("pipeline application classification", () => {
       validationDisposition: "manual_review",
     });
     const lowMatch = item({ fit: 64 });
+    const manualApplicationRoute = item({
+      match: "passed",
+      applicationRouteStatus: "manual_review",
+      applicationRouteReason: "Employer form could not be verified",
+    });
     expect(isManualReviewPipelineItem(manualReview)).toBe(true);
     expect(
       pipelineItemVisible(manualReview, "validation", false, 70),
     ).toBe(true);
     expect(isLowMatchPipelineItem(lowMatch, 70)).toBe(true);
     expect(pipelineItemVisible(lowMatch, "match", false, 70)).toBe(true);
+    expect(isManualReviewPipelineItem(manualApplicationRoute)).toBe(true);
+    expect(
+      pipelineItemVisible(manualApplicationRoute, "match", false, 70),
+    ).toBe(true);
   });
 
   it("does not expose failed application mapping as a normal-mode manual review", () => {
@@ -193,5 +267,36 @@ describe("pipeline application classification", () => {
       "current-failed",
       "old-success",
     ]);
+  });
+
+  it("recovers the latest application batch from legacy cumulative progress", () => {
+    const first = item({ id: "first-application" });
+    const second = item({ id: "second-application" });
+    const oldManualReview = item({ id: "old-manual-review" });
+
+    expect(
+      [...deriveCurrentRunItemIds({
+        progressItems: [first, second, oldManualReview],
+        historyItems: [first, second, oldManualReview],
+        baselineApplicationJobIds: [first.id],
+        preparedApplicationJobIds: [first.id, second.id],
+        terminal: true,
+      })],
+    ).toEqual([second.id]);
+  });
+
+  it("keeps the explicit progress boundary for active and corrected runs", () => {
+    const current = item({ id: "current" });
+    const previous = item({ id: "previous" });
+
+    expect(
+      [...deriveCurrentRunItemIds({
+        progressItems: [current],
+        historyItems: [current, previous],
+        baselineApplicationJobIds: [previous.id],
+        preparedApplicationJobIds: [current.id, previous.id],
+        terminal: false,
+      })],
+    ).toEqual([current.id]);
   });
 });

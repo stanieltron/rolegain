@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { BoundedExecutor } from "../src/03-match/orchestration/bounded-executor.js";
-import { runBoundedStreamingPipeline } from "../src/03-match/orchestration/streaming-pipeline.js";
+import {
+  runBoundedStreamingPipeline,
+  runBoundedTwoStageStreamingPipeline,
+} from "../src/03-match/orchestration/streaming-pipeline.js";
 import { reverseVerifyOneMatch } from "../src/03-match/shared/01-requirement-matching/reverse-verification/index.js";
 import { runOneSearch } from "../src/02-search/v1/01-discovery/run-one-search.js";
 import { validateOneVacancy } from "../src/02-search/v1/03-vacancy-validation/validate-one/index.js";
@@ -79,6 +82,44 @@ describe("streaming search and match orchestration", () => {
     });
 
     expect(checkpoints.sort()).toEqual(["matched-a", "matched-b"]);
+  });
+
+  it("starts matching each prevalidated vacancy without waiting for the prevalidation batch", async () => {
+    const events: string[] = [];
+    let releaseSecondPrevalidation!: () => void;
+    const holdSecondPrevalidation = new Promise<void>((resolve) => {
+      releaseSecondPrevalidation = resolve;
+    });
+
+    const run = await runBoundedTwoStageStreamingPipeline({
+      firstConcurrency: 2,
+      secondConcurrency: 1,
+      key: (job: { id: string }) => job.id,
+      produce: async (emit) => {
+        emit({ id: "a" });
+        emit({ id: "b" });
+        return "search-complete";
+      },
+      first: async (job) => {
+        events.push(`prevalidation-start:${job.id}`);
+        if (job.id === "b") await holdSecondPrevalidation;
+        events.push(`prevalidation-end:${job.id}`);
+        return job;
+      },
+      second: async (job) => {
+        events.push(`match:${job.id}`);
+        if (job.id === "a") releaseSecondPrevalidation();
+        return `matched-${job.id}`;
+      },
+    });
+
+    expect(events.indexOf("match:a")).toBeLessThan(
+      events.indexOf("prevalidation-end:b"),
+    );
+    expect(run).toEqual({
+      producerResult: "search-complete",
+      results: ["matched-a", "matched-b"],
+    });
   });
 
   it("releases executor capacity when a task fails", async () => {

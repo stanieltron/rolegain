@@ -79,6 +79,8 @@ import { useAuthActions } from "./auth.js";
 import {
   applicationOutcomeState,
   coalescePipelineItems,
+  deriveCurrentRunItemIds,
+  isApplicationAttempt,
   isLowMatchPipelineItem,
   isManualReviewPipelineItem,
   pipelineDisplayStage,
@@ -2800,13 +2802,20 @@ function DiscoveryView({
   const prepared = preparedVerifiedApplications(workspace);
   const preparedReadiness = applicationReadinessCounts(prepared);
   const allPipelineItems = cumulativePipelineItems(workspace);
-  const currentItemIds = new Set(
-    (progress?.items ?? []).map((item) => item.id),
-  );
   const preparedPipelineItems = preparedVerifiedItemsFrom(
     workspace,
     allPipelineItems,
   );
+  const currentItemIds = deriveCurrentRunItemIds({
+    progressItems: progress?.items ?? [],
+    historyItems: workspace.jobHistory,
+    baselineApplicationJobIds: progress?.baselineApplicationJobIds,
+    preparedApplicationJobIds: preparedPipelineItems.map((item) => item.id),
+    terminal:
+      progress?.stage === "ready" ||
+      progress?.stage === "failed" ||
+      progress?.stage === "stopped",
+  });
   const currentPreparedItems = preparedPipelineItems.filter((item) =>
     currentItemIds.has(item.id),
   );
@@ -2922,6 +2931,7 @@ function DiscoveryView({
           preparedItems={preparedPipelineItems}
           currentItemIds={currentItemIds}
           applicationTarget={workspace.searchConfig.applicationTarget}
+          applicationReadiness={preparedReadiness}
           developerMode={developerMode}
           minimumMatchScore={minimumMatchScore}
           promotionBusy={busy || running}
@@ -3086,8 +3096,9 @@ function PipelineJobDetails({
             <span>
               <strong>Unable to verify automatically</strong>
               <small>
-                RolegAIn could not confirm this page or map its application
-                route. Review the original listing manually before applying.
+                {item.applicationRouteStatus === "manual_review"
+                  ? "The vacancy was evidence-matched, but RolegAIn could not verify an employer form. Review and apply manually if appropriate."
+                  : "RolegAIn could not confirm this page. Review the original listing manually before applying."}
               </small>
             </span>
           </div>
@@ -3104,7 +3115,11 @@ function PipelineJobDetails({
             </span>
           </div>
         )}
-        {item.reason && <p className="pipeline-details-reason">{item.reason}</p>}
+        {(item.applicationRouteReason || item.reason) && (
+          <p className="pipeline-details-reason">
+            {item.applicationRouteReason || item.reason}
+          </p>
+        )}
         {job?.summary && <p className="pipeline-details-summary">{job.summary}</p>}
         {job && <RequirementBreakdown job={job} />}
         {job?.description && (
@@ -3398,6 +3413,7 @@ function FindApplicationsProgress({
   preparedItems,
   currentItemIds,
   applicationTarget,
+  applicationReadiness,
   developerMode,
   minimumMatchScore,
   promotionBusy,
@@ -3411,6 +3427,7 @@ function FindApplicationsProgress({
   preparedItems: JobSearchWorkspace["jobHistory"];
   currentItemIds: Set<string>;
   applicationTarget: number;
+  applicationReadiness: { ready: number; needsInput: number };
   developerMode: boolean;
   minimumMatchScore: number;
   promotionBusy: boolean;
@@ -3485,9 +3502,6 @@ function FindApplicationsProgress({
   const sourceGroups = developerMode
     ? marketplaceSourceGroups(displayItems, currentItemIds)
     : [];
-  const newValidCount = matchOnlyItems.filter((item) =>
-    currentItemIds.has(item.id),
-  ).length;
   const newPreparedCount = preparedItems.filter((item) =>
     currentItemIds.has(item.id),
   ).length;
@@ -3498,7 +3512,33 @@ function FindApplicationsProgress({
     const state = applicationOutcomeState(item);
     return state === "running" || state === "selected";
   }).length;
+  const discoveryInProgressCount =
+    discoverySlots +
+    discoveryOnlyItems.filter(
+      (item) => item.validation === "waiting" || item.validation === "running",
+    ).length;
+  const matchingInProgressCount = matchOnlyItems.filter(
+    (item) => item.match === "waiting" || item.match === "running",
+  ).length;
   const currentRunItems = items.filter((item) => currentItemIds.has(item.id));
+  const concreteReviewedCount = currentRunItems.filter(
+    (item) => item.validationDisposition !== "source_page",
+  ).length;
+  const liveVacancyCount = currentRunItems.filter(
+    (item) => item.validation === "passed",
+  ).length;
+  const excludedVacancyCount = currentRunItems.filter(
+    (item) => item.validation === "failed",
+  ).length;
+  const matchedVacancyCount = currentRunItems.filter(
+    (item) => item.match === "passed",
+  ).length;
+  const manualRouteMatchCount = currentRunItems.filter(
+    (item) =>
+      item.match === "passed" &&
+      item.applicationRouteStatus === "manual_review",
+  ).length;
+  const enteredApplicationCount = currentRunItems.filter(isApplicationAttempt).length;
   const pendingMatchCount = currentRunItems.filter(
     (item) => item.match === "waiting" || item.match === "running",
   ).length;
@@ -3525,6 +3565,12 @@ function FindApplicationsProgress({
         <div>
           <strong>{activity}</strong>
           <PipelineElapsedTime progress={progress} running={running} />
+          <small className="pipeline-funnel-summary">
+            {concreteReviewedCount} concrete reviewed · {liveVacancyCount} live ·{" "}
+            {matchedVacancyCount} matched · {enteredApplicationCount} entered applications
+            {excludedVacancyCount ? ` · ${excludedVacancyCount} excluded before matching` : ""}
+            {manualRouteMatchCount ? ` · ${manualRouteMatchCount} matched for manual application` : ""}
+          </small>
         </div>
         <b>
           {developerMode
@@ -3537,7 +3583,7 @@ function FindApplicationsProgress({
         <PipelineColumn
           step="1"
           title="Discover & verify"
-          count={`${discoveryOnlyItems.length} remaining`}
+          count={`${discoveryInProgressCount} in search · ${discoveryOnlyItems.length} shown`}
           items={discoveryOnlyItems}
           currentItemIds={currentItemIds}
           phase="validation"
@@ -3552,7 +3598,7 @@ function FindApplicationsProgress({
         <PipelineColumn
           step="2"
           title="Match & rank"
-          count={`${matchOnlyItems.length} total · ${newValidCount} current`}
+          count={`${matchingInProgressCount} matching · ${matchOnlyItems.length} shown`}
           items={matchOnlyItems}
           currentItemIds={currentItemIds}
           phase="match"
@@ -3565,7 +3611,7 @@ function FindApplicationsProgress({
         <PipelineColumn
           step="3"
           title="Application preparation"
-          count={`${preparedItems.length} ready · ${failedApplicationCount} failed${activeApplicationCount ? ` · ${activeApplicationCount} active` : ""}`}
+          count={`${applicationReadiness.ready} ready · ${applicationReadiness.needsInput} need input · ${activeApplicationCount} checking${developerMode && failedApplicationCount ? ` · ${failedApplicationCount} failed` : ""}`}
           items={applicationAttemptItems}
           currentItemIds={currentItemIds}
           phase="application_outcome"
@@ -3602,7 +3648,7 @@ function PipelineDepthNote({
     stage === "looking"
       ? "RolegAIn is running multiple evidence-guided searches and collecting concrete vacancies from the public web—not returning a quick title or keyword list."
       : stage === "verifying"
-        ? "Every vacancy is reopened and checked for availability, role details and constraints. Match & rank then confirms a reachable application route before comparing requirements with your evidence."
+        ? "Every vacancy is reopened and checked for availability, role details and constraints. Jobs with verified employer forms are matched first; unverified routes are retained and matched later for possible manual application."
         : "Only selected ranked jobs enter this stage. Each is handled independently through full form inspection and mapping, company research, grounded drafting and verification before the application is marked ready.";
   return (
     <div className={`pipeline-depth-note ${compact ? "compact" : ""}`}>
@@ -3734,6 +3780,20 @@ function PipelineColumn({
       displayStage === "match" &&
       isLowMatchPipelineItem(item, minimumMatchScore);
     const promotable = manualReview || lowMatch;
+    const activeLabel =
+      state === "running"
+        ? displayStage === "validation"
+          ? "Searching / verifying"
+          : displayStage === "match"
+            ? "Matching"
+            : "Application checking"
+        : state === "selected"
+          ? "Queued for application checking"
+          : state === "waiting" && displayStage === "validation"
+            ? "Queued for search"
+            : state === "waiting" && displayStage === "match"
+              ? "Queued for matching"
+              : undefined;
     return (
       <article className={`pipeline-job state-${state}`} key={`${phase}-${item.id}`} title={item.reason}>
         <span className="pipeline-state-icon">
@@ -3751,14 +3811,25 @@ function PipelineColumn({
           <span>{item.company || "Source pending"}</span>
           {phase === "match" && typeof item.fit === "number" && <em>{item.fit}% match</em>}
           {manualReview ? (
-            <em className="pipeline-unable-status">Unable to verify</em>
+            <em className="pipeline-unable-status">
+              {item.applicationRouteStatus === "manual_review"
+                ? "Application form unverified · manual apply"
+                : "Unable to verify"}
+            </em>
+          ) : activeLabel ? (
+            <em>{activeLabel}</em>
           ) : phase === "validation" && item.validationDisposition ? (
             <em>{item.validationDisposition.replace(/_/g, " ")}</em>
           ) : null}
-          {item.reason && (state === "failed" || promotable) && <small>{item.reason}</small>}
+          {(item.applicationRouteReason || item.reason) &&
+            (state === "failed" || promotable) && (
+              <small>{item.applicationRouteReason || item.reason}</small>
+            )}
           {manualReview && (
             <small className="pipeline-action-reason">
-              Try reviewing the original listing manually.
+              {item.applicationRouteStatus === "manual_review"
+                ? "This job was matched after the automatic application slots; apply manually if desired."
+                : "Try reviewing the original listing manually."}
             </small>
           )}
           {lowMatch && (
@@ -4411,7 +4482,11 @@ function ApplicationEditor({
             <small>{jobNumberLabel(job.jobNumber)} · {job.title} · employer application</small>
           </span>
           <span className="embedded-browser-status">
-            <ShieldCheck size={15} /> Agent-prefilled browser
+            {app.liveFormValidated ? (
+              <><ShieldCheck size={15} /> Agent-prefilled browser</>
+            ) : (
+              <><Globe2 size={15} /> Manual application page</>
+            )}
           </span>
         </div>
         <iframe
@@ -4549,6 +4624,8 @@ function ApplicationEditor({
         <span className="status-chip">
           {verified
             ? applicationStatusLabel(app)
+            : !app.liveFormValidated && app.formFields.length === 0
+              ? "Form not found"
             : `${app.formFields.filter((f) => f.value).length}/${app.formFields.length} fields mapped`}
         </span>
       </div>
@@ -4769,6 +4846,10 @@ function ApplicationEditor({
             </span>
             <ChevronRight size={16} />
           </button>
+        ) : !app.liveFormValidated && app.formFields.length === 0 ? (
+          <span>
+            <AlertTriangle size={17} /> Employer form not found · try manually
+          </span>
         ) : (
           <span>
             <FileText size={17} /> Employer form does not request a cover letter
@@ -4810,6 +4891,13 @@ function ApplicationEditor({
               )}
             </div>
           </details>
+          {!app.liveFormValidated && app.formFields.length === 0 && (
+            <div className="application-group-empty">
+              No employer form was observed, so RolegAIn has not invented any
+              application fields. Open the original application page and try
+              completing it manually.
+            </div>
+          )}
           {app.formFields.map((field) => {
               const isCoverLetter =
                 field.canonicalKey === "cover_letter" || field.id === "cover";
@@ -4991,7 +5079,9 @@ function ApplicationEditor({
                 <strong>
                   {formNeedsManualReview
                     ? app.addedBy === "user"
-                      ? "Manual application tracking"
+                      ? app.formFields.length === 0
+                        ? "Employer form not found"
+                        : "Manual application tracking"
                       : "Employer form needs manual review"
                     : missingRequiredFields.length
                     ? `${missingRequiredFields.length} ${missingRequiredFields.length === 1 ? "field will" : "fields will"} remain blank`
@@ -5000,7 +5090,9 @@ function ApplicationEditor({
                 <small>
                   {formNeedsManualReview
                     ? app.addedBy === "user"
-                      ? "RolegAIn has not verified or mapped this employer form. Review the original listing, apply manually, then record the outcome here."
+                      ? app.formFields.length === 0
+                        ? "No employer form was observed. Try the original application page manually, then record the outcome here."
+                        : "RolegAIn has not verified or mapped this employer form. Review the original listing, apply manually, then record the outcome here."
                       : "The vacancy is verified, but this form could not be mapped automatically. Open it here and complete protected, sign-in, CAPTCHA, or unsupported controls manually."
                     : missingRequiredFields.length
                     ? `The employer form will still open. Complete ${missingRequiredFields.map((field) => field.label).join(", ")} there if the employer requires it.`
@@ -5023,6 +5115,8 @@ function ApplicationEditor({
               )}{" "}
               {canReturnToEmployer
                   ? "Return to employer form"
+                  : !app.liveFormValidated && app.formFields.length === 0
+                    ? "Try application page manually"
                   : "Open employer form"}
             </button>
           </div>

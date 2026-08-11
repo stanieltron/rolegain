@@ -80,19 +80,37 @@ describe("candidate intelligence", () => {
 
   it("automatically ingests profile links first extracted from the CV", async () => {
     let analyzerRuns = 0;
+    const analyzerProfileSteps: number[] = [];
     const acquiredProfileUrls: string[] = [];
     const analyzer: CandidateAnalyzer = {
       analyze: async (workspace) => {
         analyzerRuns += 1;
+        analyzerProfileSteps.push(workspace.profileSetupStep ?? 1);
         const cv = workspace.sources.find((source) => source.kind === "cv")!;
         return {
           threadId: `thread-profile-links-${analyzerRuns}`,
           profile: {
             ...workspace.profile,
+            name: "Candidate Name",
+            email: "candidate@example.test",
             github: "https://github.com/candidate",
             website: "https://candidate.example",
           },
           profileEvidence: [
+            {
+              field: "name",
+              value: "Candidate Name",
+              sourceId: cv.id,
+              locator: "Name line",
+              quote: "Candidate Name",
+            },
+            {
+              field: "email",
+              value: "candidate@example.test",
+              sourceId: cv.id,
+              locator: "Email line",
+              quote: "candidate@example.test",
+            },
             {
               field: "github",
               value: "https://github.com/candidate",
@@ -148,6 +166,7 @@ describe("candidate intelligence", () => {
     const result = await service.analyzeCandidate();
 
     expect(analyzerRuns).toBe(2);
+    expect(analyzerProfileSteps).toEqual([1, 1]);
     expect(acquiredProfileUrls).toEqual([
       "https://github.com/candidate",
       "https://candidate.example/",
@@ -167,6 +186,7 @@ describe("candidate intelligence", () => {
       ]),
     );
     expect(result.intelligence.status).toBe("ready");
+    expect(result.profileSetupStep).toBe(3);
   });
 
   it("derives the GitHub contributor identity server-side for repository expansion", async () => {

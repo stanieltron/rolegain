@@ -198,10 +198,6 @@ export async function routeRequest(
           workspace.profile.name === dependencies.actor.name))
     )
       authProfile.name = workspace.profile.name || dependencies.actor.name;
-    const refreshIdentityFromCv =
-      Boolean(authProfile.email || authProfile.name) &&
-      workspace.sources.some((source) => source.kind === "cv") &&
-      workspace.intelligence.status === "ready";
     if (authProfile.email || authProfile.name)
       workspace = await dependencies.jobSearch.updateProfile(
         authProfile,
@@ -216,15 +212,13 @@ export async function routeRequest(
     workspace = ensuredProfileSources.workspace;
     if (
       dependencies.workflows &&
-      (ensuredProfileSources.needsFetch || refreshIdentityFromCv)
+      ensuredProfileSources.needsFetch
     ) {
       workspace = await dependencies.jobSearch.markWorkflowQueued(
         "analyze",
         userId,
       );
       await dependencies.workflows.enqueue(userId, "analyze");
-    } else if (!dependencies.workflows && refreshIdentityFromCv) {
-      dependencies.jobSearch.queueCandidateAnalysis(userId);
     }
     await dependencies.platform.recordApplications(
       userId,

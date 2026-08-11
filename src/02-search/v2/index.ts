@@ -271,10 +271,13 @@ export async function searchAndValidateOpportunitiesV2(input: SearchV2Input) {
           url: capture.finalUrl || capture.suppliedUrl,
           sourceClass: capture.lead.sourceClass || "employer_directory",
         };
-        const children = deduplicateChildren(decision.children).slice(
-          0,
-          configuration.childrenPerSource,
-        );
+        const children = deduplicateChildren(decision.children)
+          .filter(
+            (child) =>
+              normalizeOpportunityUrl(child.url) !==
+              normalizeOpportunityUrl(sourceGroup.url),
+          )
+          .slice(0, configuration.childrenPerSource);
         expandedChildren += children.length;
         const childLeads = children.map((child): SearchV2Lead => ({
           id: createHash("sha256")
@@ -404,7 +407,10 @@ export function validatedDiscoveryTargetV2(
 ) {
   const requested = Math.max(1, Math.floor(requestedVacancies));
   const applications = Math.max(1, Math.floor(applicationTarget));
-  return Math.min(requested, Math.max(4, Math.ceil(applications * 2.6)));
+  // Search must absorb losses from application-route prevalidation and match
+  // thresholds. Closed, duplicate and list pages never count toward this live
+  // vacancy target.
+  return Math.min(requested, Math.max(8, Math.ceil(applications * 5.2)));
 }
 
 async function validateSearchSourceBacklog(input: {
@@ -468,27 +474,17 @@ async function validateSearchSourceBacklog(input: {
       configuration: input.configuration,
     });
     input.captures.push(...backlogCaptures);
-    const directCaptures = backlogCaptures.filter(
-      (capture) =>
-        normalizeOpportunityUrl(capture.lead.url) !==
-        normalizeOpportunityUrl(capture.lead.sourceGroup?.url ?? ""),
-    );
-    const classified = directCaptures.length
+    const classified = backlogCaptures.length
       ? await classifySearchV2Captures({
           codex: input.codex,
           cwd: input.cwd,
-          captures: directCaptures,
+          captures: backlogCaptures,
           configuration: input.configuration,
         })
       : [];
     const classifiedById = new Map(classified.map((item) => [item.id, item]));
     for (const capture of backlogCaptures) {
-      const samePage =
-        normalizeOpportunityUrl(capture.lead.url) ===
-        normalizeOpportunityUrl(capture.lead.sourceGroup?.url ?? "");
-      const decision = samePage
-        ? syntheticListChildDecision(capture.lead)
-        : classifiedById.get(capture.id);
+      const decision = classifiedById.get(capture.id);
       if (!decision)
         throw new Error(`Search v2 did not classify queued vacancy ${capture.id}`);
       input.decisions.push(decision);
@@ -545,23 +541,6 @@ async function validateSearchSourceBacklog(input: {
     );
     throw error;
   }
-}
-
-function syntheticListChildDecision(lead: SearchV2Lead): SearchV2Decision {
-  return {
-    id: lead.id,
-    status: "vacancy",
-    reason:
-      "This concrete role was previously extracted from the captured list source.",
-    title: lead.title,
-    company: lead.company,
-    location: lead.location,
-    workplaceType: lead.workplaceType,
-    employmentType: lead.employmentType,
-    applyUrl: lead.url,
-    compensation: lead.compensation,
-    children: [],
-  };
 }
 
 function backlogItemFromLead(
@@ -791,6 +770,11 @@ export async function recoverSearchSourceBacklog(input: {
         input.childrenPerSource,
       );
       for (const child of children) {
+        if (
+          normalizeOpportunityUrl(child.url) ===
+          normalizeOpportunityUrl(sourceGroup.url)
+        )
+          continue;
         recovered.push(
           backlogItemFromLead({
             id: createHash("sha256")

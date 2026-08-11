@@ -21,6 +21,7 @@ import {
   validatedDiscoveryTargetV2,
 } from "../src/02-search/v2/index.js";
 import { searchV2Failure } from "../src/02-search/v2/support/opportunity.js";
+import { deduplicateFailures } from "../src/search-match-shared/opportunity.js";
 import { mockWorkspaceWithCv } from "../src/01-evidence-ingestion/inspection/fixtures.js";
 import type { CodexExecClient } from "../src/codex-runtime/client.js";
 import type { Phase2EvidenceContext } from "../src/search-match-shared/evidence-context.js";
@@ -159,8 +160,9 @@ describe("search v2", () => {
     expect(decisions[0].status).toBe("vacancy");
   });
 
-  it("uses the same full-round target semantics as the current pipeline", () => {
-    expect(validatedDiscoveryTargetV2(20, 5)).toBe(13);
+  it("searches deeply enough to absorb downstream form and match losses", () => {
+    expect(validatedDiscoveryTargetV2(20, 5)).toBe(20);
+    expect(validatedDiscoveryTargetV2(30, 5)).toBe(26);
     expect(validatedDiscoveryTargetV2(4, 5)).toBe(4);
   });
 
@@ -203,6 +205,18 @@ describe("search v2", () => {
         "The browser and HTTP fallback produced no usable current-page evidence.",
       ).disposition,
     ).toBe("manual_review");
+  });
+
+  it("does not collapse different jobs that came from one marketplace list", () => {
+    const first = searchV2Failure(
+      { ...makeCapture().lead, title: "Protocol Engineer", company: "Alpha" },
+      "No reachable employer application form was found",
+    );
+    const second = searchV2Failure(
+      { ...makeCapture().lead, title: "Rust Engineer", company: "Beta" },
+      "No reachable employer application form was found",
+    );
+    expect(deduplicateFailures([first, second])).toHaveLength(2);
   });
 
   it("recovers retryable direct jobs from older workspace history", async () => {

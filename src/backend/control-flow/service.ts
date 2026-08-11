@@ -60,6 +60,8 @@ import type {
   OpportunityResearchProvider,
   OpportunityProgressUpdate,
 } from "../../search-match-shared/types.js";
+import { matchingConcurrency } from "../../search-match-shared/parallel.js";
+import { BoundedExecutor } from "../../03-match/orchestration/bounded-executor.js";
 import { VacancySourceInventory } from "../../02-search/v1/02-vacancy-source-expansion/inventory/index.js";
 import type {
   ApplicationContentDraft,
@@ -613,13 +615,7 @@ export class JobSearchService {
     }
     this.queueCandidateAnalysis(workspace.candidateId);
     await this.activeAnalyses.get(workspace.candidateId);
-    const analyzed = await this.getCandidate(workspace.candidateId);
-    const previousStep = analyzed.profileSetupStep;
-    advanceProfileSetupAfterAnalysis(analyzed);
-    if (analyzed.profileSetupStep !== previousStep) {
-      await this.saveCandidate(analyzed);
-    }
-    return analyzed;
+    return this.getCandidate(workspace.candidateId);
   }
 
   async removeSource(
@@ -842,11 +838,9 @@ export class JobSearchService {
               ? "Queued to match verified vacancies and prepare applications."
               : "Queued to search and prepare verified applications.",
         updatedAt: new Date().toISOString(),
-        items: workspace.searchProgress?.items ?? [],
-        events: [
-          ...(workspace.searchProgress?.events ?? []),
-          progressEvent("Workflow queued."),
-        ].slice(-10),
+        items: [],
+        events: [progressEvent("Workflow queued.")],
+        baselineApplicationJobIds: [...preparedVerifiedJobIds(workspace)],
       };
     }
     await this.saveCandidate(workspace);
@@ -1129,6 +1123,7 @@ export class JobSearchService {
     const maxRefillRounds = applicationRefillRoundLimit();
     let noCandidateRounds = 0;
     let roundsCompleted = 0;
+    const deferredManualCandidates: JobOpportunity[] = [];
 
     while (
       preparedThisRun() < applicationTarget &&
@@ -1184,16 +1179,19 @@ export class JobSearchService {
         firstBatch: !hadApplicationAttemptsBeforeRun,
         refillRound: roundsCompleted,
       });
+      const streamedDiscovery = Boolean(
+        discoveryLimit > 0 && this.opportunityResearch.researchAndAssess,
+      );
       const discovered =
         discoveryLimit === 0
           ? {
               opportunities: [] as JobOpportunity[],
+              deferredOpportunities: [] as JobOpportunity[],
               applications: [] as ApplicationDraft[],
               failures: [] as JobResearchFailure[],
               seenUrls: [] as string[],
             }
-          : this.opportunityResearch.researchAndAssess &&
-              !this.opportunityResearch.prevalidateForMatching
+          : this.opportunityResearch.researchAndAssess
               ? await this.opportunityResearch.researchAndAssess(workspace, {
                   excludeApplyUrls: applicationUrls,
                   limit: discoveryLimit,
@@ -1216,10 +1214,24 @@ export class JobSearchService {
                   onProgress: reportProgress,
                 });
       await pendingProgressWrite;
+      const discoveredDeferred =
+        "deferredOpportunities" in discovered
+          ? discovered.deferredOpportunities ?? []
+          : [];
+      deferredManualCandidates.push(
+        ...(discoveredDeferred.filter(
+          (job) =>
+            !excludedUrls.has(normalizeUrl(job.sourceUrl)) &&
+            !excludedUrls.has(normalizeUrl(job.applyUrl)),
+        )),
+      );
       const unseenDiscovered = discovered.opportunities.filter(
         (job) =>
           !excludedUrls.has(normalizeUrl(job.sourceUrl)) &&
           !excludedUrls.has(normalizeUrl(job.applyUrl)),
+      );
+      const prevalidatedCandidateIds = new Set(
+        streamedDiscovery ? unseenDiscovered.map((job) => job.id) : [],
       );
       const unseenIds = new Set(unseenDiscovered.map((job) => job.id));
       const fallbackApplications = discovered.applications.filter((application) =>
@@ -1260,9 +1272,19 @@ export class JobSearchService {
         selectionLimit: remaining,
         reportProgress,
         waitForProgress: () => pendingProgressWrite,
+        prevalidatedCandidateIds,
+        deferredCandidates: deferredManualCandidates,
+        matchDeferredWhenAutomaticSlotsInsufficient: false,
       });
     }
 
+    if (deferredManualCandidates.length)
+      await this.assessDeferredManualCandidates({
+        workspace,
+        candidates: deferredManualCandidates,
+        reportProgress,
+        waitForProgress: () => pendingProgressWrite,
+      });
     const prepared = preparedThisRun();
     const complete = prepared >= applicationTarget;
     setSearchStage(
@@ -1405,6 +1427,9 @@ export class JobSearchService {
       update: OpportunityProgressUpdate,
     ) => void | Promise<void>;
     waitForProgress: () => Promise<void>;
+    prevalidatedCandidateIds?: ReadonlySet<string>;
+    deferredCandidates?: JobOpportunity[];
+    matchDeferredWhenAutomaticSlotsInsufficient?: boolean;
   }): Promise<JobSearchWorkspace> {
     const {
       workspace,
@@ -1415,96 +1440,154 @@ export class JobSearchService {
       selectionLimit,
       reportProgress,
       waitForProgress,
+      prevalidatedCandidateIds = new Set<string>(),
+      deferredCandidates = [],
+      matchDeferredWhenAutomaticSlotsInsufficient = true,
     } = input;
     workspace.phase = "applications";
-    let viableCandidates = candidates;
-    if (this.opportunityResearch!.prevalidateForMatching) {
+    const alreadyPrevalidated = candidates.filter((job) =>
+      prevalidatedCandidateIds.has(job.id),
+    );
+    const candidatesNeedingPrevalidation = candidates.filter(
+      (job) => !prevalidatedCandidateIds.has(job.id),
+    );
+    type AssessmentResult =
+      | JobOpportunity[]
+      | { opportunities: JobOpportunity[]; failures: JobResearchFailure[] };
+    const assessmentExecutor = new BoundedExecutor(matchingConcurrency());
+    const scheduledAssessmentIds = new Set<string>();
+    const assessmentTasks: Array<Promise<AssessmentResult>> = [];
+    const scheduleAssessment = (job: JobOpportunity) => {
+      if (scheduledAssessmentIds.has(job.id)) return;
+      scheduledAssessmentIds.add(job.id);
+      const task = assessmentExecutor.run(
+        async (): Promise<AssessmentResult> => {
+          await reportProgress({
+            item: pipelineIdentity(job),
+            phase: "match",
+            state: "running",
+          });
+          if (hasReusableAssessment(job)) {
+            await reportProgress({
+              item: pipelineIdentity(job),
+              phase: "match",
+              state: "passed",
+              fit: job.fit,
+            });
+            return [job];
+          }
+          if (!this.opportunityResearch!.assess) return [job];
+          try {
+            const result = await this.opportunityResearch!.assess(
+              workspace,
+              [job],
+              reportProgress,
+            );
+            const assessedJob = Array.isArray(result)
+              ? result[0]
+              : result.opportunities[0];
+            const failure = Array.isArray(result) ? undefined : result.failures[0];
+            const reason =
+              failure?.reason ||
+              (assessedJob
+                ? undefined
+                : "Requirement matching returned no verified assessment");
+            await reportProgress({
+              item: pipelineIdentity(job),
+              phase: "match",
+              state: assessedJob ? "passed" : "failed",
+              fit: assessedJob?.fit,
+              reason,
+            });
+            return assessedJob || failure
+              ? result
+              : {
+                  opportunities: [],
+                  failures: [matchingFailureFromOpportunity(job, reason!)],
+                };
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            await reportProgress({
+              item: pipelineIdentity(job),
+              phase: "match",
+              state: "failed",
+              reason,
+            });
+            return {
+              opportunities: [],
+              failures: [matchingFailureFromOpportunity(job, reason)],
+            };
+          }
+        },
+      );
+      void task.catch(() => undefined);
+      assessmentTasks.push(task);
+    };
+
+    alreadyPrevalidated.forEach(scheduleAssessment);
+    let viableCandidates = candidatesNeedingPrevalidation;
+    const deferredManualCandidates = [...deferredCandidates];
+    if (
+      this.opportunityResearch!.prevalidateForMatching &&
+      candidatesNeedingPrevalidation.length > 0
+    ) {
       setSearchStage(
         workspace,
         "verifying",
         workspace.searchConfig.discoveryTarget,
         candidates.length,
-        `Match prevalidation: checking whether ${candidates.length} verified ${candidates.length === 1 ? "vacancy has" : "vacancies have"} a reachable employer application route before evidence matching.`,
+        `Match prevalidation and evidence matching are running as one parallel stream for ${candidates.length} verified ${candidates.length === 1 ? "vacancy" : "vacancies"}.`,
       );
       await this.saveCandidate(workspace);
-      const viability = await this.opportunityResearch!.prevalidateForMatching(
-        workspace,
-        candidates,
-        reportProgress,
-      );
+      let viability: {
+        opportunities: JobOpportunity[];
+        deferredOpportunities?: JobOpportunity[];
+        failures: JobResearchFailure[];
+      };
+      try {
+        viability = await this.opportunityResearch!.prevalidateForMatching(
+          workspace,
+          candidatesNeedingPrevalidation,
+          reportProgress,
+          scheduleAssessment,
+        );
+      } catch (error) {
+        await Promise.allSettled(assessmentTasks);
+        throw error;
+      }
       await this.assignJobNumbers([
         ...viability.opportunities,
         ...viability.failures,
       ]);
       mergeResearchFailures(workspace, viability.failures);
+      deferredManualCandidates.push(...(viability.deferredOpportunities ?? []));
       viableCandidates = viability.opportunities;
-      if (viableCandidates.length === 0) {
+      if (viableCandidates.length === 0 && assessmentTasks.length === 0) {
         workspace.seenJobUrls = nextSeenJobUrls;
+        if (matchDeferredWhenAutomaticSlotsInsufficient)
+          await this.assessDeferredManualCandidates({
+            workspace,
+            candidates: deferredManualCandidates,
+            reportProgress,
+            waitForProgress,
+          });
         workspace.jobHistory = normalizeJobHistory(workspace);
         await waitForProgress();
         await this.saveCandidate(workspace);
         return workspace;
       }
     }
+    viableCandidates = mergeUniqueJobs(alreadyPrevalidated, viableCandidates);
+    viableCandidates.forEach(scheduleAssessment);
     setSearchStage(
       workspace,
       "verifying",
       workspace.searchConfig.discoveryTarget,
       viableCandidates.length,
-      `Application routes prevalidated; scoring ${viableCandidates.length} ${viableCandidates.length === 1 ? "vacancy" : "vacancies"} against required and preferred evidence in Match & rank.`,
+      `Scoring ${viableCandidates.length} ${viableCandidates.length === 1 ? "vacancy" : "vacancies"} against required and preferred evidence in Match & rank.`,
     );
     await this.saveCandidate(workspace);
-    const assessmentResults = this.opportunityResearch!.assess
-      ? await Promise.all(
-          viableCandidates.map(async (job) => {
-            await reportProgress({ item: pipelineIdentity(job), phase: "match", state: "running" });
-            if (hasReusableAssessment(job)) {
-              await reportProgress({
-                item: pipelineIdentity(job),
-                phase: "match",
-                state: "passed",
-                fit: job.fit,
-              });
-              return [job] as JobOpportunity[];
-            }
-            try {
-              const result = await this.opportunityResearch!.assess!(workspace, [job], reportProgress);
-              const assessedJob = Array.isArray(result) ? result[0] : result.opportunities[0];
-              const failure = Array.isArray(result) ? undefined : result.failures[0];
-              const reason =
-                failure?.reason ||
-                (assessedJob
-                  ? undefined
-                  : "Requirement matching returned no verified assessment");
-              await reportProgress({
-                item: pipelineIdentity(job),
-                phase: "match",
-                state: assessedJob ? "passed" : "failed",
-                fit: assessedJob?.fit,
-                reason,
-              });
-              return assessedJob || failure
-                ? result
-                : {
-                    opportunities: [],
-                    failures: [matchingFailureFromOpportunity(job, reason!)],
-                  };
-            } catch (error) {
-              const reason = error instanceof Error ? error.message : String(error);
-              await reportProgress({
-                item: pipelineIdentity(job),
-                phase: "match",
-                state: "failed",
-                reason,
-              });
-              return {
-                opportunities: [],
-                failures: [matchingFailureFromOpportunity(job, reason)],
-              };
-            }
-          }),
-        )
-      : viableCandidates.map((job) => [job] as JobOpportunity[]);
+    const assessmentResults = await Promise.all(assessmentTasks);
     const assessed: JobOpportunity[] = [];
     const assessmentFailures: JobResearchFailure[] = [];
     for (const result of assessmentResults) {
@@ -1530,18 +1613,16 @@ export class JobSearchService {
     // ordered batches sized to the remaining success shortfall. Failed forms
     // immediately yield to the next scored batch without forcing new search.
     let cursor = 0;
+    let deferredAssessment: Promise<void> | undefined;
     while (
       cursor < eligibleJobs.length &&
       preparedVerifiedJobIds(workspace).size - preparedBefore < successTarget
     ) {
       const completed = preparedVerifiedJobIds(workspace).size - preparedBefore;
       const remaining = successTarget - completed;
-      const inspectionBatchSize = Math.max(
-        remaining,
-        applicationFillingBatchSize(),
-      );
-      const selectedJobs = eligibleJobs.slice(cursor, cursor + inspectionBatchSize);
+      const selectedJobs = eligibleJobs.slice(cursor, cursor + remaining);
       cursor += selectedJobs.length;
+      const fillsOutstandingAutomaticSlots = selectedJobs.length >= remaining;
       result = await this.prepareSelectedApplications({
         workspace,
         ranked,
@@ -1552,9 +1633,129 @@ export class JobSearchService {
         reportProgress,
         waitForProgress,
         successLimit: remaining,
+        onApplicationsSelected: fillsOutstandingAutomaticSlots
+          ? () => {
+              deferredAssessment ??= this.assessDeferredManualCandidates({
+                workspace,
+                candidates: deferredManualCandidates,
+                reportProgress,
+                waitForProgress,
+              });
+            }
+          : undefined,
       });
     }
+    if (deferredAssessment) await deferredAssessment;
+    else if (matchDeferredWhenAutomaticSlotsInsufficient)
+      await this.assessDeferredManualCandidates({
+        workspace,
+        candidates: deferredManualCandidates,
+        reportProgress,
+        waitForProgress,
+      });
     return result;
+  }
+
+  /**
+   * Evidence-match jobs whose employer form could not be verified only after
+   * the automatic application lane has finished selecting/preparing its quota.
+   * These jobs remain manual-review candidates and are never auto-filled.
+   */
+  private async assessDeferredManualCandidates(input: {
+    workspace: JobSearchWorkspace;
+    candidates: JobOpportunity[];
+    reportProgress: (
+      update: OpportunityProgressUpdate,
+    ) => void | Promise<void>;
+    waitForProgress: () => Promise<void>;
+  }) {
+    const { workspace, reportProgress, waitForProgress } = input;
+    const candidates = mergeUniqueJobs(input.candidates).filter(
+      (job) =>
+        job.applicationRoute?.status === "manual_review" &&
+        !hasReusableAssessment(job) &&
+        !workspace.opportunities.some(
+          (existing) => existing.id === job.id && hasReusableAssessment(existing),
+        ) &&
+        !workspace.applications.some((application) => application.jobId === job.id),
+    );
+    if (!candidates.length) return;
+    const applicationLaneActive = workspace.searchProgress?.stage === "filling";
+    if (!applicationLaneActive)
+      setSearchStage(
+        workspace,
+        "verifying",
+        workspace.searchProgress?.target ?? workspace.searchConfig.applicationTarget,
+        workspace.searchProgress?.found ?? 0,
+        `The automatic application slots are settled; evidence-matching ${candidates.length} additional ${candidates.length === 1 ? "job" : "jobs"} whose employer form requires manual review.`,
+      );
+    await this.saveCandidate(workspace);
+    const executor = new BoundedExecutor(matchingConcurrency());
+    const results = await Promise.all(
+      candidates.map((job) =>
+        executor.run(async () => {
+          await reportProgress({
+            item: pipelineIdentity(job),
+            phase: "match",
+            state: "running",
+          });
+          try {
+            const result = this.opportunityResearch!.assess
+              ? await this.opportunityResearch!.assess(
+                  workspace,
+                  [job],
+                  reportProgress,
+                )
+              : [job];
+            const assessed = Array.isArray(result)
+              ? result[0]
+              : result.opportunities[0];
+            const failures = Array.isArray(result) ? [] : result.failures;
+            await reportProgress({
+              item: pipelineIdentity(assessed ?? job),
+              phase: "match",
+              state: assessed ? "passed" : "failed",
+              fit: assessed?.fit,
+              reason: failures[0]?.reason,
+            });
+            return { assessed, failures };
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            await reportProgress({
+              item: pipelineIdentity(job),
+              phase: "match",
+              state: "failed",
+              reason,
+            });
+            return {
+              assessed: undefined,
+              failures: [matchingFailureFromOpportunity(job, reason)],
+            };
+          }
+        }),
+      ),
+    );
+    const assessed = results.flatMap((result) =>
+      result.assessed ? [result.assessed] : [],
+    );
+    const failures = results.flatMap((result) => result.failures);
+    await this.assignJobNumbers([...assessed, ...failures]);
+    mergeResearchFailures(workspace, failures);
+    workspace.opportunities = mergeUniqueJobs(
+      workspace.opportunities,
+      assessed,
+    ).sort((left, right) => right.fit - left.fit);
+    workspace.jobHistory = normalizeJobHistory(workspace);
+    if (!applicationLaneActive)
+      setSearchStage(
+        workspace,
+        "ready",
+        workspace.searchProgress?.target ?? workspace.searchConfig.applicationTarget,
+        workspace.searchProgress?.found ?? 0,
+        `${assessed.length} additional manual-application ${assessed.length === 1 ? "job was" : "jobs were"} evidence-matched after the automatic application lane settled.`,
+      );
+    await waitForProgress();
+    await this.saveCandidate(workspace);
   }
 
   private async prepareSelectedApplications(input: {
@@ -1569,6 +1770,7 @@ export class JobSearchService {
     ) => void | Promise<void>;
     waitForProgress: () => Promise<void>;
     successLimit: number;
+    onApplicationsSelected?: () => void | Promise<void>;
   }): Promise<JobSearchWorkspace> {
     const {
       workspace,
@@ -1580,6 +1782,7 @@ export class JobSearchService {
       reportProgress,
       waitForProgress,
       successLimit,
+      onApplicationsSelected,
     } = input;
     const selectedIds = new Set(selectedJobs.map((job) => job.id));
     const attemptedIds = new Set(
@@ -1604,6 +1807,7 @@ export class JobSearchService {
       `Preparing application forms for the top ${selectedJobs.length} matched ${selectedJobs.length === 1 ? "job" : "jobs"}; ${Math.max(0, ranked.length - selectedJobs.length)} remain as scored replacements.`,
     );
     await this.saveCandidate(workspace);
+    await onApplicationsSelected?.();
     let inspected: {
       applications: ApplicationDraft[];
       failures: JobResearchFailure[];
@@ -1706,9 +1910,16 @@ export class JobSearchService {
       `${verifiableApplications.length} of ${selectedJobs.length} employer forms mapped; independently verifying the full bounded batch before publishing up to ${successLimit}.`,
     );
     await this.saveCandidate(workspace);
-    workspace.opportunities = mergeUniqueJobs(existingApplicationJobs, ranked).sort(
-      (a, b) => b.fit - a.fit,
+    const concurrentlyMatchedManualJobs = workspace.opportunities.filter(
+      (job) =>
+        job.applicationRoute?.status === "manual_review" &&
+        hasReusableAssessment(job),
     );
+    workspace.opportunities = mergeUniqueJobs(
+      existingApplicationJobs,
+      ranked,
+      concurrentlyMatchedManualJobs,
+    ).sort((a, b) => b.fit - a.fit);
     workspace.applications.push(
       ...verifiableApplications,
       ...blockedApplications,
@@ -2143,9 +2354,25 @@ export class JobSearchService {
     const workspace = candidateId
       ? await this.getCandidate(candidateId)
       : await this.get();
+    const applicationTarget =
+      applicationTargetOverride ?? workspace.searchConfig.applicationTarget;
+    workspace.jobHistory = normalizeJobHistory(workspace);
+    workspace.searchProgress = {
+      stage: "looking",
+      target: applicationTarget,
+      found: 0,
+      activity: `Preparing ${applicationTarget} new applications. Existing application jobs are excluded; other jobs may be reconsidered.`,
+      updatedAt: new Date().toISOString(),
+      items: [],
+      events: [
+        progressEvent(`Preparing ${applicationTarget} new applications.`),
+      ],
+      baselineApplicationJobIds: [...preparedVerifiedJobIds(workspace)],
+    };
+    await this.saveCandidate(workspace);
     return this.prepareApplications(
       workspace.candidateId,
-      applicationTargetOverride ?? workspace.searchConfig.applicationTarget,
+      applicationTarget,
     );
   }
 
@@ -2356,7 +2583,7 @@ export class JobSearchService {
     };
     await this.assignJobNumbers([opportunity]);
     workspace.opportunities.push(opportunity);
-    const application = applicationFor(opportunity, workspace);
+    const application = manualTrackingApplicationFor(opportunity);
     application.addedBy = "user";
     refreshApplicationReadiness(application);
     workspace.applications.push(application);
@@ -2418,7 +2645,7 @@ export class JobSearchService {
     // Manual tracking is deliberately independent of form inspection, LLM
     // drafting, and beta preparation allowance. The candidate can open the
     // original employer page and use Applications to track the outcome.
-    const application = applicationFor(opportunity, workspace);
+    const application = manualTrackingApplicationFor(opportunity);
     application.addedBy = "user";
     normalizeApplications([application]);
     refreshApplicationReadiness(application);
@@ -3012,6 +3239,14 @@ export class JobSearchService {
       this.requestedAnalyses.delete(candidateId)
     )
       await this.runCandidateAnalysis(await this.getCandidate(candidateId));
+    if (this.isExecutionStopped(candidateId)) return;
+    // A pass can discover profile-owned evidence and request another pass.
+    // Unlock the profile wizard only after that entire queue has drained.
+    const workspace = await this.getCandidate(candidateId);
+    const previousStep = workspace.profileSetupStep;
+    advanceProfileSetupAfterAnalysis(workspace);
+    if (workspace.profileSetupStep !== previousStep)
+      await this.saveCandidate(workspace);
   }
 
   private async applyLocalAnalysis(
@@ -3318,6 +3553,7 @@ function normalizeWorkspace(
   advanceProfileSetupAfterAnalysis(workspace);
   normalizeApplications(workspace.applications);
   for (const app of workspace.applications) {
+    removeSyntheticFallbackForm(app);
     refreshApplicationReadiness(app, false);
   }
   if (
@@ -3656,13 +3892,6 @@ function applicationRefillRoundLimit() {
     : 4;
 }
 
-function applicationFillingBatchSize() {
-  const configured = Number(process.env.ROLEGAIN_APPLICATION_FILL_BATCH_SIZE);
-  return Number.isFinite(configured)
-    ? Math.max(5, Math.min(12, Math.round(configured)))
-    : 8;
-}
-
 function applicationMinimumFit() {
   const configured = Number(process.env.ROLEGAIN_MIN_APPLICATION_FIT);
   return Number.isFinite(configured)
@@ -3736,7 +3965,11 @@ export function selectPhase2ApplicationPortfolio(
   minimumScore = applicationMinimumFit(),
 ) {
   return ranked
-    .filter((job) => job.fit >= minimumScore)
+    .filter(
+      (job) =>
+        job.fit >= minimumScore &&
+        job.applicationRoute?.status !== "manual_review",
+    )
     .slice(0, Math.max(0, limit));
 }
 
@@ -3747,7 +3980,13 @@ function minimumMatchScore(workspace: JobSearchWorkspace) {
 function mergeFailures(...groups: JobResearchFailure[][]) {
   const byKey = new Map<string, JobResearchFailure>();
   for (const failure of groups.flat()) {
-    const key = `${normalizeUrl(failure.sourceUrl)}:${failure.stage}`;
+    const key = [
+      failure.id,
+      normalizeJobIdentityText(failure.company),
+      normalizeJobIdentityText(failure.title),
+      normalizeUrl(failure.sourceUrl),
+      failure.stage,
+    ].join(":");
     const existing = byKey.get(key);
     byKey.set(key, {
       ...failure,
@@ -3944,53 +4183,51 @@ function tailoredCvFileName(
   return `${base || "Tailored-CV"}.docx`;
 }
 
-function applicationFor(
-  job: JobOpportunity,
-  w: JobSearchWorkspace,
-): ApplicationDraft {
-  const p = w.profile;
-  const cover = `Dear ${job.company} hiring team,\n\nI am applying for the ${job.title} role. My background in platform engineering, durable execution, developer tooling and production reliability maps to the role's core systems responsibilities.\n\nI would welcome the opportunity to discuss the evidence in my CV and how it applies to this team.\n\nSincerely,\n${p.name}`;
-  const cvName = w.sources.find((s) => s.kind === "cv")?.name ?? "";
-  const fields = [
-    field("name", "Full name", "text", p.name, "profile"),
-    field("email", "Email", "email", p.email, "profile"),
-    field("phone", "Phone", "tel", p.phone, "profile"),
-    field("current_location", "Current location", "text", p.location, "profile"),
-    field("linkedin", "LinkedIn URL", "text", p.linkedin, "profile"),
-    field("cv", "Resume / CV", "file", cvName, "cv"),
-    field("cover", "Cover letter", "textarea", cover, "generated"),
-    field(
-      "authorization",
-      "Work authorization / sponsorship",
-      "textarea",
-      p.workAuthorization,
-      "profile",
-    ),
-    field(
-      "salary",
-      "Compensation expectation",
-      "text",
-      p.salaryExpectation,
-      "profile",
-    ),
-    field("start", "Available start date", "text", p.startDate, "profile"),
-    field("why", "Why this role?", "textarea", job.summary, "generated"),
-  ];
-  const missing = fields
-    .filter((f) => f.required && !f.value.trim())
-    .map((f) => f.label);
+function manualTrackingApplicationFor(job: JobOpportunity): ApplicationDraft {
   return {
     id: `app-${job.id}`,
     jobId: job.id,
-    status: missing.length ? "needs_input" : "ready_to_send",
-    coverLetter: cover,
+    status: "needs_input",
+    coverLetter: "",
     coverLetterChat: [],
-    formFields: fields,
-    missingQuestions: missing,
+    formFields: [],
+    missingQuestions: ["Employer form was not found; try applying manually"],
     adapter: adapterFor(job.applyUrl),
     liveFormValidated: false,
     updatedAt: new Date().toISOString(),
   };
+}
+
+const SYNTHETIC_FALLBACK_FIELD_IDS = new Set([
+  "name",
+  "email",
+  "phone",
+  "current_location",
+  "linkedin",
+  "cv",
+  "cover",
+  "authorization",
+  "salary",
+  "start",
+  "why",
+]);
+
+function removeSyntheticFallbackForm(application: ApplicationDraft) {
+  if (
+    application.addedBy !== "user" ||
+    application.liveFormValidated ||
+    application.formSchema ||
+    application.formFields.length < 8 ||
+    application.formFields.some(
+      (field) => !SYNTHETIC_FALLBACK_FIELD_IDS.has(field.id),
+    )
+  )
+    return;
+  application.formFields = [];
+  application.coverLetter = "";
+  application.missingQuestions = [
+    "Employer form was not found; try applying manually",
+  ];
 }
 
 function normalizeApplications(applications: ApplicationDraft[]) {
@@ -4092,11 +4329,14 @@ function refreshApplicationReadiness(
   application.missingQuestions = application.formFields
     .filter((field) => field.required && !field.value.trim())
     .map((field) => field.label);
+  const formReviewQuestion = application.formFields.length
+    ? "Employer form requires manual review"
+    : "Employer form was not found; try applying manually";
   if (
     !application.liveFormValidated &&
-    !application.missingQuestions.includes("Employer form requires manual review")
+    !application.missingQuestions.includes(formReviewQuestion)
   )
-    application.missingQuestions.push("Employer form requires manual review");
+    application.missingQuestions.push(formReviewQuestion);
   application.status = application.missingQuestions.length
     ? "needs_input"
     : "ready_to_send";
@@ -4171,6 +4411,8 @@ function pipelineIdentity(job: JobOpportunity) {
     title: job.title,
     sourceUrl: job.sourceUrl,
     sourceGroup: job.sourceGroup,
+    applicationRouteStatus: job.applicationRoute?.status,
+    applicationRouteReason: job.applicationRoute?.reason,
   };
 }
 
@@ -4244,6 +4486,10 @@ function applyProgressUpdate(
       item.sourceGroup = update.item.sourceGroup || item.sourceGroup;
     }
     if (update.item.jobNumber) item.jobNumber = update.item.jobNumber;
+    if (update.item.applicationRouteStatus)
+      item.applicationRouteStatus = update.item.applicationRouteStatus;
+    if (update.item.applicationRouteReason)
+      item.applicationRouteReason = update.item.applicationRouteReason;
     if (update.phase === "validation") item.validation = update.state ?? item.validation;
     if (update.phase === "match") item.match = update.state ?? item.match;
     if (update.phase === "application") item.application = update.state ?? item.application;
@@ -4406,6 +4652,7 @@ function normalizeJobHistory(workspace: JobSearchWorkspace) {
 }
 
 export function finalizePipelineHistory(workspace: JobSearchWorkspace) {
+  const currentRunItems = structuredClone(workspace.searchProgress?.items ?? []);
   const applicationsByJobId = new Map(
     workspace.applications.map((application) => [application.jobId, application]),
   );
@@ -4439,7 +4686,14 @@ export function finalizePipelineHistory(workspace: JobSearchWorkspace) {
   });
   workspace.jobHistory = finalized;
   if (workspace.searchProgress)
-    workspace.searchProgress.items = structuredClone(finalized);
+    workspace.searchProgress.items = finalized.filter((item) =>
+      currentRunItems.some(
+        (current) =>
+          current.id === item.id ||
+          (current.jobNumber && current.jobNumber === item.jobNumber) ||
+          samePipelineVacancy(current, item),
+      ),
+    );
 }
 
 function upsertJobHistory(
@@ -4477,23 +4731,6 @@ function upsertPipelineItem(
   if (preferred === incoming) Object.assign(existing, incoming);
 }
 
-function field(
-  id: string,
-  label: string,
-  type: ApplicationDraft["formFields"][number]["type"],
-  value: string,
-  source: ApplicationDraft["formFields"][number]["source"],
-) {
-  return {
-    id,
-    label,
-    type,
-    value,
-    required: true,
-    source,
-    confidence: source === "generated" ? 75 : source === "user" ? 0 : 100,
-  };
-}
 function adapterFor(url: string): ApplicationDraft["adapter"] {
   if (url.includes("greenhouse")) return "greenhouse";
   if (url.includes("lever.co")) return "lever";

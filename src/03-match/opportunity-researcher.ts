@@ -27,6 +27,7 @@ import type {
 
 export interface OpportunityResearchResult {
   opportunities: JobOpportunity[];
+  deferredOpportunities?: JobOpportunity[];
   applications: ApplicationDraft[];
   failures: JobResearchFailure[];
   seenUrls: string[];
@@ -80,20 +81,7 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
       onProgress?: OpportunityProgressReporter;
     } = {},
   ): Promise<OpportunityResearchResult> {
-    const research = await this.research(workspace, options);
-    const viability = research.opportunities.length
-      ? await this.prevalidateForMatching(
-          workspace,
-          research.opportunities,
-          options.onProgress,
-        )
-      : { opportunities: [], failures: [] };
-    const assessment = viability.opportunities.length
-      ? await this.assess(workspace, viability.opportunities, options.onProgress)
-      : { opportunities: [], failures: [] };
-    const matched = Array.isArray(assessment)
-      ? { opportunities: assessment, failures: [] }
-      : assessment;
+    const matched = await this.researchAndAssess(workspace, options);
     const inspection = matched.opportunities.length
       ? await this.inspectApplications(
           workspace,
@@ -103,14 +91,13 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
       : { applications: [], failures: [] };
     return {
       opportunities: matched.opportunities,
+      deferredOpportunities: matched.deferredOpportunities,
       applications: inspection.applications,
       failures: [
-        ...(research.failures ?? []),
-        ...viability.failures,
-        ...matched.failures,
+        ...(matched.failures ?? []),
         ...inspection.failures,
       ],
-      seenUrls: research.seenUrls ?? [],
+      seenUrls: matched.seenUrls ?? [],
     };
   }
 
@@ -194,6 +181,7 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
     workspace: JobSearchWorkspace,
     opportunities: JobOpportunity[],
     onProgress?: OpportunityProgressReporter,
+    onPrevalidatedOpportunity?: (opportunity: JobOpportunity) => void,
   ) {
     return prevalidateOpportunitiesForMatching({
       codex: this.codex,
@@ -202,6 +190,7 @@ export class LiveOpportunityResearcher implements OpportunityResearchProvider {
       workspace,
       opportunities,
       onProgress,
+      onPrevalidatedOpportunity,
     });
   }
 

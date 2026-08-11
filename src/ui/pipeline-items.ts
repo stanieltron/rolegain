@@ -20,16 +20,46 @@ export function coalescePipelineItems(items: SearchPipelineItem[]) {
       continue;
     }
     const existing = result[existingIndex];
-    result[existingIndex] =
-      existing.id === candidate.id
-        ? candidate
-        : preferPipelineItem(existing, candidate);
+    result[existingIndex] = preferPipelineDisplayItem(existing, candidate);
   }
   return result;
 }
 
+function preferPipelineDisplayItem(
+  existing: SearchPipelineItem,
+  candidate: SearchPipelineItem,
+) {
+  const stageOrder: Record<PipelineDisplayStage, number> = {
+    validation: 0,
+    match: 1,
+    application: 2,
+  };
+  const existingStage = pipelineDisplayStage(existing);
+  const candidateStage = pipelineDisplayStage(candidate);
+  if (existingStage !== candidateStage)
+    return stageOrder[candidateStage] > stageOrder[existingStage]
+      ? candidate
+      : existing;
+
+  const active = (item: SearchPipelineItem, stage: PipelineDisplayStage) =>
+    stage === "validation"
+      ? item.validation === "waiting" || item.validation === "running"
+      : stage === "match"
+        ? item.match === "waiting" || item.match === "running"
+        : applicationOutcomeState(item) === "selected" ||
+          applicationOutcomeState(item) === "running";
+  const existingActive = active(existing, existingStage);
+  const candidateActive = active(candidate, candidateStage);
+  if (existingActive !== candidateActive)
+    return candidateActive ? candidate : existing;
+  return preferPipelineItem(existing, candidate);
+}
+
 export function isManualReviewPipelineItem(item: SearchPipelineItem) {
-  return item.validationDisposition === "manual_review";
+  return (
+    item.validationDisposition === "manual_review" ||
+    item.applicationRouteStatus === "manual_review"
+  );
 }
 
 export function isLowMatchPipelineItem(
@@ -56,6 +86,15 @@ export function pipelineItemVisible(
   minimumMatchScore: number,
 ) {
   if (developerMode) return true;
+  const active =
+    stage === "validation"
+      ? item.validation === "waiting" || item.validation === "running"
+      : stage === "match"
+        ? item.match === "waiting" || item.match === "running"
+        : applicationOutcomeState(item) === "selected" ||
+          applicationOutcomeState(item) === "running";
+  // Normal mode hides terminal diagnostics, never live or queued work.
+  if (active) return true;
   if (stage !== "application" && isManualReviewPipelineItem(item)) return true;
   if (stage === "match" && isLowMatchPipelineItem(item, minimumMatchScore))
     return true;
@@ -182,4 +221,34 @@ export function sortPipelineRows(
     if (leftNumber !== rightNumber) return leftNumber - rightNumber;
     return left.id.localeCompare(right.id);
   });
+}
+
+/**
+ * Older completed searches persisted the entire cumulative history in
+ * searchProgress.items. Recover the only unambiguous latest-run boundary in
+ * those records: applications added after the run's baseline snapshot.
+ * New and active runs already persist only their own items and pass through.
+ */
+export function deriveCurrentRunItemIds(input: {
+  progressItems: SearchPipelineItem[];
+  historyItems: SearchPipelineItem[];
+  baselineApplicationJobIds?: string[];
+  preparedApplicationJobIds: string[];
+  terminal: boolean;
+}) {
+  const progressIds = new Set(input.progressItems.map((item) => item.id));
+  const historyIds = new Set(input.historyItems.map((item) => item.id));
+  const baselineIds = new Set(input.baselineApplicationJobIds ?? []);
+  const containsEntireHistory =
+    historyIds.size > 0 &&
+    [...historyIds].every((jobId) => progressIds.has(jobId));
+
+  if (!input.terminal || baselineIds.size === 0 || !containsEntireHistory)
+    return progressIds;
+
+  return new Set(
+    input.preparedApplicationJobIds.filter(
+      (jobId) => !baselineIds.has(jobId),
+    ),
+  );
 }

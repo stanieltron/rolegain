@@ -143,7 +143,13 @@ export function deduplicateFailures(failures: JobResearchFailure[]) {
   const byKey = new Map<string, JobResearchFailure>();
   for (const failure of failures)
     byKey.set(
-      `${normalizeOpportunityUrl(failure.sourceUrl)}:${failure.stage}`,
+      [
+        failure.id,
+        failure.company.trim().toLowerCase(),
+        failure.title.trim().toLowerCase(),
+        normalizeOpportunityUrl(failure.sourceUrl),
+        failure.stage,
+      ].join(":"),
       failure,
     );
   return [...byKey.values()];

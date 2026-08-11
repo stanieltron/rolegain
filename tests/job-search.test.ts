@@ -319,38 +319,46 @@ describe("job-search lifecycle", () => {
         _workspace: JobSearchWorkspace,
         opportunities: JobOpportunity[],
         onProgress?: (update: import("../src/search-match-shared/types.js").OpportunityProgressUpdate) => void | Promise<void>,
+        onPrevalidatedOpportunity?: (opportunity: JobOpportunity) => void,
       ) {
         events.push("prevalidate");
-        for (const job of opportunities)
+        for (const job of opportunities) {
+          events.push(`prevalidate:${job.id}`);
           await onProgress?.({
+            phase: "match",
+            state: job.id === "blocked" ? "bench" : "running",
             item: {
               id: job.id,
               company: job.company,
               title: job.title,
               sourceUrl: job.sourceUrl,
+              applicationRouteStatus:
+                job.id === "blocked" ? "manual_review" : "verified",
+              applicationRouteReason:
+                job.id === "blocked"
+                  ? "No reachable employer application form was found"
+                  : undefined,
             },
-            phase: "match",
-            state: job.id === "blocked" ? "failed" : "running",
-            reason:
-              job.id === "blocked"
-                ? "No reachable employer application form was found"
-                : undefined,
           });
+          if (job.id !== "blocked") onPrevalidatedOpportunity?.(job);
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+        events.push("prevalidation-complete");
         return {
-          opportunities: jobs.filter((job) => job.id !== "blocked"),
-          failures: [
-            {
-              id: "blocked",
-              company: "blocked Employer",
-              title: "blocked Engineer",
-              location: "Remote",
-              sourceUrl: jobs[1].sourceUrl,
-              applyUrl: jobs[1].applyUrl,
-              stage: "match_prevalidation" as const,
+          opportunities: jobs
+            .filter((job) => job.id !== "blocked")
+            .map((job) => ({
+              ...job,
+              applicationRoute: { status: "verified" as const },
+            })),
+          deferredOpportunities: [{
+            ...jobs[1],
+            applicationRoute: {
+              status: "manual_review" as const,
               reason: "No reachable employer application form was found",
-              capturedAt: "2026-08-10T00:00:00.000Z",
             },
-          ],
+          }],
+          failures: [],
         };
       },
       async assess(
@@ -424,20 +432,27 @@ describe("job-search lifecycle", () => {
 
     expect(events[0]).toBe("search");
     expect(events[1]).toBe("prevalidate");
-    expect(assessedIds.sort()).toEqual(["reachable-1", "reachable-2"]);
+    expect(events.indexOf("match:reachable-1")).toBeLessThan(
+      events.indexOf("prevalidation-complete"),
+    );
+    expect(assessedIds.sort()).toEqual(["blocked", "reachable-1", "reachable-2"]);
     expect(events.findIndex((event) => event.startsWith("inspect:"))).toBeGreaterThan(
       Math.max(
         events.findIndex((event) => event === "match:reachable-1"),
         events.findIndex((event) => event === "match:reachable-2"),
       ),
     );
+    expect(events.indexOf("match:blocked")).toBeGreaterThan(
+      events.findIndex((event) => event.startsWith("inspect:")),
+    );
     expect(result.applications.filter((item) => item.addedBy === "agent")).toHaveLength(2);
-    expect(result.searchValidationIssues.some((item) => item.id === "blocked")).toBe(true);
+    expect(result.searchValidationIssues.some((item) => item.id === "blocked")).toBe(false);
     expect(result.jobHistory.find((item) => item.id === "blocked")).toMatchObject({
       validation: "passed",
-      match: "failed",
+      match: "passed",
       application: "waiting",
       applicationVerification: "waiting",
+      applicationRouteStatus: "manual_review",
     });
   });
 
@@ -1515,7 +1530,7 @@ describe("job-search lifecycle", () => {
     expect(promoted.applications).toHaveLength(4);
     expect(
       promoted.applications.find((application) => application.jobId === benched.id),
-    ).toMatchObject({ addedBy: "user" });
+    ).toMatchObject({ addedBy: "user", formFields: [] });
     expect(promoted.applications.filter((application) => application.addedBy !== "user"))
       .toHaveLength(3);
   });
@@ -1580,9 +1595,10 @@ describe("job-search lifecycle", () => {
       addedBy: "user",
       liveFormValidated: false,
       status: "needs_input",
+      formFields: [],
     });
     expect(application?.missingQuestions).toContain(
-      "Employer form requires manual review",
+      "Employer form was not found; try applying manually",
     );
     expect(promoted.jobHistory.find((item) => item.id === "manual-job"))
       .toMatchObject({
@@ -1590,12 +1606,53 @@ describe("job-search lifecycle", () => {
         reason:
           "Unable to verify automatically; moved to Applications for manual review",
       });
+
+    const legacyApplication = promoted.applications.find(
+      (candidate) => candidate.jobId === "manual-job",
+    )!;
+    legacyApplication.coverLetter = "Synthetic fallback";
+    legacyApplication.formFields = [
+      "name",
+      "email",
+      "phone",
+      "current_location",
+      "linkedin",
+      "cv",
+      "cover",
+      "authorization",
+    ].map((id) => ({
+      id,
+      label: id,
+      type: "text" as const,
+      value: "generated",
+      required: true,
+      source: "generated" as const,
+      confidence: 75,
+    }));
+    await writeFile(
+      path.join(root, "job-search", "candidates", "candidate-1.json"),
+      `${JSON.stringify(promoted, null, 2)}\n`,
+      "utf8",
+    );
+    const migrated = await new JobSearchService(root).get();
+    expect(
+      migrated.applications.find(
+        (candidate) => candidate.jobId === "manual-job",
+      ),
+    ).toMatchObject({
+      coverLetter: "",
+      formFields: [],
+      missingQuestions: [
+        "Employer form was not found; try applying manually",
+      ],
+    });
   });
 
-  it("inspects eight applications at once, publishes five successes, and benches overflow", async () => {
+  it("inspects only the remaining quota at once and refills failures from the ranked bench", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "rolegain-refill-quota-"));
     let researchCalls = 0;
     const researchLimits: number[] = [];
+    const inspectedIds: string[] = [];
     const makeJob = (id: string, fit: number): JobOpportunity => ({
       id,
       company: `${id} Employer`,
@@ -1639,6 +1696,7 @@ describe("job-search lifecycle", () => {
         workspace: JobSearchWorkspace,
         opportunities: JobOpportunity[],
       ) {
+        inspectedIds.push(...opportunities.map((job) => job.id));
         return {
           applications: opportunities.map((job) => {
             const mapped =
@@ -1704,6 +1762,15 @@ describe("job-search lifecycle", () => {
 
     expect(researchCalls).toBe(1);
     expect(researchLimits).toEqual([26]);
+    expect(inspectedIds).toEqual([
+      "first-0",
+      "first-1",
+      "first-2",
+      "first-3",
+      "first-4",
+      "first-5",
+      "first-6",
+    ]);
     expect(result.applications).toHaveLength(7);
     expect(
       result.applications.filter((application) => application.addedBy === "agent"),
@@ -1727,7 +1794,7 @@ describe("job-search lifecycle", () => {
           item.application === "bench" &&
           item.applicationVerification === "bench",
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("drops only verifier-rejected vacancies and their application drafts", async () => {
@@ -1907,12 +1974,31 @@ describe("job-search lifecycle", () => {
 
     const first = await service.prepareApplications();
     expect(first.applications.filter((item) => item.addedBy === "agent")).toHaveLength(5);
+    const firstApplicationJobIds = new Set(
+      first.applications
+        .filter((item) => item.addedBy === "agent")
+        .map((item) => item.jobId),
+    );
 
     const next = await service.findMoreApplications();
 
     expect(revalidationCalls).toBe(1);
     expect(researchCalls).toBe(1);
     expect(next.applications.filter((item) => item.addedBy === "agent")).toHaveLength(10);
+    const currentRunIds = new Set(
+      (next.searchProgress?.items ?? []).map((item) => item.id),
+    );
+    expect(
+      [...firstApplicationJobIds].filter((jobId) => currentRunIds.has(jobId)),
+    ).toEqual([]);
+    expect(
+      next.applications
+        .filter(
+          (item) =>
+            item.addedBy === "agent" && !firstApplicationJobIds.has(item.jobId),
+        )
+        .every((item) => currentRunIds.has(item.jobId)),
+    ).toBe(true);
     expect(next.applications.some((item) => item.jobId === closedJobId)).toBe(false);
     expect(next.opportunities.some((item) => item.id === closedJobId)).toBe(false);
   });
@@ -2646,8 +2732,11 @@ describe("job-search lifecycle", () => {
       applyUrl: "https://jobs.example.com/platform",
     });
     expect(withExtra.applications).toHaveLength(6);
-    const app = withExtra.applications.find((item) =>
+    const manuallyTracked = withExtra.applications.find((item) =>
       item.jobId.startsWith("custom-"),
+    )!;
+    const app = withExtra.applications.find(
+      (item) => item.addedBy === "agent",
     )!;
     await service.updateApplication(app.id, {
       fields: {
@@ -2655,6 +2744,7 @@ describe("job-search lifecycle", () => {
         phone: "+421 900 111 222",
         authorization: "Authorized to work in the EU",
         salary: "Open to the role's budgeted range",
+        why: "Application-specific motivation",
       },
     });
     const resolved = await service.resolveApplicationByUrl(
@@ -2662,8 +2752,9 @@ describe("job-search lifecycle", () => {
     );
     expect(resolved).toMatchObject({
       candidateId: candidate.candidateId,
-      applicationId: app.id,
+      applicationId: manuallyTracked.id,
     });
+    expect(manuallyTracked.formFields).toEqual([]);
     const updated = await service.get();
     expect(updated.profile.phone).toBe("+421 900 111 222");
     expect(updated.profile.linkedin).toBe("https://linkedin.com/in/nina");
@@ -2681,7 +2772,7 @@ describe("job-search lifecycle", () => {
     ).toBe("applied_waiting");
   });
 
-  it("does not save application-specific narrative or compensation answers", async () => {
+  it("does not accept phantom fields for a manually tracked application", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "rolegain-fact-boundary-"));
     const service = serviceFor(root);
     await service.initialize();
@@ -2698,7 +2789,8 @@ describe("job-search lifecycle", () => {
         salary: "EUR 140000",
       },
     });
-    expect(result.sharedAnswers.phone).toBe("+421900123456");
+    expect(app.formFields).toEqual([]);
+    expect(result.sharedAnswers).not.toHaveProperty("phone");
     expect(result.sharedAnswers).not.toHaveProperty("why");
     expect(result.sharedAnswers).not.toHaveProperty("salary");
   });
@@ -2913,6 +3005,22 @@ describe("job-search lifecycle", () => {
         (job) => job.id,
       ),
     ).toEqual(["eligible", "calibrated-only"]);
+    expect(
+      selectPhase2ApplicationPortfolio(
+        [
+          eligible,
+          {
+            ...calibratedOnly,
+            applicationRoute: {
+              status: "manual_review",
+              reason: "Employer form could not be verified",
+            },
+          },
+        ],
+        2,
+        65,
+      ).map((job) => job.id),
+    ).toEqual(["eligible"]);
   });
 
   it("accepts affirmative remote vacancies for a remote candidate without using current residence", async () => {

@@ -120,7 +120,6 @@ export async function verifyAndPersistEvidence(input: {
     : "ready";
   workspace.intelligence.error = undefined;
   workspace.intelligence.progress = undefined;
-  advanceProfileSetupAfterAnalysis(workspace);
 
   return evidenceRun;
 }
@@ -264,23 +263,6 @@ function applyCandidateAnalysis(
     const source = workspace.sources.find((item) => item.id === group.sourceId);
     if (source) source.insights = group.insights;
   }
-}
-
-function advanceProfileSetupAfterAnalysis(workspace: JobSearchWorkspace) {
-  if (!workspace.sources.some((source) => source.kind === "cv")) return;
-  const evidenceReady =
-    workspace.intelligence.status === "ready" &&
-    !workspace.sources.some(
-      (source) => source.status === "processing" || source.analysisRequired,
-    );
-  if (!evidenceReady) return;
-  const basicsReady =
-    Boolean(workspace.profile.name.trim()) &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(workspace.profile.email.trim());
-  workspace.profileSetupStep = Math.max(
-    workspace.profileSetupStep ?? 1,
-    basicsReady ? 3 : 2,
-  ) as 2 | 3 | 4;
 }
 
 function isPlausiblePhone(value: string) {

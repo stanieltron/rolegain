@@ -70,6 +70,8 @@ export interface OpportunityProgressUpdate {
     title: string;
     sourceUrl: string;
     sourceGroup?: DiscoveredJob["sourceGroup"];
+    applicationRouteStatus?: "verified" | "manual_review";
+    applicationRouteReason?: string;
   };
   phase?: "validation" | "match" | "application" | "application_verification";
   state?: "waiting" | "running" | "passed" | "failed" | "bench" | "selected";
@@ -113,6 +115,7 @@ export interface OpportunityResearchProvider {
     },
   ): Promise<{
     opportunities: JobOpportunity[];
+    deferredOpportunities?: JobOpportunity[];
     applications: ApplicationDraft[];
     failures?: JobResearchFailure[];
     seenUrls?: string[];
@@ -129,7 +132,12 @@ export interface OpportunityResearchProvider {
     workspace: JobSearchWorkspace,
     opportunities: JobOpportunity[],
     onProgress?: OpportunityProgressReporter,
-  ): Promise<{ opportunities: JobOpportunity[]; failures: JobResearchFailure[] }>;
+    onPrevalidatedOpportunity?: (opportunity: JobOpportunity) => void,
+  ): Promise<{
+    opportunities: JobOpportunity[];
+    deferredOpportunities?: JobOpportunity[];
+    failures: JobResearchFailure[];
+  }>;
   inspectApplications?(
     workspace: JobSearchWorkspace,
     opportunities: JobOpportunity[],

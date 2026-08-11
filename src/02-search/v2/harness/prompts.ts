@@ -43,7 +43,7 @@ ${JSON.stringify(input.rejectionFeedback.slice(-20), null, 2)}
 Rules:
 - Search several distinct role lanes; do not collapse them into one title.
 - Prefer individual vacancies and employer/ATS pages.
-- A useful careers page or specialist list containing relevant concrete roles may be sourceKind=job_list.
+- A useful careers page or specialist list containing relevant concrete roles may be sourceKind=job_list, but every returned child must have its own concrete job-detail URL.
 - Do not require an application form or direct Apply button at this stage.
 - Skip snippets that explicitly say closed, expired, or filled.
 - Remote roles are not filtered by country or timezone here.
@@ -82,7 +82,7 @@ ${options.liveRecovery ? "The local snapshot was incomplete. Open the supplied U
 
 Decision rules:
 - vacancy: this is the current individual expected job. A form, separate Apply link, full description, or publication date is not required. An exact titled job/application page still counts when its form or body is loading.
-- job_list: this is genuinely a multi-job source. Return concrete visible child roles. If a role is expanded on the same page and has no separate URL, return the supplied page URL for that child.
+- job_list: this is genuinely a multi-job source. Return only concrete visible child roles that have their own public job-detail URL. Omit roles that have no distinct URL; never reuse the supplied list URL as a child URL.
 - reject: explicit closure, a clearly wrong/non-job page, an inaccessible page that remains unverifiable after live recovery, or a generic talent/staffing pool rather than one concrete vacancy. State exactly which case applies.
 - A primarily individual job page remains vacancy even if it also contains an "other openings" section.
 - Explicit full-page closure signals are authoritative. Conditional "may" or "might" language is not definite closure.

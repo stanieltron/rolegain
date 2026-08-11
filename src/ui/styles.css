@@ -1598,6 +1598,10 @@ main {
 .pipeline-activity > div { display: flex; flex-direction: column; min-width: 0; }
 .pipeline-activity strong { color: #273239; font-size: 12px; }
 .pipeline-activity small { color: #788188; font-size: 9px; margin-top: 3px; }
+.pipeline-activity .pipeline-funnel-summary {
+  color: #526b7a;
+  font-variant-numeric: tabular-nums;
+}
 .pipeline-elapsed { font-variant-numeric: tabular-nums; }
 .pipeline-activity > b {
   background: #e9eef2;

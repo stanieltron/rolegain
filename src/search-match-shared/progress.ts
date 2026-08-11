@@ -19,5 +19,7 @@ export function progressItemFromOpportunity(opportunity: JobOpportunity) {
     title: opportunity.title,
     sourceUrl: opportunity.sourceUrl,
     sourceGroup: opportunity.sourceGroup,
+    applicationRouteStatus: opportunity.applicationRoute?.status,
+    applicationRouteReason: opportunity.applicationRoute?.reason,
   };
 }
