@@ -393,6 +393,7 @@ export class CodexExecClient {
         context.callId,
         resolvedConfig.role,
         parsed,
+        resolvedConfig.webSearch !== "disabled",
       );
       if (violation && !policyViolation) {
         policyViolation = violation;
@@ -659,13 +660,14 @@ export function llmCallToolViolation(
   callId: string | undefined,
   role: string,
   event: JsonObject,
+  allowWebSearch = callId === "search.web-discovery",
 ): string | undefined {
   if (!callId || !(callId in LLM_CALL_SKILLS))
     return promptOnlyToolViolation(role, event);
   return forbiddenToolEvent(
     `LLM call ${callId}`,
     event,
-    callId === "search.web-discovery",
+    allowWebSearch,
   );
 }
 

@@ -102,6 +102,28 @@ describe("prompt-only Codex roles", () => {
       }),
     ).toBeUndefined();
     expect(
+      llmCallToolViolation(
+        "application.company-research",
+        "application-company-researcher",
+        {
+          type: "item.started",
+          item: { type: "web_search" },
+        },
+        true,
+      ),
+    ).toBeUndefined();
+    expect(
+      llmCallToolViolation(
+        "application.company-research",
+        "application-company-researcher",
+        {
+          type: "item.started",
+          item: { type: "web_search" },
+        },
+        false,
+      ),
+    ).toContain("forbidden tool use (web_search)");
+    expect(
       llmCallToolViolation("application.draft", "cover-letter-writer", command),
     ).toContain("LLM call application.draft");
   });
