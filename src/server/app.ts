@@ -6,6 +6,10 @@ import {
   type RolegainDependencies,
 } from "../backend/control-flow/composition.js";
 import { proxyEmployerRequest } from "./employer-proxy.js";
+import {
+  EMPLOYER_PROXY_PATH,
+  employerProxySecret,
+} from "./employer-proxy-session.js";
 import { sendJson } from "./http.js";
 import { routeRequest } from "./job-search-routes.js";
 import { CvValidationError } from "../01-evidence-ingestion/01-evidence-acquisition/cv/upload-cv.js";
@@ -93,10 +97,27 @@ export async function createRolegainApp(
         );
       }
       if (
-        configuration.authMode === "local" &&
+        (configuration.authMode === "local" ||
+          requestUrl.pathname.startsWith(`${EMPLOYER_PROXY_PATH}/`)) &&
         await proxyEmployerRequest(request, response, {
           applicationFormAutofillScript,
           isAllowedHost: (hostname) => jobSearch.isAllowedEmployerHost(hostname),
+          sessionSecret: employerProxySecret(configuration),
+          getAutofill: async (session) => {
+            const payload = await jobSearch.autofillByUrl(
+              session.targetUrl,
+              session.userId,
+            );
+            return payload?.applicationId === session.applicationId
+              ? payload
+              : null;
+          },
+          getCv: (session) =>
+            jobSearch.autofillCvByUrl(
+              session.targetUrl,
+              session.applicationId,
+              session.userId,
+            ),
         })
       )
         return;

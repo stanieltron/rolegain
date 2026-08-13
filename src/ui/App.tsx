@@ -48,6 +48,7 @@ import {
   analyzeCandidate,
   answerQuestion,
   continueBackgroundWork,
+  createEmployerProxySession,
   downloadTailoredCv,
   finishIntake,
   findMoreApplications,
@@ -4392,6 +4393,9 @@ function ApplicationEditor({
   const [tailoringCv, setTailoringCv] = useState(false);
   const [showEmployerForm, setShowEmployerForm] = useState(false);
   const [employerFormOpened, setEmployerFormOpened] = useState(false);
+  const [employerFormUrl, setEmployerFormUrl] = useState("");
+  const [employerFormError, setEmployerFormError] = useState("");
+  const [openingEmployerForm, setOpeningEmployerForm] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>(() =>
     Object.fromEntries(app.formFields.map((f) => [f.id, f.value])),
   );
@@ -4420,12 +4424,26 @@ function ApplicationEditor({
       );
       if (!result) return;
     }
-    void trackAnalyticsEvent("employer_form_opened", {
-      applicationId: app.id,
-      jobId: job.id,
-    });
-    setEmployerFormOpened(true);
-    setShowEmployerForm(true);
+    setOpeningEmployerForm(true);
+    setEmployerFormError("");
+    try {
+      const session = await createEmployerProxySession(app.id);
+      setEmployerFormUrl(session.url);
+      setEmployerFormOpened(true);
+      setShowEmployerForm(true);
+      void trackAnalyticsEvent("employer_form_opened", {
+        applicationId: app.id,
+        jobId: job.id,
+      });
+    } catch (error) {
+      setEmployerFormError(
+        error instanceof Error
+          ? error.message
+          : "The employer form could not be opened.",
+      );
+    } finally {
+      setOpeningEmployerForm(false);
+    }
   };
   const refine = async () => {
     const message = coverLetterMessage.trim();
@@ -4491,7 +4509,7 @@ function ApplicationEditor({
         </div>
         <iframe
           className="employer-browser-frame"
-          src={employerProxyUrl(job.applyUrl)}
+          src={employerFormUrl}
           title={`${job.company} application form`}
         />
       </section>
@@ -5104,22 +5122,29 @@ function ApplicationEditor({
             </div>
             <button
               data-testid={`send-${app.id}`}
-              disabled={busy}
+              disabled={busy || openingEmployerForm}
               className="send"
               onClick={() => void openEmployerForm()}
             >
-              {canReturnToEmployer ? (
+              {openingEmployerForm ? (
+                <LoaderCircle className="spin" size={16} />
+              ) : canReturnToEmployer ? (
                 <ArrowUpRight size={16} />
               ) : (
                 <Send size={16} />
               )}{" "}
-              {canReturnToEmployer
+              {openingEmployerForm
+                ? "Opening employer form"
+                : canReturnToEmployer
                   ? "Return to employer form"
                   : !app.liveFormValidated && app.formFields.length === 0
                     ? "Try application page manually"
-                  : "Open employer form"}
+                    : "Open employer form"}
             </button>
           </div>
+          {employerFormError && (
+            <p className="application-feature-error">{employerFormError}</p>
+          )}
         </div>
       </div>
     </section>
@@ -5296,17 +5321,6 @@ function ApplicationAnswerAdjuster({
       </div>
     </div>
   );
-}
-
-function employerProxyUrl(applyUrl: string) {
-  const employer = new URL(applyUrl);
-  // Vite only proxies path-based API requests; employer subdomains must reach
-  // the RolegAIn server directly during local development.
-  const localServerPort = window.location.port === "5173"
-    ? "4317"
-    : window.location.port;
-  const port = localServerPort ? `:${localServerPort}` : "";
-  return `${window.location.protocol}//${employer.hostname}.localhost${port}${employer.pathname}${employer.search}${employer.hash}`;
 }
 
 function AddApplicationForm({

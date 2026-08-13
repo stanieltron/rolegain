@@ -1,5 +1,8 @@
 (() => {
-  const api = "http://127.0.0.1:4317/api/job-search/employer-form";
+  const proxyBase = window.__ROLEGAIN_PROXY_BASE__ || "";
+  const api = proxyBase
+    ? `${proxyBase}/__rolegain/autofill`
+    : "http://127.0.0.1:4317/api/job-search/employer-form/autofill";
   const employerUrl = () =>
     window.__ROLEGAIN_ORIGINAL_URL__ || location.href;
   const nativeFetch = window.fetch.bind(window);
@@ -19,7 +22,9 @@
         )
       )
         return nativeFetch(
-          `${location.origin}/__job_apply_go_remote_fetch?url=${encodeURIComponent(target.toString())}`,
+          proxyBase
+            ? `${proxyBase}/__rolegain/remote-fetch?url=${encodeURIComponent(target.toString())}`
+            : `${location.origin}/__job_apply_go_remote_fetch?url=${encodeURIComponent(target.toString())}`,
           init,
         );
     } catch {}
@@ -32,7 +37,9 @@
 
   async function prepareAutofill() {
     const payload = await fetch(
-      `${api}/autofill?url=${encodeURIComponent(employerUrl())}`,
+      proxyBase
+        ? api
+        : `${api}?url=${encodeURIComponent(employerUrl())}`,
     )
       .then((response) => (response.ok ? response.json() : null))
       .catch(() => null);

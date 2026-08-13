@@ -4,7 +4,12 @@ import path from "node:path";
 import type { RolegainDependencies } from "../backend/control-flow/composition.js";
 import { readJson, sendJson, setCors } from "./http.js";
 import { serveStatic } from "./static-files.js";
-import type { AuthenticatedActor } from "./auth.js";
+import { HttpError, type AuthenticatedActor } from "./auth.js";
+import {
+  createEmployerProxySession,
+  employerProxySecret,
+  employerProxyUrl,
+} from "./employer-proxy-session.js";
 import type {
   BackgroundExecutionControl,
   JobSearchWorkspace,
@@ -674,6 +679,39 @@ export async function routeRequest(
         userId,
       ),
     );
+    return;
+  }
+  const employerProxySessionMatch = pathname.match(
+    /^\/api\/job-search\/applications\/([a-z0-9-]+)\/employer-proxy-session$/i,
+  );
+  if (request.method === "POST" && employerProxySessionMatch) {
+    const workspace = await dependencies.jobSearch.get(userId);
+    const application = workspace.applications.find(
+      (item) => item.id === employerProxySessionMatch[1],
+    );
+    const job = application
+      ? workspace.opportunities.find((item) => item.id === application.jobId)
+      : undefined;
+    if (!application || !job)
+      throw new HttpError(404, "Application not found", "application_not_found");
+    let token: string;
+    try {
+      token = createEmployerProxySession(
+        {
+          userId,
+          applicationId: application.id,
+          targetUrl: job.applyUrl,
+        },
+        employerProxySecret(dependencies.configuration),
+      );
+    } catch {
+      throw new HttpError(
+        422,
+        "The employer application URL is invalid",
+        "invalid_employer_url",
+      );
+    }
+    sendJson(response, 201, { url: employerProxyUrl(token, job.applyUrl) });
     return;
   }
   const tailoredCvMatch = pathname.match(

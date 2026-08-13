@@ -2942,6 +2942,30 @@ export class JobSearchService {
     };
   }
 
+  async autofillCvByUrl(
+    url: string,
+    expectedApplicationId: string,
+    candidateId = CANDIDATE_ID,
+  ): Promise<
+    { file: string; name: string; mimeType: string; size: number } | undefined
+  > {
+    const resolved = await this.resolveApplicationByUrl(url, candidateId);
+    if (!resolved || resolved.applicationId !== expectedApplicationId)
+      return undefined;
+    const workspace = await this.getCandidate(candidateId);
+    const application = requireApplication(workspace, resolved.applicationId);
+    if (application.tailoredCv?.status === "ready")
+      return this.tailoredCvFile(candidateId, application.id).catch(
+        () => undefined,
+      );
+    const source = workspace.sources.find(
+      (item) => item.kind === "cv" && item.originalFile,
+    );
+    return source
+      ? this.sourceFile(candidateId, source.id).catch(() => undefined)
+      : undefined;
+  }
+
   async isAllowedEmployerHost(
     hostname: string,
     candidateId = CANDIDATE_ID,

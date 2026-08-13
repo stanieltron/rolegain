@@ -65,6 +65,36 @@ describe("HTTP surface", () => {
     expect(candidate.profile.name).toBe("Nina Novak");
   });
 
+  it("creates a same-origin employer iframe session for an owned application", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-proxy-session-"));
+    app = await createRolegainApp({ rootDir: root });
+    const workspace = await app.jobSearch.addOpportunity({
+      company: "Example Employer",
+      title: "Platform Engineer",
+      applyUrl: "https://jobs.example.com/roles/platform/application",
+    });
+    const application = workspace.applications[0];
+    const port = await app.start(0);
+    const base = `http://127.0.0.1:${port}`;
+
+    const response = await fetch(
+      `${base}/api/job-search/applications/${application.id}/employer-proxy-session`,
+      { method: "POST" },
+    );
+    const session = (await response.json()) as { url: string };
+
+    expect(response.status).toBe(201);
+    expect(session.url).toMatch(
+      /^\/__rolegain_employer_proxy\/[^/]+\/roles\/platform\/application$/,
+    );
+    expect(session.url).not.toContain(".localhost");
+
+    const rejected = await fetch(
+      `${base}/__rolegain_employer_proxy/not-a-valid-token/application`,
+    );
+    expect(rejected.status).toBe(403);
+  });
+
   it("serves the byte-identical original candidate document inline", async () => {
     const root = await mkdtemp(
       path.join(tmpdir(), "rolegain-original-server-"),
