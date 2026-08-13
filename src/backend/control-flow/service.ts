@@ -2692,21 +2692,28 @@ export class JobSearchService {
         field.confidence = 100;
         const key = reusableCandidateKey(field);
         if (key && REUSABLE_CANDIDATE_KEYS.has(key)) {
-          if (field.value.trim()) workspace.sharedAnswers[key] = field.value.trim();
-          else delete workspace.sharedAnswers[key];
-          syncProfileFact(workspace.profile, key, field.value);
-          for (const draft of workspace.applications)
-            for (const sibling of draft.formFields)
-              if (
-                sibling !== field &&
-                reusableCandidateKey(sibling) === key &&
-                sibling.type !== "file"
-              ) {
-                const compatible = compatibleCandidateValue(sibling, field.value);
-                sibling.value = compatible;
-                sibling.source = compatible ? "user" : "user";
-                sibling.confidence = compatible ? 100 : 0;
-              }
+          const candidateValue = field.value.trim();
+          // Clearing one employer-form field is local to that application. It
+          // must not erase a verified profile fact or every sibling form value.
+          if (candidateValue) {
+            workspace.sharedAnswers[key] = candidateValue;
+            syncProfileFact(workspace.profile, key, candidateValue);
+            for (const draft of workspace.applications)
+              for (const sibling of draft.formFields)
+                if (
+                  sibling !== field &&
+                  reusableCandidateKey(sibling) === key &&
+                  sibling.type !== "file"
+                ) {
+                  const compatible = compatibleCandidateValue(
+                    sibling,
+                    candidateValue,
+                  );
+                  sibling.value = compatible;
+                  sibling.source = "user";
+                  sibling.confidence = compatible ? 100 : 0;
+                }
+          }
         }
       }
     for (const draft of workspace.applications) {
@@ -2857,7 +2864,20 @@ export class JobSearchService {
       candidateId,
       application.id,
     );
-    const info = await stat(file);
+    let info;
+    try {
+      info = await stat(file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const content = application.tailoredCv.content.trim();
+      if (!content)
+        throw new Error("The tailored CV content is unavailable for download");
+      // Railway's web and worker services do not share a filesystem. Rebuild
+      // the document from its persisted content when this service has no copy.
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, await renderTailoredCvDocx(content));
+      info = await stat(file);
+    }
     return {
       file,
       name: application.tailoredCv.fileName,

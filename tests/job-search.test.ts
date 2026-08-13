@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -1088,6 +1088,17 @@ describe("job-search lifecycle", () => {
       ]),
     });
 
+    await rm(
+      path.join(
+        root,
+        "job-search",
+        "files",
+        tailored.candidateId,
+        "tailored",
+        `${applicationId}.docx`,
+      ),
+    );
+
     const document = await service.tailoredCvFile(
       tailored.candidateId,
       applicationId,
@@ -1343,6 +1354,35 @@ describe("job-search lifecycle", () => {
     expect(autofill?.applicationId).toBe(result.applications[0].id);
     expect((await service.get()).applications[0].status).toBe("needs_input");
     expect((await service.get()).applications[0].addedBy).toBe("agent");
+  });
+
+  it("keeps verified profile facts when one employer form field is cleared", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-form-facts-"));
+    const service = serviceFor(root);
+    await service.initialize();
+    await service.addSource({
+      kind: "cv",
+      name: "alex-chen-cv.md",
+      content: "Alex Chen, platform engineer",
+    });
+    await service.updateProfile({
+      name: "Alex Chen",
+      email: "alex.chen@example.test",
+      phone: "+421 900 123 456",
+    });
+    for (const id of ["locations", "employment", "start", "languages"])
+      await service.answer(id, "Test answer");
+    await service.finishIntake();
+    const staged = await service.prepareApplications();
+
+    const result = await service.updateApplication(staged.applications[0].id, {
+      fields: { name: "", phone: "" },
+    });
+
+    expect(result.profile.name).toBe("Alex Chen");
+    expect(result.profile.phone).toBe("+421 900 123 456");
+    expect(result.applications[0].formFields.find((field) => field.id === "name")?.value).toBe("");
+    expect(result.applications[0].formFields.find((field) => field.id === "phone")?.value).toBe("");
   });
 
   it("stops an active search and continues the same five-application batch", async () => {

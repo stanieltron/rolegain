@@ -23,6 +23,14 @@ export function reusableCandidateKey(
   field: Pick<FormField, "canonicalKey" | "label">,
 ): string | undefined {
   const value = `${field.canonicalKey || ""} ${field.label}`.toLowerCase();
+  // Employer forms often contain contact details for another person. Those
+  // values must never become (or erase) the candidate's own profile facts.
+  if (
+    /\b(referral|referrer|referred|reference|recruiter|hiring manager|supervisor|emergency contact)\b/.test(
+      field.label.toLowerCase(),
+    )
+  )
+    return undefined;
   if (/legal name|full name|\bname\b/.test(value)) return "name";
   if (/email/.test(value)) return "email";
   if (/phone|mobile/.test(value)) return "phone";
