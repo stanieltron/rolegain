@@ -411,6 +411,8 @@ function rewriteEmployerResourceUrl(
     return value;
   try {
     const target = new URL(value, remoteUrl);
+    if (target.pathname.startsWith(proxyBasePath))
+      return `${target.pathname}${target.search}${target.hash}`;
     return target.origin === remoteUrl.origin
       ? `${proxyBasePath}${target.pathname}${target.search}${target.hash}`
       : value;
@@ -437,8 +439,8 @@ function employerPathProxyRuntime(
     const proxyUrl = (value) => {
       try {
         const target = new URL(value, config.remoteUrl);
-        if (target.origin === location.origin && target.pathname.startsWith(config.proxyBasePath))
-          return target.href;
+        if (target.pathname.startsWith(config.proxyBasePath))
+          return location.origin + target.pathname + target.search + target.hash;
         if (target.origin === config.remoteOrigin || target.origin === location.origin)
           return location.origin + config.proxyBasePath + target.pathname + target.search + target.hash;
       } catch {}

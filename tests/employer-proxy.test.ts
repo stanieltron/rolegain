@@ -64,5 +64,12 @@ describe("embedded employer browser host routing", () => {
       "url('/__rolegain_employer_proxy/signed-token/logo.svg')",
     );
     expect(rewritten).toContain('href="https://example.com/help"');
+    expect(
+      rewriteEmployerHtml(
+        rewritten,
+        new URL("https://jobs.ashbyhq.com/acme/application"),
+        "/__rolegain_employer_proxy/signed-token",
+      ),
+    ).toBe(rewritten);
   });
 });
