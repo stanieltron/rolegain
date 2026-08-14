@@ -2465,6 +2465,52 @@ main {
 .application-list-entry.outcome-unsuccessful {
   box-shadow: inset 3px 0 #b85c52;
 }
+.application-list-groups {
+  display: grid;
+}
+.application-list-group {
+  display: grid;
+}
+.application-list-group + .application-list-group {
+  border-top: 8px solid #f1f3f4;
+}
+.application-list-group > header {
+  align-items: center;
+  background: #f7f9fa;
+  border-bottom: 1px solid #e1e5e7;
+  border-left: 3px solid #8b969d;
+  color: #4f5b63;
+  display: flex;
+  font-size: 9px;
+  font-weight: 800;
+  justify-content: space-between;
+  letter-spacing: 0.055em;
+  padding: 8px 11px;
+  text-transform: uppercase;
+}
+.application-list-group > header b {
+  background: #e8ecee;
+  border-radius: 10px;
+  font-size: 9px;
+  min-width: 20px;
+  padding: 2px 6px;
+  text-align: center;
+}
+.application-list-group.group-open > header {
+  border-left-color: #27975b;
+  color: #267148;
+}
+.application-list-group.group-applied_waiting > header {
+  border-left-color: #c5841c;
+  color: #8a5b0c;
+}
+.application-list-group.group-rejected_by_user > header {
+  border-left-color: #858d92;
+}
+.application-list-group.group-unsuccessful > header {
+  border-left-color: #b85c52;
+  color: #934238;
+}
 .amber { color: #a66a16; }
 .red { color: #aa4138; }
 .tracking-reject,
@@ -2500,6 +2546,103 @@ main {
 .application-editor {
   display: grid;
   gap: 12px;
+}
+.application-review-details {
+  background: #fff;
+  border: 1px solid #dfe2e4;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+.application-review-details-heading {
+  align-items: center;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.application-review-details-heading > span:nth-child(2) {
+  display: grid;
+  gap: 2px;
+}
+.application-review-details-heading strong {
+  font-size: 12px;
+}
+.application-review-details-heading small {
+  color: #748089;
+  font-size: 9px;
+}
+.application-review-details-heading > b {
+  background: #e8f1fc;
+  border-radius: 14px;
+  color: #235f9f;
+  font-size: 11px;
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+.application-vacancy-summary {
+  color: #536069;
+  font-size: 11px;
+  line-height: 1.55;
+  margin: 0;
+}
+.application-vacancy-details {
+  border: 1px solid #dfe4e7;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.application-vacancy-details > summary {
+  align-items: center;
+  background: #f8fafb;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  list-style: none;
+  padding: 10px 12px;
+}
+.application-vacancy-details > summary::-webkit-details-marker {
+  display: none;
+}
+.application-vacancy-details > summary > span {
+  display: grid;
+  gap: 2px;
+}
+.application-vacancy-details > summary strong {
+  color: #315f94;
+  font-size: 11px;
+}
+.application-vacancy-details > summary small {
+  color: #65737c;
+  font-size: 9px;
+}
+.application-vacancy-details > summary > svg {
+  color: #376d9f;
+  transition: transform 160ms ease;
+}
+.application-vacancy-details[open] > summary > svg {
+  transform: rotate(180deg);
+}
+.application-vacancy-details > div {
+  display: grid;
+  gap: 16px;
+  padding: 14px;
+}
+.application-vacancy-details section > strong {
+  color: #3f4e58;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.application-vacancy-details ul,
+.application-vacancy-details p {
+  color: #59656d;
+  font-size: 10px;
+  line-height: 1.55;
+  margin: 7px 0 0;
+}
+.application-vacancy-details ul {
+  padding-left: 18px;
+}
+.application-vacancy-details p {
+  white-space: pre-wrap;
 }
 .application-heading {
   background: #fff;
@@ -3578,10 +3721,9 @@ main {
     grid-template-columns: 1fr;
   }
   .application-list {
+    max-height: none;
+    overflow: hidden;
     position: static;
-    display: flex;
-    overflow: auto;
-    scroll-snap-type: x proximity;
   }
   .list-title {
     display: none;
@@ -3590,8 +3732,25 @@ main {
     min-width: 190px;
     scroll-snap-align: start;
   }
-  .application-list-newest {
-    min-width: 210px;
+  .application-list-groups {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+  }
+  .application-list-group {
+    display: flex;
+    flex: none;
+  }
+  .application-list-group + .application-list-group {
+    border-left: 8px solid #f1f3f4;
+    border-top: 0;
+  }
+  .application-list-group > header {
+    align-items: flex-start;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 96px;
+    padding: 10px;
   }
   .application-columns {
     grid-template-columns: 1fr;

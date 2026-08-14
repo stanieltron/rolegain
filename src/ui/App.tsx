@@ -4185,15 +4185,6 @@ function ApplicationsView({
 }) {
   const [adding, setAdding] = useState(false);
   const applications = preparedVerifiedApplications(workspace);
-  const currentApplicationJobIds = new Set(
-    (workspace.searchProgress?.items ?? []).map((item) => item.id),
-  );
-  const newestApplications = applications.filter((application) =>
-    currentApplicationJobIds.has(application.jobId),
-  );
-  const olderApplications = applications.filter(
-    (application) => !currentApplicationJobIds.has(application.jobId),
-  );
   const selected = selectedId
     ? applications.find((x) => x.id === selectedId)
     : undefined;
@@ -4352,13 +4343,26 @@ function ApplicationsView({
               </button>
             </div>
           </div>
-          {newestApplications.length > 0 && (
-            <section className="newest-batch-list application-list-newest">
-              <span className="newest-batch-label">Newest run</span>
-              {newestApplications.map(renderApplicationListEntry)}
-            </section>
-          )}
-          {olderApplications.map(renderApplicationListEntry)}
+          <div className="application-list-groups">
+            {APPLICATION_GROUPS.map((group) => {
+              const groupedApplications = applications.filter(
+                (application) => applicationGroupKey(application) === group.key,
+              );
+              if (groupedApplications.length === 0) return null;
+              return (
+                <section
+                  className={`application-list-group group-${group.key}`}
+                  key={group.key}
+                >
+                  <header>
+                    <span>{group.label}</span>
+                    <b>{groupedApplications.length}</b>
+                  </header>
+                  {groupedApplications.map(renderApplicationListEntry)}
+                </section>
+              );
+            })}
+          </div>
         </aside>
         <ApplicationEditor
           key={selected.id}
@@ -4370,6 +4374,61 @@ function ApplicationsView({
         />
       </div>
     </div>
+  );
+}
+
+function ApplicationReviewDetails({
+  job,
+}: {
+  job: JobSearchWorkspace["opportunities"][number];
+}) {
+  return (
+    <section className="application-review-details">
+      <div className="application-review-details-heading">
+        <span className="application-feature-icon">
+          <BriefcaseBusiness size={17} />
+        </span>
+        <span>
+          <strong>Vacancy and evidence match</strong>
+          <small>Complete job context and the evidence behind this match</small>
+        </span>
+        <b>{job.fit}% match</b>
+      </div>
+      {job.summary && <p className="application-vacancy-summary">{job.summary}</p>}
+      <RequirementBreakdown job={job} />
+      {(job.description || job.requirements.length > 0) && (
+        <details className="application-vacancy-details">
+          <summary>
+            <span>
+              <strong>Full vacancy details</strong>
+              <small>
+                {job.requirements.length} captured requirements and the complete
+                job description
+              </small>
+            </span>
+            <ChevronDown size={17} />
+          </summary>
+          <div>
+            {job.requirements.length > 0 && (
+              <section>
+                <strong>Captured requirements</strong>
+                <ul>
+                  {job.requirements.map((requirement) => (
+                    <li key={requirement}>{requirement}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {job.description && (
+              <section>
+                <strong>Full captured description</strong>
+                <p>{job.description}</p>
+              </section>
+            )}
+          </div>
+        </details>
+      )}
+    </section>
   );
 }
 
@@ -4647,6 +4706,7 @@ function ApplicationEditor({
             : `${app.formFields.filter((f) => f.value).length}/${app.formFields.length} fields mapped`}
         </span>
       </div>
+      <ApplicationReviewDetails job={job} />
       <div className="application-intelligence">
         <section className="company-research-card">
           <div className="application-feature-heading">
