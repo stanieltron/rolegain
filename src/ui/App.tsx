@@ -49,6 +49,7 @@ import {
   answerQuestion,
   continueBackgroundWork,
   createEmployerProxySession,
+  createVacancyProxySession,
   downloadTailoredCv,
   finishIntake,
   findMoreApplications,
@@ -4379,8 +4380,14 @@ function ApplicationsView({
 
 function ApplicationReviewDetails({
   job,
+  openingVacancy,
+  vacancyError,
+  onOpenVacancy,
 }: {
   job: JobSearchWorkspace["opportunities"][number];
+  openingVacancy: boolean;
+  vacancyError: string;
+  onOpenVacancy: () => void;
 }) {
   return (
     <section className="application-review-details">
@@ -4396,24 +4403,27 @@ function ApplicationReviewDetails({
       </div>
       {job.summary && <p className="application-vacancy-summary">{job.summary}</p>}
       <RequirementBreakdown job={job} />
-      <a
+      <button
+        type="button"
         className="application-vacancy-details"
-        href={job.sourceUrl}
-        target="_blank"
-        rel="noreferrer"
-        onClick={() =>
-          void trackAnalyticsEvent("job_source_opened", {
-            jobId: job.id,
-            stage: "application",
-          })
-        }
+        disabled={openingVacancy}
+        onClick={onOpenVacancy}
       >
         <span>
-          <strong>Open full vacancy details</strong>
-          <small>Read the original formatted job page</small>
+          <strong>
+            {openingVacancy ? "Opening vacancy..." : "Open full vacancy details"}
+          </strong>
+          <small>Read the original formatted job page inside RolegAIn</small>
         </span>
-        <ArrowUpRight size={17} />
-      </a>
+        {openingVacancy ? (
+          <LoaderCircle className="spin" size={17} />
+        ) : (
+          <ChevronRight size={17} />
+        )}
+      </button>
+      {vacancyError && (
+        <p className="application-feature-error">{vacancyError}</p>
+      )}
     </section>
   );
 }
@@ -4441,6 +4451,10 @@ function ApplicationEditor({
   const [employerFormUrl, setEmployerFormUrl] = useState("");
   const [employerFormError, setEmployerFormError] = useState("");
   const [openingEmployerForm, setOpeningEmployerForm] = useState(false);
+  const [showVacancyDetails, setShowVacancyDetails] = useState(false);
+  const [vacancyDetailsUrl, setVacancyDetailsUrl] = useState("");
+  const [vacancyDetailsError, setVacancyDetailsError] = useState("");
+  const [openingVacancyDetails, setOpeningVacancyDetails] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>(() =>
     Object.fromEntries(app.formFields.map((f) => [f.id, f.value])),
   );
@@ -4490,6 +4504,27 @@ function ApplicationEditor({
       setOpeningEmployerForm(false);
     }
   };
+  const openVacancyDetails = async () => {
+    setOpeningVacancyDetails(true);
+    setVacancyDetailsError("");
+    try {
+      const session = await createVacancyProxySession(app.id);
+      setVacancyDetailsUrl(session.url);
+      setShowVacancyDetails(true);
+      void trackAnalyticsEvent("job_source_opened", {
+        jobId: job.id,
+        stage: "application",
+      });
+    } catch (error) {
+      setVacancyDetailsError(
+        error instanceof Error
+          ? error.message
+          : "The vacancy page could not be opened.",
+      );
+    } finally {
+      setOpeningVacancyDetails(false);
+    }
+  };
   const refine = async () => {
     const message = coverLetterMessage.trim();
     if (!message) return;
@@ -4530,6 +4565,32 @@ function ApplicationEditor({
       setTailoringCv(false);
     }
   };
+  if (showVacancyDetails)
+    return (
+      <section className="application-editor embedded-employer">
+        <div className="employer-browser-toolbar">
+          <button
+            className="secondary"
+            onClick={() => setShowVacancyDetails(false)}
+          >
+            <ChevronLeft size={16} /> Back to application review
+          </button>
+          <span>
+            <strong>{job.company}</strong>
+            <small>{jobNumberLabel(job.jobNumber)} · {job.title}</small>
+          </span>
+          <span className="embedded-browser-status">
+            <Globe2 size={15} /> Original vacancy page
+          </span>
+        </div>
+        <iframe
+          className="employer-browser-frame"
+          src={vacancyDetailsUrl}
+          title={`${job.company} ${job.title} vacancy`}
+        />
+      </section>
+    );
+
   if (showEmployerForm)
     return (
       <section className="application-editor embedded-employer">
@@ -4692,7 +4753,12 @@ function ApplicationEditor({
             : `${app.formFields.filter((f) => f.value).length}/${app.formFields.length} fields mapped`}
         </span>
       </div>
-      <ApplicationReviewDetails job={job} />
+      <ApplicationReviewDetails
+        job={job}
+        openingVacancy={openingVacancyDetails}
+        vacancyError={vacancyDetailsError}
+        onOpenVacancy={() => void openVacancyDetails()}
+      />
       <div className="application-intelligence">
         <section className="company-research-card">
           <div className="application-feature-heading">

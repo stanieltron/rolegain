@@ -714,6 +714,39 @@ export async function routeRequest(
     sendJson(response, 201, { url: employerProxyUrl(token, job.applyUrl) });
     return;
   }
+  const vacancyProxySessionMatch = pathname.match(
+    /^\/api\/job-search\/applications\/([a-z0-9-]+)\/vacancy-proxy-session$/i,
+  );
+  if (request.method === "POST" && vacancyProxySessionMatch) {
+    const workspace = await dependencies.jobSearch.get(userId);
+    const application = workspace.applications.find(
+      (item) => item.id === vacancyProxySessionMatch[1],
+    );
+    const job = application
+      ? workspace.opportunities.find((item) => item.id === application.jobId)
+      : undefined;
+    if (!application || !job)
+      throw new HttpError(404, "Application not found", "application_not_found");
+    let token: string;
+    try {
+      token = createEmployerProxySession(
+        {
+          userId,
+          applicationId: application.id,
+          targetUrl: job.sourceUrl,
+        },
+        employerProxySecret(dependencies.configuration),
+      );
+    } catch {
+      throw new HttpError(
+        422,
+        "The vacancy URL is invalid",
+        "invalid_vacancy_url",
+      );
+    }
+    sendJson(response, 201, { url: employerProxyUrl(token, job.sourceUrl) });
+    return;
+  }
   const tailoredCvMatch = pathname.match(
     /^\/api\/job-search\/applications\/([a-z0-9-]+)\/tailored-cv$/i,
   );

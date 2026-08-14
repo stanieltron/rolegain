@@ -95,6 +95,32 @@ describe("HTTP surface", () => {
     expect(rejected.status).toBe(403);
   });
 
+  it("creates a same-origin vacancy iframe session for an owned application", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-vacancy-session-"));
+    app = await createRolegainApp({ rootDir: root });
+    const workspace = await app.jobSearch.addOpportunity({
+      company: "Example Employer",
+      title: "Platform Engineer",
+      sourceUrl: "https://jobs.example.com/roles/platform",
+      applyUrl: "https://jobs.example.com/roles/platform/application",
+    });
+    const application = workspace.applications[0];
+    const port = await app.start(0);
+    const base = `http://127.0.0.1:${port}`;
+
+    const response = await fetch(
+      `${base}/api/job-search/applications/${application.id}/vacancy-proxy-session`,
+      { method: "POST" },
+    );
+    const session = (await response.json()) as { url: string };
+
+    expect(response.status).toBe(201);
+    expect(session.url).toMatch(
+      /^\/__rolegain_employer_proxy\/[^/]+\/roles\/platform$/,
+    );
+    expect(session.url).not.toContain("/application");
+  });
+
   it("serves the byte-identical original candidate document inline", async () => {
     const root = await mkdtemp(
       path.join(tmpdir(), "rolegain-original-server-"),

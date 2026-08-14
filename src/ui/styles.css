@@ -2594,8 +2594,11 @@ main {
   cursor: pointer;
   display: flex;
   justify-content: space-between;
+  font: inherit;
   padding: 10px 12px;
+  text-align: left;
   text-decoration: none;
+  width: 100%;
 }
 .application-vacancy-details > span {
   display: grid;

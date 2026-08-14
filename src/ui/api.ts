@@ -202,6 +202,11 @@ export const createEmployerProxySession = (id: string) =>
     `/api/job-search/applications/${encodeURIComponent(id)}/employer-proxy-session`,
     {},
   );
+export const createVacancyProxySession = (id: string) =>
+  post<{ url: string }>(
+    `/api/job-search/applications/${encodeURIComponent(id)}/vacancy-proxy-session`,
+    {},
+  );
 export const refineCoverLetter = (id: string, message: string) =>
   workspacePost(`/api/job-search/applications/${id}/cover-letter-chat`, {
     message,
