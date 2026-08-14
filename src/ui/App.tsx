@@ -4396,38 +4396,24 @@ function ApplicationReviewDetails({
       </div>
       {job.summary && <p className="application-vacancy-summary">{job.summary}</p>}
       <RequirementBreakdown job={job} />
-      {(job.description || job.requirements.length > 0) && (
-        <details className="application-vacancy-details">
-          <summary>
-            <span>
-              <strong>Full vacancy details</strong>
-              <small>
-                {job.requirements.length} captured requirements and the complete
-                job description
-              </small>
-            </span>
-            <ChevronDown size={17} />
-          </summary>
-          <div>
-            {job.requirements.length > 0 && (
-              <section>
-                <strong>Captured requirements</strong>
-                <ul>
-                  {job.requirements.map((requirement) => (
-                    <li key={requirement}>{requirement}</li>
-                  ))}
-                </ul>
-              </section>
-            )}
-            {job.description && (
-              <section>
-                <strong>Full captured description</strong>
-                <p>{job.description}</p>
-              </section>
-            )}
-          </div>
-        </details>
-      )}
+      <a
+        className="application-vacancy-details"
+        href={job.sourceUrl}
+        target="_blank"
+        rel="noreferrer"
+        onClick={() =>
+          void trackAnalyticsEvent("job_source_opened", {
+            jobId: job.id,
+            stage: "application",
+          })
+        }
+      >
+        <span>
+          <strong>Open full vacancy details</strong>
+          <small>Read the original formatted job page</small>
+        </span>
+        <ArrowUpRight size={17} />
+      </a>
     </section>
   );
 }

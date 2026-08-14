@@ -2586,63 +2586,32 @@ main {
   margin: 0;
 }
 .application-vacancy-details {
-  border: 1px solid #dfe4e7;
-  border-radius: 5px;
-  overflow: hidden;
-}
-.application-vacancy-details > summary {
   align-items: center;
   background: #f8fafb;
+  border: 1px solid #dfe4e7;
+  border-radius: 5px;
+  color: inherit;
   cursor: pointer;
   display: flex;
   justify-content: space-between;
-  list-style: none;
   padding: 10px 12px;
+  text-decoration: none;
 }
-.application-vacancy-details > summary::-webkit-details-marker {
-  display: none;
-}
-.application-vacancy-details > summary > span {
+.application-vacancy-details > span {
   display: grid;
   gap: 2px;
 }
-.application-vacancy-details > summary strong {
+.application-vacancy-details strong {
   color: #315f94;
   font-size: 11px;
 }
-.application-vacancy-details > summary small {
+.application-vacancy-details small {
   color: #65737c;
   font-size: 9px;
 }
-.application-vacancy-details > summary > svg {
+.application-vacancy-details > svg {
   color: #376d9f;
-  transition: transform 160ms ease;
-}
-.application-vacancy-details[open] > summary > svg {
-  transform: rotate(180deg);
-}
-.application-vacancy-details > div {
-  display: grid;
-  gap: 16px;
-  padding: 14px;
-}
-.application-vacancy-details section > strong {
-  color: #3f4e58;
-  font-size: 10px;
-  text-transform: uppercase;
-}
-.application-vacancy-details ul,
-.application-vacancy-details p {
-  color: #59656d;
-  font-size: 10px;
-  line-height: 1.55;
-  margin: 7px 0 0;
-}
-.application-vacancy-details ul {
-  padding-left: 18px;
-}
-.application-vacancy-details p {
-  white-space: pre-wrap;
+  flex: none;
 }
 .application-heading {
   background: #fff;
