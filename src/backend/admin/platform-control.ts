@@ -257,7 +257,7 @@ export class PlatformControl {
         state.releaseUpdates,
         state.applicationLimit,
       );
-      if (!status.canStartBatch) throw betaLimitError();
+      if (!status.canStartBatch) throw betaLimitError(status);
       state.batchesStarted += 1;
       return this.betaStatus(userId);
     }
@@ -269,7 +269,14 @@ export class PlatformControl {
          select count(*)
          from rolegain_beta_applications
          where user_id = $1
-       ) < $3
+       ) < coalesce(
+         (
+           select application_limit
+           from rolegain_beta_usage
+           where user_id = $1
+         ),
+         $3
+       )
        on conflict (user_id) do update
        set batches_started = rolegain_beta_usage.batches_started + 1,
            updated_at = now()
@@ -283,7 +290,8 @@ export class PlatformControl {
        returning batches_started`,
       [userId, BETA_BATCH_SIZE, BETA_APPLICATION_LIMIT],
     );
-    if (!result.rows[0]) throw betaLimitError();
+    if (!result.rows[0])
+      throw betaLimitError(await this.betaStatus(userId));
     return this.betaStatus(userId);
   }
 
@@ -304,13 +312,13 @@ export class PlatformControl {
 
   async assertApplicationAvailable(userId: string) {
     await this.assertCodexEnabled();
-    if ((await this.betaStatus(userId)).remainingApplications <= 0)
-      throw betaLimitError();
+    const status = await this.betaStatus(userId);
+    if (status.remainingApplications <= 0) throw betaLimitError(status);
   }
 
   async assertLlmAllowance(userId: string) {
-    if ((await this.betaStatus(userId)).remainingApplications <= 0)
-      throw betaLimitError();
+    const status = await this.betaStatus(userId);
+    if (status.remainingApplications <= 0) throw betaLimitError(status);
   }
 
   async recordApplications(userId: string, applicationIds: string[]) {
@@ -690,10 +698,13 @@ function betaStatusFrom(
   };
 }
 
-function betaLimitError() {
+function betaLimitError(status?: BetaStatus) {
+  const usage = status
+    ? ` This account has used ${status.applicationsUsed} of ${status.applicationLimit} applications and started ${status.batchesStarted} of ${status.batchLimit} batches.`
+    : "";
   return new HttpError(
     403,
-    "You have completed the Rolegain beta allowance. This beta includes two batches of up to five applications. Keep release updates enabled and we will let you know when more access is available.",
+    `You have completed the current Rolegain application allowance.${usage} Keep release updates enabled and we will let you know when more access is available.`,
     "beta_limit_reached",
   );
 }

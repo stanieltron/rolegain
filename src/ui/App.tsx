@@ -970,11 +970,12 @@ function BetaLimitCard({
       </span>
       <div>
         <span className="section-label">Closed beta allowance complete</span>
-        <h2>You have completed your two application batches</h2>
+        <h2>You have completed your application allowance</h2>
         <p>
-          This beta includes up to ten prepared applications. Your profile and
-          existing applications remain available while we prepare the next
-          release.
+          You have used {beta.applicationsUsed} of {beta.applicationLimit}
+          {" "}prepared applications across {beta.batchesStarted} of{" "}
+          {beta.batchLimit} available batches. Your profile and existing
+          applications remain available while we prepare the next release.
         </p>
       </div>
       <button

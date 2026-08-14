@@ -59,7 +59,43 @@ describe("closed beta controls", () => {
     await platform.reserveBatch("user-a");
     await expect(platform.reserveBatch("user-a")).rejects.toMatchObject({
       code: "beta_limit_reached",
+      message: expect.stringContaining("10 of 20 applications"),
     });
+  });
+
+  it("uses the stored database override before applying the default limit", async () => {
+    const query = vi.fn(async (sql: string, _parameters?: unknown[]) => {
+      if (sql.includes("from rolegain_system_settings")) return { rows: [] };
+      if (sql.includes("insert into rolegain_beta_usage"))
+        return { rows: [{ batches_started: 3 }] };
+      if (sql.includes("select coalesce(usage.batches_started"))
+        return {
+          rows: [
+            {
+              batches_started: 3,
+              applications_used: "10",
+              release_updates: false,
+              application_limit: 20,
+            },
+          ],
+        };
+      throw new Error(`Unexpected query: ${sql}`);
+    });
+    const platform = new PlatformControl({ query } as never);
+
+    await expect(platform.reserveBatch("user-a")).resolves.toMatchObject({
+      applicationLimit: 20,
+      remainingApplications: 10,
+      remainingBatches: 1,
+      canStartBatch: true,
+    });
+
+    const reservation = query.mock.calls.find(([sql]) =>
+      sql.includes("insert into rolegain_beta_usage"),
+    );
+    expect(reservation?.[0]).toContain("select application_limit");
+    expect(reservation?.[0]).toContain("coalesce(");
+    expect(reservation?.[1]).toEqual(["user-a", 5, 10]);
   });
 
   it("persists the maintenance switch and blocks new Codex work", async () => {
