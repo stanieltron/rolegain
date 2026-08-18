@@ -101,7 +101,7 @@ export function AdminApp() {
     });
     const timer = window.setInterval(
       () => void refresh().catch(() => undefined),
-      15_000,
+      60_000,
     );
     return () => window.clearInterval(timer);
   }, []);

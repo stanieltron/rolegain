@@ -364,6 +364,7 @@ export function App() {
     | undefined
   >(undefined);
   const activeLongActivity = useRef<LongActivity | undefined>(undefined);
+  const workspaceRefresh = useRef<Promise<void> | undefined>(undefined);
 
   useEffect(
     () => () => {
@@ -419,7 +420,7 @@ export function App() {
         void getServiceStatus()
           .then(setServiceStatus)
           .catch(() => undefined),
-      10_000,
+      60_000,
     );
     return () => window.clearInterval(timer);
   }, []);
@@ -483,23 +484,33 @@ export function App() {
     setLiveProgressEvents([]);
     void streamWorkflowProgress((event) => {
       setLiveProgressEvents((current) => [...current, event].slice(-30));
+      if (event.analysisProgress)
+        setWorkspace((current) => current
+          ? {
+              ...current,
+              intelligence: {
+                ...current.intelligence,
+                status: "analyzing",
+                progress: event.analysisProgress,
+              },
+            }
+          : current);
+      if (event.refreshWorkspace && !workspaceRefresh.current) {
+        workspaceRefresh.current = Promise.all([getWorkspace(), getBetaStatus()])
+          .then(([nextWorkspace, betaStatus]) => {
+            setWorkspace(nextWorkspace);
+            setBeta(betaStatus);
+          })
+          .catch((cause) =>
+            setError(cause instanceof Error ? cause.message : String(cause))
+          )
+          .finally(() => {
+            workspaceRefresh.current = undefined;
+          });
+      }
     }, controller.signal);
     return () => controller.abort();
   }, [monitoring, workspace?.workflowExecution?.id]);
-  useEffect(() => {
-    if (!monitoring) return;
-    const timer = window.setInterval(
-      () =>
-        void Promise.all([getWorkspace(), getBetaStatus()]).then(
-          ([nextWorkspace, betaStatus]) => {
-            setWorkspace(nextWorkspace);
-            setBeta(betaStatus);
-          },
-        ),
-      workspace?.intelligence.status === "analyzing" ? 750 : 2000,
-    );
-    return () => window.clearInterval(timer);
-  }, [monitoring, workspace?.intelligence.status]);
   useEffect(() => {
     if (!workspace) return;
     const current = {

@@ -33,6 +33,7 @@ export { stageProfileEvidenceSources };
 import type {
   ApplicationDraft,
   BackgroundExecutionControl,
+  CandidateIntelligence,
   CandidateProfile,
   CandidateSource,
   BackgroundSearchOperation,
@@ -123,6 +124,7 @@ export class JobSearchService {
   private readonly stoppedCandidates = new Set<string>();
   private readonly requestedProfileSourceSync = new Set<string>();
   private readonly candidateWrites = new Map<string, Promise<void>>();
+  private readonly candidateCheckpointAt = new Map<string, number>();
   private readonly candidateCache = new Map<string, JobSearchWorkspace>();
   private jobNumberRegistry?: JobNumberRegistry;
   private jobNumberAllocation: Promise<void> = Promise.resolve();
@@ -247,12 +249,13 @@ export class JobSearchService {
   async ensureProfileEvidenceSources(
     candidateId = CANDIDATE_ID,
     scheduleInProcess = true,
+    currentWorkspace?: JobSearchWorkspace,
   ): Promise<{
     workspace: JobSearchWorkspace;
     changed: boolean;
     needsFetch: boolean;
   }> {
-    const workspace = await this.getCandidate(candidateId);
+    const workspace = currentWorkspace ?? await this.getCandidate(candidateId);
     const staged = stageProfileEvidenceSources(
       workspace,
       automaticProfileEvidenceFields(workspace),
@@ -843,7 +846,9 @@ export class JobSearchService {
         baselineApplicationJobIds: [...preparedVerifiedJobIds(workspace)],
       };
     }
-    await this.saveCandidate(workspace);
+    // Queue/run state is durable in rolegain_workflow_runs. The analyzing
+    // markers above are returned to the initiating client but are not stored.
+    if (type !== "analyze") await this.saveCandidate(workspace);
     return workspace;
   }
 
@@ -877,7 +882,7 @@ export class JobSearchService {
       workspace.intelligence.error = error;
       workspace.intelligence.progress = undefined;
       for (const source of workspace.sources)
-        if (source.status === "processing") {
+        if (source.status === "processing" || source.analysisRequired) {
           source.status = "analysis_failed";
           source.error = error;
         }
@@ -1105,7 +1110,7 @@ export class JobSearchService {
       if (update.item) await this.assignJobNumbers([update.item]);
       applyProgressUpdate(workspace, update);
       pendingProgressWrite = pendingProgressWrite.then(() =>
-        this.saveCandidate(workspace),
+        this.saveCandidateCheckpoint(workspace),
       );
       await pendingProgressWrite;
     };
@@ -1203,7 +1208,7 @@ export class JobSearchService {
                       [job],
                     ).sort((left, right) => right.fit - left.fit);
                     pendingProgressWrite = pendingProgressWrite.then(() =>
-                      this.saveCandidate(workspace),
+                      this.saveCandidateCheckpoint(workspace),
                     );
                     await pendingProgressWrite;
                   },
@@ -1392,7 +1397,7 @@ export class JobSearchService {
       if (update.item) await this.assignJobNumbers([update.item]);
       applyProgressUpdate(workspace, update);
       pendingProgressWrite = pendingProgressWrite.then(() =>
-        this.saveCandidate(workspace),
+        this.saveCandidateCheckpoint(workspace),
       );
       await pendingProgressWrite;
     };
@@ -2207,7 +2212,7 @@ export class JobSearchService {
         workspace.searchProgress!.activity =
           `Revalidated ${completed} of ${records.length} stored search records. Matching and applications remain unchanged.`;
         if (completed % 10 === 0) {
-          writes = writes.then(() => this.saveCandidate(workspace));
+          writes = writes.then(() => this.saveCandidateCheckpoint(workspace));
           await writes;
         }
       }
@@ -3134,6 +3139,7 @@ export class JobSearchService {
       .catch(() => undefined)
       .then(async () => {
         await this.workspaceStore.save(snapshot);
+        this.candidateCheckpointAt.set(value.candidateId, Date.now());
         this.candidateCache.set(value.candidateId, snapshot);
       });
     this.candidateWrites.set(value.candidateId, write);
@@ -3145,6 +3151,22 @@ export class JobSearchService {
     }
   }
 
+  /**
+   * Live progress is delivered through the transient bus. Keep only a coarse
+   * durable checkpoint for crash recovery; stage boundaries and final results
+   * still call saveCandidate directly.
+   */
+  private async saveCandidateCheckpoint(
+    value: JobSearchWorkspace,
+    minimumIntervalMs = 15_000,
+  ) {
+    const now = Date.now();
+    const last = this.candidateCheckpointAt.get(value.candidateId) ?? 0;
+    if (now - last < minimumIntervalMs) return;
+    this.candidateCheckpointAt.set(value.candidateId, now);
+    await this.saveCandidate(value);
+  }
+
   private emitTransientProgress(
     userId: string,
     update: OpportunityProgressUpdate,
@@ -3153,6 +3175,24 @@ export class JobSearchService {
     if (!event || !this.publishTransientProgress) return;
     void this.publishTransientProgress(userId, event).catch((error) =>
       console.error("Transient workflow progress publish failed", error),
+    );
+  }
+
+  private emitAnalysisProgress(
+    userId: string,
+    analysisProgress: NonNullable<CandidateIntelligence["progress"]>,
+  ) {
+    if (!this.publishTransientProgress) return;
+    const message = analysisProgress.stage === "synthesizing"
+      ? "Consolidating candidate evidence."
+      : analysisProgress.total > 0
+        ? `Reading evidence ${analysisProgress.completed} of ${analysisProgress.total}.`
+        : "Starting candidate evidence analysis.";
+    void this.publishTransientProgress(userId, {
+      message,
+      analysisProgress,
+    }).catch((error) =>
+      console.error("Transient analysis progress publish failed", error),
     );
   }
 
@@ -3224,7 +3264,11 @@ export class JobSearchService {
     workspace.intelligence.progress = undefined;
     for (const source of workspace.sources)
       if (source.status === "processing") source.error = undefined;
-    await this.saveCandidate(workspace);
+    this.emitAnalysisProgress(workspace.candidateId, {
+      stage: "reading",
+      completed: 0,
+      total: 0,
+    });
     try {
       const built = await buildCandidateEvidence({
         analyzer: this.analyzer,
@@ -3233,10 +3277,8 @@ export class JobSearchService {
         sourceIdsToAnalyze,
         onProgress: async (progress) => {
           if (this.isExecutionStopped(workspace.candidateId)) return;
-          const current = await this.getCandidate(workspace.candidateId);
-          current.intelligence.status = "analyzing";
-          current.intelligence.progress = progress;
-          await this.saveCandidate(current);
+          workspace.intelligence.progress = progress;
+          this.emitAnalysisProgress(workspace.candidateId, progress);
         },
         reloadWorkspace: () => this.getCandidate(workspace.candidateId),
         beforeVerification: () =>

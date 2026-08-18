@@ -5,6 +5,7 @@ import type { Pool } from "pg";
 import type { CodexExecClient } from "../../codex-runtime/client.js";
 import type { JobSearchService } from "../control-flow/service.js";
 import type { ArtifactArchive } from "../persistence/artifact-archive.js";
+import type { TransientWorkflowProgressInput } from "./transient-progress.js";
 import { withUserLock } from "../../infrastructure/database.js";
 import {
   BETA_BATCH_SIZE,
@@ -13,7 +14,7 @@ import {
 import type { WorkflowFailureNotifier } from "../notifications/workflow-error-email.js";
 
 const QUEUE = "rolegain-workflows";
-const CANCELLATION_POLL_INTERVAL_MS = 250;
+const CANCELLATION_POLL_INTERVAL_MS = 1_000;
 const CANCELLATION_DRAIN_TIMEOUT_MS = 30_000;
 export const DEFAULT_WORKFLOW_QUEUE_POOL_SIZE = 1;
 export const DEFAULT_WORKER_WORKFLOW_QUEUE_POOL_SIZE = 2;
@@ -69,6 +70,10 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
     private readonly codex: CodexExecClient,
     private readonly artifacts: ArtifactArchive,
     private readonly platform: PlatformControl,
+    private readonly publishTransientProgress: (
+      userId: string,
+      event: TransientWorkflowProgressInput,
+    ) => Promise<void> = async () => undefined,
     processJobs = false,
     private readonly notifyFailure: WorkflowFailureNotifier = async () => undefined,
   ) {
@@ -273,6 +278,11 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
           name: "workflow_completed",
           metadata: { type: payload.type },
         });
+        await this.publishTransientProgress(payload.userId, {
+          message: "Workflow completed.",
+          workflowStatus: "completed",
+          refreshWorkspace: true,
+        });
       } catch (error) {
         const message =
           error instanceof Error ? error.message : String(error);
@@ -283,6 +293,11 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
              where id = $1`,
             [payload.runId],
           );
+          await this.publishTransientProgress(payload.userId, {
+            message: "Workflow cancelled.",
+            workflowStatus: "cancelled",
+            refreshWorkspace: true,
+          }).catch(() => undefined);
           return;
         }
         console.error(
@@ -309,6 +324,11 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
         await this.platform.recordEvent(payload.userId, {
           name: "workflow_failed",
           metadata: { type: payload.type },
+        }).catch(() => undefined);
+        await this.publishTransientProgress(payload.userId, {
+          message: "Workflow failed.",
+          workflowStatus: "failed",
+          refreshWorkspace: true,
         }).catch(() => undefined);
         const userEmail = await this.service
           .get(payload.userId)

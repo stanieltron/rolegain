@@ -43,6 +43,9 @@ export interface WorkflowProgressEvent {
   company?: string;
   title?: string;
   fit?: number;
+  analysisProgress?: NonNullable<JobSearchWorkspace["intelligence"]["progress"]>;
+  refreshWorkspace?: boolean;
+  workflowStatus?: "completed" | "failed" | "cancelled";
 }
 
 export const getWorkspace = () =>

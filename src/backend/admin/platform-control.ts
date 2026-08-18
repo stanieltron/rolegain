@@ -1,5 +1,4 @@
 import type { Pool } from "pg";
-import type { JobSearchWorkspace } from "../../contracts/job-search.js";
 import { HttpError } from "../../server/auth.js";
 import {
   configuredEvidenceChunkLimit,
@@ -539,8 +538,36 @@ export class PlatformControl {
            from auth.users
            order by created_at desc`,
         ),
-        this.pool.query<{ user_id: string; payload: JobSearchWorkspace }>(
-          "select user_id, payload from rolegain_workspaces",
+        this.pool.query<{
+          user_id: string;
+          name: string | null;
+          email: string | null;
+          phase: string | null;
+          profile_completeness: number;
+          sources: number;
+          jobs_seen: number;
+          search_ready_jobs: number;
+          applications: number;
+          applied: number;
+        }>(
+          `select user_id,
+                  payload->'profile'->>'name' as name,
+                  payload->'profile'->>'email' as email,
+                  payload->>'phase' as phase,
+                  coalesce(nullif(payload->>'profileCompleteness', '')::int, 0)
+                    as profile_completeness,
+                  jsonb_array_length(coalesce(payload->'sources', '[]'::jsonb))
+                    as sources,
+                  jsonb_array_length(coalesce(payload->'jobHistory', '[]'::jsonb))
+                    as jobs_seen,
+                  jsonb_array_length(coalesce(payload->'searchReadyOpportunities', '[]'::jsonb))
+                    as search_ready_jobs,
+                  jsonb_array_length(coalesce(payload->'applications', '[]'::jsonb))
+                    as applications,
+                  (select count(*)::int
+                   from jsonb_array_elements(coalesce(payload->'applications', '[]'::jsonb)) app
+                   where app->>'outcome' = 'applied_waiting') as applied
+           from rolegain_workspaces`,
         ),
         this.pool.query<{ user_id: string; total_tokens: string }>(
           "select user_id, total_tokens from rolegain_user_token_usage",
@@ -616,19 +643,15 @@ export class PlatformControl {
     }
     for (const row of workspaces.rows) {
       const user = ensure(row.user_id);
-      const workspace = row.payload;
-      user.name ||= workspace.profile?.name;
-      user.email ||= workspace.profile?.email;
-      user.phase = workspace.phase ?? "registered";
-      user.profileCompleteness = workspace.profileCompleteness ?? 0;
-      user.sources = workspace.sources?.length ?? 0;
-      user.jobsSeen = workspace.jobHistory?.length ?? 0;
-      user.searchReadyJobs = workspace.searchReadyOpportunities?.length ?? 0;
-      user.applications = workspace.applications?.length ?? 0;
-      user.applied =
-        workspace.applications?.filter(
-          (application) => application.outcome === "applied_waiting",
-        ).length ?? 0;
+      user.name ||= row.name || undefined;
+      user.email ||= row.email || undefined;
+      user.phase = row.phase ?? "registered";
+      user.profileCompleteness = row.profile_completeness;
+      user.sources = row.sources;
+      user.jobsSeen = row.jobs_seen;
+      user.searchReadyJobs = row.search_ready_jobs;
+      user.applications = row.applications;
+      user.applied = row.applied;
     }
     for (const row of tokens.rows)
       ensure(row.user_id).tokens = Number(row.total_tokens);

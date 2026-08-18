@@ -70,12 +70,13 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
   }
 
   async save(workspace: JobSearchWorkspace) {
+    const durable = durableWorkspace(workspace);
     await this.pool.query(
       `insert into rolegain_workspaces (user_id, payload, updated_at)
        values ($1, $2::jsonb, now())
        on conflict (user_id) do update
        set payload = excluded.payload, updated_at = now()`,
-      [workspace.candidateId, JSON.stringify(workspace)],
+      [workspace.candidateId, JSON.stringify(durable)],
     );
   }
 
@@ -85,6 +86,23 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       [userId],
     );
   }
+}
+
+/**
+ * Queue state and live analysis progress have dedicated workflow/NOTIFY
+ * channels. Keeping them out of the JSONB document prevents display-only
+ * updates from rewriting a multi-megabyte workspace.
+ */
+export function durableWorkspace(
+  workspace: JobSearchWorkspace,
+): JobSearchWorkspace {
+  const durable = structuredClone(workspace);
+  durable.intelligence.progress = undefined;
+  if (durable.intelligence.status === "analyzing")
+    durable.intelligence.status = durable.intelligence.evidenceRun
+      ? "ready"
+      : "idle";
+  return durable;
 }
 
 export function safeUserId(value: string) {

@@ -15,6 +15,18 @@ export interface TransientWorkflowProgressEvent {
   company?: string;
   title?: string;
   fit?: number;
+  /** Analysis progress is ephemeral UI state and is never persisted in a workspace. */
+  analysisProgress?: {
+    stage: "reading" | "synthesizing";
+    completed: number;
+    total: number;
+    sourceName?: string;
+    limit?: number;
+    limitReached?: boolean;
+  };
+  /** A durable result changed; connected clients should reconcile once. */
+  refreshWorkspace?: boolean;
+  workflowStatus?: "completed" | "failed" | "cancelled";
 }
 
 export type TransientWorkflowProgressInput = Omit<

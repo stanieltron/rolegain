@@ -37,4 +37,33 @@ describe("transient workflow progress", () => {
 
     expect(listener.mock.calls[0][0].message).toHaveLength(2_000);
   });
+
+  it("carries ephemeral analysis progress and one-shot reconciliation signals", async () => {
+    const bus = new InMemoryTransientWorkflowProgressBus();
+    const listener = vi.fn();
+    await bus.subscribe("candidate-1", listener);
+
+    await bus.publish("candidate-1", {
+      message: "Reading evidence 4 of 12.",
+      analysisProgress: {
+        stage: "reading",
+        completed: 4,
+        total: 12,
+        sourceName: "CV",
+      },
+    });
+    await bus.publish("candidate-1", {
+      message: "Workflow completed.",
+      workflowStatus: "completed",
+      refreshWorkspace: true,
+    });
+
+    expect(listener).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      analysisProgress: expect.objectContaining({ completed: 4, total: 12 }),
+    }));
+    expect(listener).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      workflowStatus: "completed",
+      refreshWorkspace: true,
+    }));
+  });
 });

@@ -164,6 +164,7 @@ export async function createRolegainDependencies(
           codex,
           artifacts,
           platform,
+          (userId, event) => transientProgress.publish(userId, event),
           configuration.processJobs,
           createWorkflowFailureNotifier({
             apiKey: configuration.resendApiKey,

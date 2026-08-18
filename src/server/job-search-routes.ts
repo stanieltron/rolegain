@@ -158,6 +158,20 @@ export async function routeRequest(
         response.write(`data: ${JSON.stringify(safeEvent)}\n\n`);
       },
     );
+    const latestWorkflow = await dependencies.workflows?.latest(userId);
+    if (
+      latestWorkflow &&
+      (latestWorkflow.status === "completed" ||
+        latestWorkflow.status === "failed" ||
+        latestWorkflow.status === "cancelled")
+    )
+      response.write(`data: ${JSON.stringify({
+        id: `workflow-snapshot-${latestWorkflow.id}`,
+        createdAt: new Date().toISOString(),
+        message: "Workflow state changed.",
+        workflowStatus: latestWorkflow.status,
+        refreshWorkspace: true,
+      })}\n\n`);
     const heartbeat = setInterval(() => {
       if (!response.destroyed && !response.writableEnded)
         response.write(": keep-alive\n\n");
@@ -213,6 +227,7 @@ export async function routeRequest(
       await dependencies.jobSearch.ensureProfileEvidenceSources(
         userId,
         !dependencies.workflows,
+        workspace,
       );
     workspace = ensuredProfileSources.workspace;
     if (
@@ -225,12 +240,6 @@ export async function routeRequest(
       );
       await dependencies.workflows.enqueue(userId, "analyze");
     }
-    await dependencies.platform.recordApplications(
-      userId,
-      workspace.applications
-        .filter((application) => Boolean(application.addedBy))
-        .map((application) => application.id),
-    );
     if (dependencies.workflows)
       workspace = attachWorkflowExecution(
         workspace,
