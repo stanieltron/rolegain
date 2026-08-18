@@ -99,11 +99,6 @@ export function AdminApp() {
       setAuthenticated(false);
       setError(cause instanceof Error ? cause.message : String(cause));
     });
-    const timer = window.setInterval(
-      () => void refresh().catch(() => undefined),
-      60_000,
-    );
-    return () => window.clearInterval(timer);
   }, []);
 
   if (authenticated !== true)
