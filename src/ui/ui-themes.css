@@ -1,0 +1,528 @@
+/* Signal V1: flat surfaces and a compact navigation rail. */
+.rolegain-ui.ui-v1{--rg-color-canvas:#f0f2f3;--rg-color-surface:#fff;--rg-color-surface-subtle:#f8f9fb;--rg-color-surface-muted:#edf0f3;--rg-color-accent:#c9ff4b;--rg-color-accent-hover:#bded47;--rg-color-accent-soft:#f0fad8;--rg-color-accent-ink:#202719;--rg-color-border:#d9dee6;--rg-color-nav:#13171e;--rg-radius-lg:7px;--rg-shadow-card:none;background:#f0f2f3}
+.rolegain-ui.ui-v1 .shell{display:grid;grid-template-columns:160px minmax(0,1fr)}
+.rolegain-ui.ui-v1 .nav{margin:0;border:0;border-right:1px solid #343c48;border-radius:0;padding:28px 12px;display:flex;flex-direction:column;align-items:stretch;gap:8px;background:#13171e;box-shadow:none}
+.rolegain-ui.ui-v1 .brand{order:0;border:0;padding:0;margin:0 0 30px;gap:8px}
+.rolegain-ui.ui-v1 .brand>span{width:26px;height:26px;flex-shrink:0}
+.rolegain-ui.ui-v1 .brand strong{font-size:16px;letter-spacing:-.6px}
+.rolegain-ui.ui-v1 .brand small{font-size:9px}
+.rolegain-ui.ui-v1 .candidate-identity{order:4;min-width:0;margin:30px 0 0;padding:16px 0 0;border-top:1px solid #343c48;overflow-wrap:anywhere}
+.rolegain-ui.ui-v1 .candidate-identity small{font-size:9px}
+.rolegain-ui.ui-v1 .nav-btn{width:100%;padding:12px 7px;grid-template-columns:17px 1fr auto;gap:5px;font-size:12px;border-radius:6px;color:#b8c3d5;box-shadow:none}
+.rolegain-ui.ui-v1 .nav-btn.active{background:#c9ff4b;color:#1e270c}
+.rolegain-ui.ui-v1 .nav-btn.active small{background:#b3e53b;color:#1e270c}
+.rolegain-ui.ui-v1 .settings-menu{margin-top:16px}
+.rolegain-ui.ui-v1 .topbar{padding:30px 28px 25px;min-height:112px;gap:18px;align-items:center}
+.rolegain-ui.ui-v1 .topbar>div:first-child{border-left:4px solid #92bd2d;padding-left:16px}
+.rolegain-ui.ui-v1 .topbar h1{font-size:35px;letter-spacing:-1.5px;line-height:1.1;font-weight:600;margin-top:8px}
+.rolegain-ui.ui-v1 .eyebrow{font-family:monospace;letter-spacing:1px;font-weight:400;font-size:10px}
+.rolegain-ui.ui-v1 .page{padding:0 28px 35px}
+.rolegain-ui.ui-v1 .band{border-radius:7px;border-color:#d9dee6;box-shadow:none}
+.rolegain-ui.ui-v1 .wizard-number{background:#13171e;color:#c9ff4b;border:0}
+.rolegain-ui.ui-v1 .wizard-heading h2{font-size:20px;letter-spacing:-.5px;font-weight:600}
+.rolegain-ui.ui-v1 .wizard-heading p{font-size:12px;line-height:1.6}
+.rolegain-ui.ui-v1 .cv-source-complete{background:#f5f9ec;border-color:#dae8bb}
+.rolegain-ui.ui-v1 .basic-fields{grid-template-columns:1fr 1fr}
+.rolegain-ui.ui-v1 .basic-fields>label{font-size:11px;font-weight:500}
+.rolegain-ui.ui-v1 .basic-fields input{border-color:#cdd3dd;box-shadow:none;border-radius:6px;font-size:12px}
+.rolegain-ui.ui-v1 .primary{background:#c9ff4b;color:#1e270c;border-color:#b8e947;border-radius:5px}
+.rolegain-ui.ui-v1 .queue-find{background:#fff;color:#242d3b;border-color:#cbd3df;border-radius:5px;padding:9px 12px}
+.rolegain-ui.ui-v1 .discovery-continue{background:#f1f8df;border-color:#d9e7bb;border-radius:7px;padding:16px}
+.rolegain-ui.ui-v1 .discovery-continue strong{color:#384a22}
+.rolegain-ui.ui-v1 .discovery-toolbar{padding:18px;border-radius:7px}
+.rolegain-ui.ui-v1 .discovery-toolbar strong{font-size:15px}
+.rolegain-ui.ui-v1 .discovery-toolbar span{font-size:11px;line-height:1.5}
+.rolegain-ui.ui-v1 .search-pipeline{box-shadow:none;border-radius:7px;border-color:#d9dee6}
+.rolegain-ui.ui-v1 .pipeline-activity{background:#edf0f3;padding:18px}
+.rolegain-ui.ui-v1 .pipeline-activity strong{font-size:13px}
+.rolegain-ui.ui-v1 .pipeline-column{border-radius:5px;border-color:#d9dee6}
+.rolegain-ui.ui-v1 .pipeline-column>header{background:#f3f5f8;padding:13px}
+.rolegain-ui.ui-v1 .newest-batch-list{background:#f4f7ed;border-color:#dce4cc}
+.rolegain-ui.ui-v1 .newest-batch-label{color:#546236;font-size:9px;letter-spacing:1px}
+.rolegain-ui.ui-v1 .pipeline-job{padding:12px;border-color:#d8dee7;border-left-color:#a4ca48;border-radius:4px}
+.rolegain-ui.ui-v1 .pipeline-job-open strong{font-size:11px}
+.rolegain-ui.ui-v1 .pipeline-job-open small{font-size:10px}
+.rolegain-ui.ui-v1 .results-bar{padding:18px;background:#fff;border:1px solid #d9dee6;border-radius:7px}
+.rolegain-ui.ui-v1 .results-bar strong{font-size:16px}
+.rolegain-ui.ui-v1 .application-groups{gap:24px}
+.rolegain-ui.ui-v1 .application-group{grid-template-columns:125px minmax(0,1fr);gap:15px;align-items:start}
+.rolegain-ui.ui-v1 .application-group>header{align-items:start;padding-top:15px;gap:8px}
+.rolegain-ui.ui-v1 .application-group>header strong{text-transform:uppercase;font-size:10px;letter-spacing:.6px;line-height:1.5}
+.rolegain-ui.ui-v1 .application-group>header span{font-size:10px;line-height:1.5}
+.rolegain-ui.ui-v1 .application-group-cards{background:transparent}
+.rolegain-ui.ui-v1 .application-overview-card{border:1px solid #d9dee6;border-radius:5px;background:#fff;padding:16px;grid-template-columns:22px minmax(0,1fr) 90px;gap:10px}
+.rolegain-ui.ui-v1 .job-title{align-items:start;flex-wrap:wrap}
+.rolegain-ui.ui-v1 .job-title strong{font-size:14px;letter-spacing:-.2px}
+.rolegain-ui.ui-v1 .company-mark{background:#eaf1d9;color:#3d4e20;border-radius:4px}
+.rolegain-ui.ui-v1 .score-ring{background:#f0f4e9;width:48px;height:35px;border:0;border-radius:4px}
+.rolegain-ui.ui-v1 .score-ring:before{display:none}
+.rolegain-ui.ui-v1 .score-ring span{color:#46562b;font-size:16px}
+.rolegain-ui.ui-v1 .application-card-status.status-open{background:#edf5d7;color:#465b23}
+.rolegain-ui.ui-v1 .application-group-empty{border-radius:5px}
+.rolegain-ui.ui-v1 .application-match-details{grid-column:1/-1}
+@media(max-width:760px){.rolegain-ui.ui-v1 .shell{display:block}.rolegain-ui.ui-v1 .nav{flex-direction:row;flex-wrap:wrap;align-items:center;padding:16px;gap:8px}.rolegain-ui.ui-v1 .brand{width:100%;margin-bottom:7px}.rolegain-ui.ui-v1 .nav-btn{width:auto;flex:1}.rolegain-ui.ui-v1 .candidate-identity{display:none}.rolegain-ui.ui-v1 .settings-menu{margin:0}.rolegain-ui.ui-v1 .topbar{padding:22px}.rolegain-ui.ui-v1 .page{padding:0 22px 25px}.rolegain-ui.ui-v1 .application-group{grid-template-columns:1fr}.rolegain-ui.ui-v1 .topbar h1{font-size:30px}}
+@media(max-width:460px){.rolegain-ui.ui-v1 .basic-fields{grid-template-columns:1fr}.rolegain-ui.ui-v1 .topbar{padding:18px;flex-wrap:wrap}.rolegain-ui.ui-v1 .page{padding:0 14px 22px}.rolegain-ui.ui-v1 .nav-btn{padding:10px 4px;font-size:11px}.rolegain-ui.ui-v1 .nav-btn small{display:none}.rolegain-ui.ui-v1 .settings-menu{display:none}.rolegain-ui.ui-v1 .application-overview-card{grid-template-columns:20px minmax(0,1fr)}.rolegain-ui.ui-v1 .job-side{grid-column:2;display:flex;flex-wrap:wrap;align-items:center;gap:8px}.rolegain-ui.ui-v1 .job-title{display:flex}.rolegain-ui.ui-v1 .application-card-status{margin-left:0!important}}
+.rolegain-ui.ui-v1 .newest-batch-list{background:#f4f6f8;border-color:#d9dee6}
+.rolegain-ui.ui-v1 .newest-batch-label{color:#596472}
+.rolegain-ui.ui-v1 .application-overview-card{min-height:0;grid-template-columns:22px minmax(0,1fr) 108px;align-items:start}
+.rolegain-ui.ui-v1 .job-rank{border:0;grid-row:1;padding-top:12px}
+.rolegain-ui.ui-v1 .job-main{padding:5px 0}
+.rolegain-ui.ui-v1 .job-side{padding:5px 0 5px 10px;gap:7px;min-width:0}
+.rolegain-ui.ui-v1 .score-ring{flex:0 0 35px;background:#f0f2f5}
+.rolegain-ui.ui-v1 .score-ring span{color:#28333f}
+.rolegain-ui.ui-v1 .job-side button{padding:7px;font-size:10px;color:#263340;background:#f2f4f7;border-radius:4px;width:100%}
+.rolegain-ui.ui-v1 .job-side small{font-size:9px}
+.rolegain-ui.ui-v1 .application-match-details{padding:0;grid-column:2/-1}
+.rolegain-ui.ui-v1 .company-mark{background:#edf1f5;color:#344252}
+@media(max-width:460px){.rolegain-ui.ui-v1 .application-overview-card{grid-template-columns:20px minmax(0,1fr)}.rolegain-ui.ui-v1 .job-side{grid-column:2;padding:8px 0;border-left:0;flex-direction:row;justify-content:start}.rolegain-ui.ui-v1 .job-side button{width:auto}.rolegain-ui.ui-v1 .score-ring{flex:0 0 48px}}
+.rolegain-ui.ui-v1{--rg-color-success:#c9ff4b;--rg-color-success-soft:#f2ffda;--signal-lime:#c9ff4b;--signal-lime-soft:#f2ffda;--signal-status-ink:#253019}
+.rolegain-ui.ui-v1 .topbar>div:first-child{border-left-color:var(--signal-lime)}
+.rolegain-ui.ui-v1 .basic-fields .field-complete input{border-color:var(--signal-lime);box-shadow:inset 3px 0 var(--signal-lime);background:#fff}
+.rolegain-ui.ui-v1 .cv-source-complete{background:var(--signal-lime-soft);border:0;border-radius:6px}
+.rolegain-ui.ui-v1 .cv-source-icon{background:var(--signal-lime);color:var(--signal-status-ink);border-radius:6px}
+.rolegain-ui.ui-v1 .cv-source-copy strong{color:#253019}
+.rolegain-ui.ui-v1 .cv-source-copy small{color:#606a59}
+.rolegain-ui.ui-v1 .ready-summary svg,.rolegain-ui.ui-v1 .ready-summary i,.rolegain-ui.ui-v1 .green,.rolegain-ui.ui-v1 .wizard-ready>svg{color:var(--signal-status-ink);background:var(--signal-lime);border-radius:50%;padding:2px;box-sizing:content-box}
+.rolegain-ui.ui-v1 .profile-evidence-status.status-ready,.rolegain-ui.ui-v1 .application-card-status.status-open{background:var(--signal-lime);border-color:var(--signal-lime);color:var(--signal-status-ink)}
+.rolegain-ui.ui-v1 .autosave-note.saved{color:var(--signal-status-ink)}
+.rolegain-ui.ui-v1 .autosave-note.saved svg{color:var(--signal-status-ink);background:var(--signal-lime);border-radius:50%}
+.rolegain-ui.ui-v1 .evidence-edit-toggle.active{background:var(--signal-lime);border-color:var(--signal-lime);color:var(--signal-status-ink)}
+.rolegain-ui.ui-v1 .selected-language{background:var(--signal-lime-soft);border-color:var(--signal-lime)}
+.rolegain-ui.ui-v1 .selected-language strong,.rolegain-ui.ui-v1 .selected-language button{color:var(--signal-status-ink)}
+.rolegain-ui.ui-v1 .selected-language select{border-color:var(--signal-lime)}
+.rolegain-ui.ui-v1 .discovery-continue{background:transparent;border:0;border-radius:0;padding:14px 0;box-shadow:none}
+.rolegain-ui.ui-v1 .discovery-continue strong{color:#26303a}
+.rolegain-ui.ui-v1 .discovery-continue>div>svg{background:var(--signal-lime);color:var(--signal-status-ink);padding:3px;border-radius:50%;box-sizing:content-box}
+.rolegain-ui.ui-v1 .primary{border-color:var(--signal-lime)}
+.rolegain-ui.ui-v1 .search-pipeline{background:transparent;border:0;border-radius:0;box-shadow:none;overflow:visible}
+.rolegain-ui.ui-v1 .pipeline-activity{background:transparent;border:0;padding:20px 0 12px;gap:10px}
+.rolegain-ui.ui-v1 .search-pipeline.ready .pipeline-live-dot{background:var(--signal-lime);box-shadow:0 0 0 3px #dbe2cd}
+.rolegain-ui.ui-v1 .pipeline-board{padding:0;gap:28px;min-width:0;overflow:visible}
+.rolegain-ui.ui-v1 .pipeline-column{background:transparent;border:0;border-radius:0;overflow:visible;box-shadow:none}
+.rolegain-ui.ui-v1 .pipeline-column>header{background:transparent;border:0;padding:10px 0 14px;gap:10px}
+.rolegain-ui.ui-v1 .pipeline-column>header strong{font-size:13px;font-weight:600}
+.rolegain-ui.ui-v1 .pipeline-column>header>b{background:#1d242e;color:var(--signal-lime);border-radius:5px;width:24px;height:24px}
+.rolegain-ui.ui-v1 .pipeline-column>header span{background:#e4e8ee;color:#54606f;font-size:9px}
+.rolegain-ui.ui-v1 .pipeline-column-scroll{background:transparent;padding:0;min-height:0;max-height:none;overflow:visible;gap:14px}
+.rolegain-ui.ui-v1 .newest-batch-list,.rolegain-ui.ui-v1 .pipeline-newest-batch{background:transparent;border:0;border-radius:0;box-shadow:none;padding:0;gap:8px}
+.rolegain-ui.ui-v1 .newest-batch-label{font-size:9px;letter-spacing:1.2px;color:#586473;padding:0 0 3px}
+.rolegain-ui.ui-v1 .pipeline-newest-batch>.newest-batch-label:before{content:'';display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--signal-lime);margin-right:7px}
+.rolegain-ui.ui-v1 .pipeline-previous-batches{background:transparent;padding:0;gap:5px}
+.rolegain-ui.ui-v1 .pipeline-area-empty{padding:4px 0;font-size:10px;color:#73808d}
+.rolegain-ui.ui-v1 .pipeline-job{background:#fff;border:1px solid #d9dee6;border-radius:6px;padding:14px;gap:11px;grid-template-columns:22px 1fr}
+.rolegain-ui.ui-v1 .pipeline-job.state-passed{border-left:1px solid #d9dee6}
+.rolegain-ui.ui-v1 .pipeline-job.state-passed .pipeline-state-icon{color:var(--signal-status-ink);background:var(--signal-lime);border-radius:5px;display:grid;place-items:center;width:22px;height:22px;padding:3px}
+.rolegain-ui.ui-v1 .pipeline-job-open strong{font-size:12px}
+.rolegain-ui.ui-v1 .pipeline-job-open>span{font-size:10px;margin-top:4px}
+.rolegain-ui.ui-v1 .discovery-toolbar{background:transparent;border:0;border-radius:0;padding:14px 0}
+.rolegain-ui.ui-v1 .application-group-cards{background:transparent}
+/* Window Light V2: ink on glass and edge-to-edge navigation. */
+.rolegain-ui.ui-v2{--rg-color-canvas:#f0f2f3;--rg-color-surface:#fff;--rg-color-surface-subtle:#f8f9fb;--rg-color-surface-muted:#edf0f3;--rg-color-accent:#c9ff4b;--rg-color-accent-hover:#bded47;--rg-color-accent-soft:#f0fad8;--rg-color-accent-ink:#202719;--rg-color-border:#d9dee6;--rg-color-nav:#13171e;--rg-radius-lg:7px;--rg-shadow-card:none;background:#f0f2f3}
+.rolegain-ui.ui-v2 .shell{display:grid;grid-template-columns:160px minmax(0,1fr)}
+.rolegain-ui.ui-v2 .nav{margin:0;border:0;border-right:1px solid #343c48;border-radius:0;padding:28px 12px;display:flex;flex-direction:column;align-items:stretch;gap:8px;background:#13171e;box-shadow:none}
+.rolegain-ui.ui-v2 .brand{order:0;border:0;padding:0;margin:0 0 30px;gap:8px}
+.rolegain-ui.ui-v2 .brand>span{width:26px;height:26px;flex-shrink:0}
+.rolegain-ui.ui-v2 .brand strong{font-size:16px;letter-spacing:-.6px}
+.rolegain-ui.ui-v2 .brand small{font-size:9px}
+.rolegain-ui.ui-v2 .candidate-identity{order:4;min-width:0;margin:30px 0 0;padding:16px 0 0;border-top:1px solid #343c48;overflow-wrap:anywhere}
+.rolegain-ui.ui-v2 .candidate-identity small{font-size:9px}
+.rolegain-ui.ui-v2 .nav-btn{width:100%;padding:12px 7px;grid-template-columns:17px 1fr auto;gap:5px;font-size:12px;border-radius:6px;color:#b8c3d5;box-shadow:none}
+.rolegain-ui.ui-v2 .nav-btn.active{background:#c9ff4b;color:#1e270c}
+.rolegain-ui.ui-v2 .nav-btn.active small{background:#b3e53b;color:#1e270c}
+.rolegain-ui.ui-v2 .settings-menu{margin-top:16px}
+.rolegain-ui.ui-v2 .topbar{padding:30px 28px 25px;min-height:112px;gap:18px;align-items:center}
+.rolegain-ui.ui-v2 .topbar>div:first-child{border-left:4px solid #92bd2d;padding-left:16px}
+.rolegain-ui.ui-v2 .topbar h1{font-size:35px;letter-spacing:-1.5px;line-height:1.1;font-weight:600;margin-top:8px}
+.rolegain-ui.ui-v2 .eyebrow{font-family:monospace;letter-spacing:1px;font-weight:400;font-size:10px}
+.rolegain-ui.ui-v2 .page{padding:0 28px 35px}
+.rolegain-ui.ui-v2 .band{border-radius:7px;border-color:#d9dee6;box-shadow:none}
+.rolegain-ui.ui-v2 .wizard-number{background:#13171e;color:#c9ff4b;border:0}
+.rolegain-ui.ui-v2 .wizard-heading h2{font-size:20px;letter-spacing:-.5px;font-weight:600}
+.rolegain-ui.ui-v2 .wizard-heading p{font-size:12px;line-height:1.6}
+.rolegain-ui.ui-v2 .cv-source-complete{background:#f5f9ec;border-color:#dae8bb}
+.rolegain-ui.ui-v2 .basic-fields{grid-template-columns:1fr 1fr}
+.rolegain-ui.ui-v2 .basic-fields>label{font-size:11px;font-weight:500}
+.rolegain-ui.ui-v2 .basic-fields input{border-color:#cdd3dd;box-shadow:none;border-radius:6px;font-size:12px}
+.rolegain-ui.ui-v2 .primary{background:#c9ff4b;color:#1e270c;border-color:#b8e947;border-radius:5px}
+.rolegain-ui.ui-v2 .queue-find{background:#fff;color:#242d3b;border-color:#cbd3df;border-radius:5px;padding:9px 12px}
+.rolegain-ui.ui-v2 .discovery-continue{background:#f1f8df;border-color:#d9e7bb;border-radius:7px;padding:16px}
+.rolegain-ui.ui-v2 .discovery-continue strong{color:#384a22}
+.rolegain-ui.ui-v2 .discovery-toolbar{padding:18px;border-radius:7px}
+.rolegain-ui.ui-v2 .discovery-toolbar strong{font-size:15px}
+.rolegain-ui.ui-v2 .discovery-toolbar span{font-size:11px;line-height:1.5}
+.rolegain-ui.ui-v2 .search-pipeline{box-shadow:none;border-radius:7px;border-color:#d9dee6}
+.rolegain-ui.ui-v2 .pipeline-activity{background:#edf0f3;padding:18px}
+.rolegain-ui.ui-v2 .pipeline-activity strong{font-size:13px}
+.rolegain-ui.ui-v2 .pipeline-column{border-radius:5px;border-color:#d9dee6}
+.rolegain-ui.ui-v2 .pipeline-column>header{background:#f3f5f8;padding:13px}
+.rolegain-ui.ui-v2 .newest-batch-list{background:#f4f7ed;border-color:#dce4cc}
+.rolegain-ui.ui-v2 .newest-batch-label{color:#546236;font-size:9px;letter-spacing:1px}
+.rolegain-ui.ui-v2 .pipeline-job{padding:12px;border-color:#d8dee7;border-left-color:#a4ca48;border-radius:4px}
+.rolegain-ui.ui-v2 .pipeline-job-open strong{font-size:11px}
+.rolegain-ui.ui-v2 .pipeline-job-open small{font-size:10px}
+.rolegain-ui.ui-v2 .results-bar{padding:18px;background:#fff;border:1px solid #d9dee6;border-radius:7px}
+.rolegain-ui.ui-v2 .results-bar strong{font-size:16px}
+.rolegain-ui.ui-v2 .application-groups{gap:24px}
+.rolegain-ui.ui-v2 .application-group{grid-template-columns:125px minmax(0,1fr);gap:15px;align-items:start}
+.rolegain-ui.ui-v2 .application-group>header{align-items:start;padding-top:15px;gap:8px}
+.rolegain-ui.ui-v2 .application-group>header strong{text-transform:uppercase;font-size:10px;letter-spacing:.6px;line-height:1.5}
+.rolegain-ui.ui-v2 .application-group>header span{font-size:10px;line-height:1.5}
+.rolegain-ui.ui-v2 .application-group-cards{background:transparent}
+.rolegain-ui.ui-v2 .application-overview-card{border:1px solid #d9dee6;border-radius:5px;background:#fff;padding:16px;grid-template-columns:22px minmax(0,1fr) 90px;gap:10px}
+.rolegain-ui.ui-v2 .job-title{align-items:start;flex-wrap:wrap}
+.rolegain-ui.ui-v2 .job-title strong{font-size:14px;letter-spacing:-.2px}
+.rolegain-ui.ui-v2 .company-mark{background:#eaf1d9;color:#3d4e20;border-radius:4px}
+.rolegain-ui.ui-v2 .score-ring{background:#f0f4e9;width:48px;height:35px;border:0;border-radius:4px}
+.rolegain-ui.ui-v2 .score-ring:before{display:none}
+.rolegain-ui.ui-v2 .score-ring span{color:#46562b;font-size:16px}
+.rolegain-ui.ui-v2 .application-card-status.status-open{background:#edf5d7;color:#465b23}
+.rolegain-ui.ui-v2 .application-group-empty{border-radius:5px}
+.rolegain-ui.ui-v2 .application-match-details{grid-column:1/-1}
+@media(max-width:760px){.rolegain-ui.ui-v2 .shell{display:block}.rolegain-ui.ui-v2 .nav{flex-direction:row;flex-wrap:wrap;align-items:center;padding:16px;gap:8px}.rolegain-ui.ui-v2 .brand{width:100%;margin-bottom:7px}.rolegain-ui.ui-v2 .nav-btn{width:auto;flex:1}.rolegain-ui.ui-v2 .candidate-identity{display:none}.rolegain-ui.ui-v2 .settings-menu{margin:0}.rolegain-ui.ui-v2 .topbar{padding:22px}.rolegain-ui.ui-v2 .page{padding:0 22px 25px}.rolegain-ui.ui-v2 .application-group{grid-template-columns:1fr}.rolegain-ui.ui-v2 .topbar h1{font-size:30px}}
+@media(max-width:460px){.rolegain-ui.ui-v2 .basic-fields{grid-template-columns:1fr}.rolegain-ui.ui-v2 .topbar{padding:18px;flex-wrap:wrap}.rolegain-ui.ui-v2 .page{padding:0 14px 22px}.rolegain-ui.ui-v2 .nav-btn{padding:10px 4px;font-size:11px}.rolegain-ui.ui-v2 .nav-btn small{display:none}.rolegain-ui.ui-v2 .settings-menu{display:none}.rolegain-ui.ui-v2 .application-overview-card{grid-template-columns:20px minmax(0,1fr)}.rolegain-ui.ui-v2 .job-side{grid-column:2;display:flex;flex-wrap:wrap;align-items:center;gap:8px}.rolegain-ui.ui-v2 .job-title{display:flex}.rolegain-ui.ui-v2 .application-card-status{margin-left:0!important}}
+.rolegain-ui.ui-v2 .newest-batch-list{background:#f4f6f8;border-color:#d9dee6}
+.rolegain-ui.ui-v2 .newest-batch-label{color:#596472}
+.rolegain-ui.ui-v2 .application-overview-card{min-height:0;grid-template-columns:22px minmax(0,1fr) 108px;align-items:start}
+.rolegain-ui.ui-v2 .job-rank{border:0;grid-row:1;padding-top:12px}
+.rolegain-ui.ui-v2 .job-main{padding:5px 0}
+.rolegain-ui.ui-v2 .job-side{padding:5px 0 5px 10px;gap:7px;min-width:0}
+.rolegain-ui.ui-v2 .score-ring{flex:0 0 35px;background:#f0f2f5}
+.rolegain-ui.ui-v2 .score-ring span{color:#28333f}
+.rolegain-ui.ui-v2 .job-side button{padding:7px;font-size:10px;color:#263340;background:#f2f4f7;border-radius:4px;width:100%}
+.rolegain-ui.ui-v2 .job-side small{font-size:9px}
+.rolegain-ui.ui-v2 .application-match-details{padding:0;grid-column:2/-1}
+.rolegain-ui.ui-v2 .company-mark{background:#edf1f5;color:#344252}
+@media(max-width:460px){.rolegain-ui.ui-v2 .application-overview-card{grid-template-columns:20px minmax(0,1fr)}.rolegain-ui.ui-v2 .job-side{grid-column:2;padding:8px 0;border-left:0;flex-direction:row;justify-content:start}.rolegain-ui.ui-v2 .job-side button{width:auto}.rolegain-ui.ui-v2 .score-ring{flex:0 0 48px}}
+.rolegain-ui.ui-v2{--rg-color-success:#c9ff4b;--rg-color-success-soft:#f2ffda;--signal-lime:#c9ff4b;--signal-lime-soft:#f2ffda;--signal-status-ink:#253019}
+.rolegain-ui.ui-v2 .topbar>div:first-child{border-left-color:var(--signal-lime)}
+.rolegain-ui.ui-v2 .basic-fields .field-complete input{border-color:var(--signal-lime);box-shadow:inset 3px 0 var(--signal-lime);background:#fff}
+.rolegain-ui.ui-v2 .cv-source-complete{background:var(--signal-lime-soft);border:0;border-radius:6px}
+.rolegain-ui.ui-v2 .cv-source-icon{background:var(--signal-lime);color:var(--signal-status-ink);border-radius:6px}
+.rolegain-ui.ui-v2 .cv-source-copy strong{color:#253019}
+.rolegain-ui.ui-v2 .cv-source-copy small{color:#606a59}
+.rolegain-ui.ui-v2 .ready-summary svg,.rolegain-ui.ui-v2 .ready-summary i,.rolegain-ui.ui-v2 .green,.rolegain-ui.ui-v2 .wizard-ready>svg{color:var(--signal-status-ink);background:var(--signal-lime);border-radius:50%;padding:2px;box-sizing:content-box}
+.rolegain-ui.ui-v2 .profile-evidence-status.status-ready,.rolegain-ui.ui-v2 .application-card-status.status-open{background:var(--signal-lime);border-color:var(--signal-lime);color:var(--signal-status-ink)}
+.rolegain-ui.ui-v2 .autosave-note.saved{color:var(--signal-status-ink)}
+.rolegain-ui.ui-v2 .autosave-note.saved svg{color:var(--signal-status-ink);background:var(--signal-lime);border-radius:50%}
+.rolegain-ui.ui-v2 .evidence-edit-toggle.active{background:var(--signal-lime);border-color:var(--signal-lime);color:var(--signal-status-ink)}
+.rolegain-ui.ui-v2 .selected-language{background:var(--signal-lime-soft);border-color:var(--signal-lime)}
+.rolegain-ui.ui-v2 .selected-language strong,.rolegain-ui.ui-v2 .selected-language button{color:var(--signal-status-ink)}
+.rolegain-ui.ui-v2 .selected-language select{border-color:var(--signal-lime)}
+.rolegain-ui.ui-v2 .discovery-continue{background:transparent;border:0;border-radius:0;padding:14px 0;box-shadow:none}
+.rolegain-ui.ui-v2 .discovery-continue strong{color:#26303a}
+.rolegain-ui.ui-v2 .discovery-continue>div>svg{background:var(--signal-lime);color:var(--signal-status-ink);padding:3px;border-radius:50%;box-sizing:content-box}
+.rolegain-ui.ui-v2 .primary{border-color:var(--signal-lime)}
+.rolegain-ui.ui-v2 .search-pipeline{background:transparent;border:0;border-radius:0;box-shadow:none;overflow:visible}
+.rolegain-ui.ui-v2 .pipeline-activity{background:transparent;border:0;padding:20px 0 12px;gap:10px}
+.rolegain-ui.ui-v2 .search-pipeline.ready .pipeline-live-dot{background:var(--signal-lime);box-shadow:0 0 0 3px #dbe2cd}
+.rolegain-ui.ui-v2 .pipeline-board{padding:0;gap:28px;min-width:0;overflow:visible}
+.rolegain-ui.ui-v2 .pipeline-column{background:transparent;border:0;border-radius:0;overflow:visible;box-shadow:none}
+.rolegain-ui.ui-v2 .pipeline-column>header{background:transparent;border:0;padding:10px 0 14px;gap:10px}
+.rolegain-ui.ui-v2 .pipeline-column>header strong{font-size:13px;font-weight:600}
+.rolegain-ui.ui-v2 .pipeline-column>header>b{background:#1d242e;color:var(--signal-lime);border-radius:5px;width:24px;height:24px}
+.rolegain-ui.ui-v2 .pipeline-column>header span{background:#e4e8ee;color:#54606f;font-size:9px}
+.rolegain-ui.ui-v2 .pipeline-column-scroll{background:transparent;padding:0;min-height:0;max-height:none;overflow:visible;gap:14px}
+.rolegain-ui.ui-v2 .newest-batch-list,.rolegain-ui.ui-v2 .pipeline-newest-batch{background:transparent;border:0;border-radius:0;box-shadow:none;padding:0;gap:8px}
+.rolegain-ui.ui-v2 .newest-batch-label{font-size:9px;letter-spacing:1.2px;color:#586473;padding:0 0 3px}
+.rolegain-ui.ui-v2 .pipeline-newest-batch>.newest-batch-label:before{content:'';display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--signal-lime);margin-right:7px}
+.rolegain-ui.ui-v2 .pipeline-previous-batches{background:transparent;padding:0;gap:5px}
+.rolegain-ui.ui-v2 .pipeline-area-empty{padding:4px 0;font-size:10px;color:#73808d}
+.rolegain-ui.ui-v2 .pipeline-job{background:#fff;border:1px solid #d9dee6;border-radius:6px;padding:14px;gap:11px;grid-template-columns:22px 1fr}
+.rolegain-ui.ui-v2 .pipeline-job.state-passed{border-left:1px solid #d9dee6}
+.rolegain-ui.ui-v2 .pipeline-job.state-passed .pipeline-state-icon{color:var(--signal-status-ink);background:var(--signal-lime);border-radius:5px;display:grid;place-items:center;width:22px;height:22px;padding:3px}
+.rolegain-ui.ui-v2 .pipeline-job-open strong{font-size:12px}
+.rolegain-ui.ui-v2 .pipeline-job-open>span{font-size:10px;margin-top:4px}
+.rolegain-ui.ui-v2 .discovery-toolbar{background:transparent;border:0;border-radius:0;padding:14px 0}
+.rolegain-ui.ui-v2 .application-group-cards{background:transparent}
+.rolegain-ui.ui-v2{--rg-color-canvas:transparent;--rg-color-surface:#ffffffb8;--rg-color-surface-subtle:#ffffff88;--rg-color-border:#ffffffb0;--rg-color-text-muted:#506273;--rg-color-ink:#1b2a38;--rg-color-accent:#c9ff4b;background:radial-gradient(ellipse at 92% 8%,#bfe8ff 0%,transparent 42%),radial-gradient(ellipse at 6% 52%,#d8fba3 0%,transparent 38%),radial-gradient(ellipse at 88% 88%,#b6c8f4 0%,transparent 43%),linear-gradient(130deg,#b6c7d5,#e7edf2 48%,#b8d0dc);padding:22px;border:1px solid #e6f0f7;border-radius:22px;box-shadow:0 16px 44px #17334d18;position:relative;isolation:isolate}
+.rolegain-ui.ui-v2:before{content:'';position:absolute;z-index:-1;pointer-events:none;inset:0;background:linear-gradient(115deg,transparent 5%,#ffffff80 5.2%,#ffffff10 18%,transparent 18.2%,transparent 55%,#ffffff50 55.2%,#ffffff05 70%,transparent 70.2%);opacity:.7}
+.rolegain-ui.ui-v2 .shell{border:1px solid #ffffffd9;border-radius:15px;background:linear-gradient(120deg,#ffffffad,#ffffff59 45%,#ffffff8c);backdrop-filter:blur(26px) saturate(125%);box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 #ffffffa0,0 22px 45px #3557731a;overflow:hidden}
+.rolegain-ui.ui-v2 .nav{background:linear-gradient(160deg,#172733e8,#192833d4);border-right:1px solid #ffffff55;box-shadow:inset 1px 0 #ffffff30;backdrop-filter:blur(30px)}
+.rolegain-ui.ui-v2 .nav-btn{color:#c3d3df}
+.rolegain-ui.ui-v2 .nav-btn.active{background:#c9ff4be6;color:#202719;box-shadow:inset 0 1px #edffbb,0 4px 14px #c9ff4b18;border:1px solid #e7ffb3}
+.rolegain-ui.ui-v2 .nav-btn.active small{background:#1d2e1514;color:#243510}
+.rolegain-ui.ui-v2 .brand>span{box-shadow:0 0 20px #c9ff4b24}
+.rolegain-ui.ui-v2 .candidate-identity{border-top-color:#ffffff20}
+.rolegain-ui.ui-v2 .settings-trigger{background:#ffffff08;border-color:#ffffff25;color:#d1dfeb}
+.rolegain-ui.ui-v2 .topbar{padding-top:33px;padding-bottom:29px}
+.rolegain-ui.ui-v2 .topbar h1{color:#192d3e;font-weight:500;letter-spacing:-1.6px;text-shadow:0 1px #ffffffc0;font-size:38px}
+.rolegain-ui.ui-v2 .eyebrow{color:#5a7081}
+.rolegain-ui.ui-v2 .page{background:transparent}
+.rolegain-ui.ui-v2 .band{background:transparent;border:0;border-radius:0;box-shadow:none}
+.rolegain-ui.ui-v2 .wizard-heading{border:0}
+.rolegain-ui.ui-v2 .wizard-heading h2{color:#243b4d;font-weight:500}
+.rolegain-ui.ui-v2 .wizard-panel{padding:22px 0}
+.rolegain-ui.ui-v2 .wizard-cv{padding-top:0}
+.rolegain-ui.ui-v2 .profile-basics{border-top-color:#ffffffa0}
+.rolegain-ui.ui-v2 .cv-source-complete{background:#eaffc44f;border:1px solid #ffffffc2;box-shadow:inset 0 1px #fff;border-radius:8px}
+.rolegain-ui.ui-v2 .basic-fields input,.rolegain-ui.ui-v2 .url-prefix-input,.rolegain-ui.ui-v2 .experience-input textarea,.rolegain-ui.ui-v2 input,.rolegain-ui.ui-v2 select,.rolegain-ui.ui-v2 textarea{background:#ffffff66;border-color:#ffffffc9;box-shadow:inset 0 1px 3px #183d4d0b;color:#223849}
+.rolegain-ui.ui-v2 .basic-fields .field-complete input{background:#ffffff70;border-color:#c9ff4b;box-shadow:inset 3px 0 #c9ff4b,inset 0 1px #fff}
+.rolegain-ui.ui-v2 .url-prefix-input input{background:transparent;box-shadow:none}
+.rolegain-ui.ui-v2 .evidence-ledger,.rolegain-ui.ui-v2 .questions{padding:22px 0}
+.rolegain-ui.ui-v2 .evidence-sources,.rolegain-ui.ui-v2 .evidence-source{border-color:#ffffffb0}
+.rolegain-ui.ui-v2 .experience-evidence-guidance{background:transparent;border-color:#ffffff90;color:#526b7c}
+.rolegain-ui.ui-v2 .results-bar{background:transparent;border:0;padding:10px 0 22px;box-shadow:none}
+.rolegain-ui.ui-v2 .primary{background:linear-gradient(#d6ff76,#c9ff4b);border:1px solid #e3ffaa;box-shadow:inset 0 1px #f2ffd4,0 4px 12px #61733114;color:#243510}
+.rolegain-ui.ui-v2 .queue-find,.rolegain-ui.ui-v2 .secondary,.rolegain-ui.ui-v2 .cv-update,.rolegain-ui.ui-v2 .evidence-edit-toggle{background:#ffffff78;border-color:#ffffffdd;color:#304a5e;box-shadow:inset 0 1px #fff}
+.rolegain-ui.ui-v2 .queue-find{white-space:nowrap}
+.rolegain-ui.ui-v2 .pipeline-activity,.rolegain-ui.ui-v2 .pipeline-board,.rolegain-ui.ui-v2 .pipeline-column,.rolegain-ui.ui-v2 .pipeline-column>header,.rolegain-ui.ui-v2 .pipeline-column-scroll,.rolegain-ui.ui-v2 .pipeline-newest-batch,.rolegain-ui.ui-v2 .pipeline-previous-batches,.rolegain-ui.ui-v2 .search-pipeline,.rolegain-ui.ui-v2 .discovery-toolbar,.rolegain-ui.ui-v2 .discovery-continue{background:transparent;border:0;box-shadow:none}
+.rolegain-ui.ui-v2 .pipeline-job{background:linear-gradient(115deg,#ffffff90,#ffffff45);border:1px solid #ffffffda;box-shadow:inset 0 1px #ffffff,0 4px 14px #25495e05;border-radius:8px;backdrop-filter:blur(12px)}
+.rolegain-ui.ui-v2 .pipeline-job.state-passed{border-left-color:#ffffffda}
+.rolegain-ui.ui-v2 .pipeline-job-open strong{color:#20364a;font-weight:600;text-shadow:0 1px #ffffff80}
+.rolegain-ui.ui-v2 .pipeline-job-open>span{color:#596f80}
+.rolegain-ui.ui-v2 .pipeline-column>header>b{background:#243b4ee0;box-shadow:inset 0 1px #ffffff20}
+.rolegain-ui.ui-v2 .pipeline-column>header span,.rolegain-ui.ui-v2 .pipeline-activity>b{background:#ffffff75;color:#496073;border:1px solid #ffffffaa}
+.rolegain-ui.ui-v2 .pipeline-area-empty,.rolegain-ui.ui-v2 .pipeline-previous-label{color:#627b8c}
+.rolegain-ui.ui-v2 .pipeline-job.state-passed .pipeline-state-icon{background:#c9ff4beb;box-shadow:inset 0 1px #f1ffd6}
+.rolegain-ui.ui-v2 .application-overview-card{background:linear-gradient(120deg,#ffffff8c,#ffffff50);border:1px solid #ffffffdc;border-radius:9px;box-shadow:inset 0 1px #fff,0 5px 16px #35576b07;backdrop-filter:blur(12px)}
+.rolegain-ui.ui-v2 .job-side{border-left-color:#ffffffa0}
+.rolegain-ui.ui-v2 .job-side button{background:#ffffff8a;border:1px solid #ffffffb0;color:#304b60}
+.rolegain-ui.ui-v2 .score-ring,.rolegain-ui.ui-v2 .company-mark{background:#ffffff90;color:#294356}
+.rolegain-ui.ui-v2 .application-group-empty{border-color:#ffffffb0;background:transparent;color:#5b7284}
+.rolegain-ui.ui-v2 .requirement-empty{background:#ffffff45;border-color:#ffffff9c;color:#63798a}
+.rolegain-ui.ui-v2 .application-group>header b{background:#ffffff8a;color:#3c566b}
+.rolegain-ui.ui-v2 .application-group>header strong{color:#354c60}
+.rolegain-ui.ui-v2 .newest-batch-label{color:#4e687b}
+@media(max-width:760px){.rolegain-ui.ui-v2{padding:14px}.rolegain-ui.ui-v2 .nav{border-right:0;border-bottom:1px solid #ffffff55}.rolegain-ui.ui-v2 .topbar h1{font-size:31px}}
+@media(max-width:460px){.rolegain-ui.ui-v2{padding:8px;border-radius:15px}.rolegain-ui.ui-v2 .shell{border-radius:10px}.rolegain-ui.ui-v2 .topbar h1{font-size:29px}.rolegain-ui.ui-v2 .queue-find{white-space:normal}}
+@media(prefers-reduced-transparency:reduce){.rolegain-ui.ui-v2 .shell{background:#e9eff2}.rolegain-ui.ui-v2 .pipeline-job,.rolegain-ui.ui-v2 .application-overview-card{background:#fff}}
+@media(max-width:760px){.rolegain-ui.ui-v2{padding:14px}}
+@media(max-width:460px){.rolegain-ui.ui-v2{padding:8px}}
+.rolegain-ui.ui-v2{background:radial-gradient(ellipse at 94% 10%,#d4dce4,transparent 45%),radial-gradient(ellipse at 5% 75%,#d9e9b5,transparent 30%),linear-gradient(125deg,#aeb9c5,#edf0f3 50%,#c5cdd7);border-color:#d8dfe7;padding:22px;border-radius:18px}
+.rolegain-ui.ui-v2:before{opacity:.45;background:linear-gradient(112deg,transparent 14%,#ffffffaa 14.2%,#ffffff05 29%,transparent 29.2%,transparent 75%,#ffffff50 75.2%,transparent 90%)}
+.rolegain-ui.ui-v2 .shell{display:grid;grid-template-columns:160px minmax(0,1fr);border:1px solid #ffffffba;border-radius:12px;background:#ffffff44;box-shadow:inset 0 1px #fff,0 18px 35px #17263814;backdrop-filter:blur(5px)}
+.rolegain-ui.ui-v2 .nav{background:#13171eeb;box-shadow:none;border-right:1px solid #ffffff35;display:flex;flex-direction:column;align-items:stretch;flex-wrap:nowrap;padding:28px 12px;gap:8px;backdrop-filter:blur(16px)}
+.rolegain-ui.ui-v2 .brand{width:auto;margin:0 0 30px;flex-shrink:0}
+.rolegain-ui.ui-v2 .brand strong{color:#f4f6fa}
+.rolegain-ui.ui-v2 .nav-btn{width:100%;position:relative;border-radius:6px;color:#bec9d8;border:0;box-shadow:none;flex:none}
+.rolegain-ui.ui-v2 .nav-btn:before{display:none}
+.rolegain-ui.ui-v2 .nav-btn.active{background:#c9ff4b;color:#202719;box-shadow:inset 0 1px #edffbf}
+.rolegain-ui.ui-v2 .nav-btn small{background:#ffffff15;color:#bdc9d8}
+.rolegain-ui.ui-v2 .nav-btn.active small{background:#20271912;color:#202719}
+.rolegain-ui.ui-v2 .candidate-identity{display:flex;border-top-color:#ffffff20}
+.rolegain-ui.ui-v2 .candidate-identity strong{color:#e8eff6}
+.rolegain-ui.ui-v2 .candidate-identity small,.rolegain-ui.ui-v2 .candidate-identity>span{color:#a2b0c1}
+.rolegain-ui.ui-v2 .settings-menu{margin:16px 0 0}
+.rolegain-ui.ui-v2 .settings-trigger{background:#ffffff09;border-color:#ffffff25;color:#c3ceda;border-radius:6px}
+.rolegain-ui.ui-v2 .topbar h1{font-family:Inter,ui-sans-serif,system-ui,sans-serif;font-size:36px;font-weight:500;color:#202b39;letter-spacing:-1.5px;text-shadow:0 1px #ffffff80}
+.rolegain-ui.ui-v2 .pipeline-job,.rolegain-ui.ui-v2 .application-overview-card{background:#ffffff65;border:1px solid #ffffffc9;border-radius:6px;box-shadow:inset 0 1px #fff;backdrop-filter:blur(7px)}
+.rolegain-ui.ui-v2 .primary{background:#c9ff4b;color:#202719;border:1px solid #dfff9c;border-radius:6px;box-shadow:inset 0 1px #efffcd}
+.rolegain-ui.ui-v2 .queue-find{border-radius:6px}
+.rolegain-ui.ui-v2 .shell{background:#ffffff30;backdrop-filter:blur(3px)}
+.rolegain-ui.ui-v2 .pipeline-job,.rolegain-ui.ui-v2 .application-overview-card{background:transparent;border:0;border-bottom:1px solid #ffffffa6;border-radius:0;box-shadow:none;backdrop-filter:none;padding:18px 5px}
+.rolegain-ui.ui-v2 .pipeline-job.state-passed{border-left:0}
+.rolegain-ui.ui-v2 .pipeline-job-open strong{font-size:14px;font-weight:500;letter-spacing:-.2px}
+.rolegain-ui.ui-v2 .newest-batch-list{gap:0}
+.rolegain-ui.ui-v2 .pipeline-job.state-passed .pipeline-state-icon{background:transparent;color:#273322;border:0;box-shadow:none;position:relative}
+.rolegain-ui.ui-v2 .pipeline-job.state-passed .pipeline-state-icon:before{content:'';position:absolute;inset:2px;background:#c9ff4b;border-radius:50%;z-index:-1}
+.rolegain-ui.ui-v2 .pipeline-job.state-passed .pipeline-state-icon{isolation:isolate}
+.rolegain-ui.ui-v2 .company-mark,.rolegain-ui.ui-v2 .score-ring{background:transparent}
+.rolegain-ui.ui-v2 .requirement-empty{background:transparent;border:0;padding:5px 0}
+.rolegain-ui.ui-v2 .cv-source-complete{background:transparent;border:0;border-bottom:1px solid #ffffffad;border-radius:0;padding-left:0}
+.rolegain-ui.ui-v2 .basic-fields input{border:0;border-bottom:1px solid #84929f;background:transparent;border-radius:0;box-shadow:none}
+.rolegain-ui.ui-v2 .basic-fields .field-complete input{border-bottom:2px solid #c9ff4b;box-shadow:none;background:transparent}
+.rolegain-ui.ui-v2 .url-prefix-input,.rolegain-ui.ui-v2 .experience-input textarea{background:transparent;box-shadow:none}
+@media(max-width:760px){.rolegain-ui.ui-v2{padding:12px}.rolegain-ui.ui-v2 .shell{display:block}.rolegain-ui.ui-v2 .nav{flex-direction:row;flex-wrap:wrap;gap:8px;padding:16px}.rolegain-ui.ui-v2 .brand{width:100%;margin:0 0 8px}.rolegain-ui.ui-v2 .nav-btn{width:auto;flex:1}.rolegain-ui.ui-v2 .candidate-identity{display:none}.rolegain-ui.ui-v2 .settings-menu{margin:0}.rolegain-ui.ui-v2 .topbar h1{font-size:30px}}
+@media(max-width:460px){.rolegain-ui.ui-v2{padding:7px}.rolegain-ui.ui-v2 .nav-btn{font-size:11px;padding:10px 5px}.rolegain-ui.ui-v2 .topbar h1{font-size:29px}}
+.rolegain-ui.ui-v2{
+ background:radial-gradient(ellipse at 94% 10%,#d4dce4,transparent 45%),radial-gradient(ellipse at 5% 75%,#d9e9b5,transparent 30%),linear-gradient(125deg,#aeb9c5,#edf0f3 50%,#c5cdd7);
+ background-size:1024px 1450px;
+ background-position:top left;
+ background-repeat:no-repeat;
+ background-color:#c5cdd7;
+ border-color:#d8dfe7;
+ padding:22px;
+ border-radius:18px;
+ box-shadow:0 16px 44px #17334d18;
+}
+.rolegain-ui.ui-v2:before{
+ display:block;
+ opacity:.45;
+ background:linear-gradient(112deg,transparent 14%,#ffffffaa 14.2%,#ffffff05 29%,transparent 29.2%,transparent 75%,#ffffff50 75.2%,transparent 90%);
+ background-size:1024px 1450px;
+ background-position:top left;
+ background-repeat:no-repeat;
+}
+@media(max-width:760px){.rolegain-ui.ui-v2{padding:12px}}
+@media(max-width:460px){.rolegain-ui.ui-v2{padding:7px}}
+.rolegain-ui.ui-v2 .shell{display:block;padding-top:16px;overflow:visible}
+.rolegain-ui.ui-v2 .nav{
+ margin:0 18px;display:flex;flex-direction:row;align-items:center;flex-wrap:nowrap;
+ gap:10px;padding:13px 16px;border:1px solid #ffffff85;border-radius:28px;
+ background:linear-gradient(125deg,#1c2937ed,#253745c4);
+ box-shadow:inset 0 2px 1px #ffffff65,inset 0 -3px 3px #020c1940,inset 3px 0 5px #ffffff20,0 14px 26px #15294320;
+ backdrop-filter:blur(30px) saturate(135%);
+}
+.rolegain-ui.ui-v2 .brand{width:auto;margin:0 10px 0 0;flex-shrink:0}
+.rolegain-ui.ui-v2 .nav-btn{width:auto;flex:none;border-radius:22px;padding:12px 14px}
+.rolegain-ui.ui-v2 .nav-btn.active{border:1px solid #eeffd0;background:linear-gradient(120deg,#e2ffad,#c9ff4bcc);box-shadow:inset 0 2px #f7ffe6,inset 0 -2px #95be37,0 3px 9px #00000016}
+.rolegain-ui.ui-v2 .candidate-identity{display:none}
+.rolegain-ui.ui-v2 .settings-menu{margin:0 0 0 auto}
+.rolegain-ui.ui-v2 .settings-trigger{border-radius:50%}
+@media(max-width:760px){
+ .rolegain-ui.ui-v2 .nav{margin:0 12px;border-radius:20px;flex-wrap:wrap;gap:8px}
+ .rolegain-ui.ui-v2 .brand{width:100%;margin:0 0 8px}
+ .rolegain-ui.ui-v2 .nav-btn{flex:1}
+}
+@media(max-width:460px){
+ .rolegain-ui.ui-v2 .nav{margin:0 7px;padding:14px 9px}
+ .rolegain-ui.ui-v2 .nav-btn{font-size:11px;padding:10px 5px}
+}
+.rolegain-ui.ui-v2{
+ background:radial-gradient(ellipse at 94% 10%,#b9c4d0,transparent 45%),radial-gradient(ellipse at 5% 75%,#c7d7a6,transparent 30%),linear-gradient(125deg,#8c9baa,#d3dae2 50%,#aab7c5);
+ background-size:1024px 1450px;background-position:top left;background-repeat:no-repeat;background-color:#aab7c5;
+}
+.rolegain-ui.ui-v2 .shell{background:#ffffff20;border-color:#ffffffa6;box-shadow:inset 0 1px #ffffffd0,0 18px 38px #17263825}
+.rolegain-ui.ui-v2 .nav{
+ background:linear-gradient(125deg,#090e15fa,#111b27f5);
+ border:1px solid #384656;
+ box-shadow:inset 0 1px #ffffff26,inset 0 -2px #00000050,0 12px 25px #09142235;
+ backdrop-filter:blur(24px);
+}
+.rolegain-ui.ui-v2 .brand strong{color:#ffffff}
+.rolegain-ui.ui-v2 .nav-btn{color:#dce5ef}
+.rolegain-ui.ui-v2 .nav-btn small{background:#ffffff18;color:#dce5ef}
+.rolegain-ui.ui-v2 .nav-btn.active{
+ background:linear-gradient(120deg,#d5ff75,#c9ff4b);
+ color:#152000;border:1px solid #e8ffb6;
+ box-shadow:inset 0 1px #f2ffd8,0 0 18px #c9ff4b14;
+}
+.rolegain-ui.ui-v2 .nav-btn.active small{background:#24350015;color:#203000}
+.rolegain-ui.ui-v2 .settings-trigger{background:#ffffff0c;border-color:#526173;color:#ecf3fc}
+.rolegain-ui.ui-v2 .topbar h1{color:#142230;text-shadow:0 1px #ffffff55;font-weight:600}
+.rolegain-ui.ui-v2 .eyebrow{color:#374f62}
+.rolegain-ui.ui-v2 .pipeline-job-open strong{color:#122638;font-weight:600}
+.rolegain-ui.ui-v2 .pipeline-job-open>span{color:#3e566a}
+.rolegain-ui.ui-v2 .pipeline-column>header strong{color:#243748}
+.rolegain-ui.ui-v2 .pipeline-column>header>b{background:#132230;color:#c9ff4b}
+.rolegain-ui.ui-v2 .pipeline-area-empty,
+.rolegain-ui.ui-v2 .pipeline-previous-label,
+.rolegain-ui.ui-v2 .newest-batch-label{color:#425b6e}
+.rolegain-ui.ui-v2 .pipeline-activity small,
+.rolegain-ui.ui-v2 .pipeline-activity .pipeline-funnel-summary{color:#465e70}
+.rolegain-ui.ui-v2 .pipeline-job,
+.rolegain-ui.ui-v2 .application-overview-card{border-bottom-color:#ffffffb8}
+.rolegain-ui.ui-v2 .queue-find,
+.rolegain-ui.ui-v2 .secondary{background:#ffffff9c;color:#223b4f;border-color:#ffffffda}
+.rolegain-ui.ui-v2 .wizard-heading p,
+.rolegain-ui.ui-v2 .basic-fields>label,
+.rolegain-ui.ui-v2 .job-main>p,
+.rolegain-ui.ui-v2 .application-group>header span{color:#43596b}
+.rolegain-ui.ui-v2 .profile-wizard input:not([type=file]):not([type=checkbox]):not([type=radio]),
+.rolegain-ui.ui-v2 .profile-wizard select{
+ display:block;width:100%;min-width:0;height:42px;margin:0;padding:10px 8px;
+ font:400 13px/1.4 Inter,ui-sans-serif,system-ui,sans-serif;
+ color:#1c3040;background:transparent;
+ border:0;border-bottom:1px solid #647b8f;border-radius:0;box-shadow:none;
+}
+.rolegain-ui.ui-v2 .profile-wizard .field-complete input{border-bottom:2px solid #c9ff4b;background:transparent;box-shadow:none}
+.rolegain-ui.ui-v2 .profile-wizard input::placeholder,
+.rolegain-ui.ui-v2 .profile-wizard textarea::placeholder{color:#536b7d;opacity:1;font-weight:400}
+.rolegain-ui.ui-v2 .evidence-link-fields{gap:18px;align-items:start}
+.rolegain-ui.ui-v2 .evidence-link-field{min-width:0;gap:7px}
+.rolegain-ui.ui-v2 .profile-field-label,
+.rolegain-ui.ui-v2 .basic-fields>label{font-size:11px;font-weight:500;color:#344d61}
+.rolegain-ui.ui-v2 .profile-field-label span{background:#ffffff42;border:0;border-radius:3px;color:#42586a;font-size:8px;font-weight:500;letter-spacing:.7px;padding:2px 5px}
+.rolegain-ui.ui-v2 .url-prefix-input{display:flex;align-items:center;height:42px;width:100%;border:0;border-bottom:1px solid #647b8f;border-radius:0;background:transparent;box-shadow:none;overflow:visible}
+.rolegain-ui.ui-v2 .url-prefix-input>span{display:flex;align-items:center;height:40px;padding:0 8px;background:transparent;border:0;color:#536b7d;font-size:12px;font-weight:400}
+.rolegain-ui.ui-v2 .profile-wizard .url-prefix-input input{flex:1;width:0;height:40px;border:0;padding-left:0;background:transparent;box-shadow:none}
+.rolegain-ui.ui-v2 .experience-input{background:transparent;border:0;border-radius:0;padding:24px 0 0;margin-top:8px;box-shadow:none}
+.rolegain-ui.ui-v2 .experience-input>label{font-size:14px;color:#263d50;font-weight:600}
+.rolegain-ui.ui-v2 .experience-input>span{font-size:11px;line-height:1.6;color:#435c70}
+.rolegain-ui.ui-v2 .experience-evidence-guidance{margin:10px 0 14px;padding:0;background:transparent;border:0;color:#4b6377;font-size:11px;line-height:1.6}
+.rolegain-ui.ui-v2 .profile-wizard .experience-input textarea{width:100%;min-height:100px;display:block;padding:12px;margin:0;background:#ffffff20;border:1px solid #ffffffb0;border-bottom-color:#7f93a5;border-radius:6px;box-shadow:inset 0 1px #ffffff80;color:#1c3040;font:400 13px/1.5 Inter,ui-sans-serif,system-ui,sans-serif;resize:vertical}
+.rolegain-ui.ui-v2 .profile-wizard .secondary,
+.rolegain-ui.ui-v2 .profile-wizard .cv-update,
+.rolegain-ui.ui-v2 .profile-wizard .evidence-edit-toggle{
+ display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:36px;
+ padding:8px 12px;background:linear-gradient(120deg,#ffffff66,#ffffff33);
+ border:1px solid #ffffffb0;border-radius:7px;box-shadow:inset 0 1px #ffffffb0;
+ font:500 11px/1.4 Inter,ui-sans-serif,system-ui,sans-serif;color:#263d50;
+}
+.rolegain-ui.ui-v2 .profile-wizard .secondary:disabled{background:#ffffff18;border-color:#ffffff60;color:#5f7282;opacity:.65;cursor:default}
+.rolegain-ui.ui-v2 .evidence-batch-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:12px}
+.rolegain-ui.ui-v2 .profile-wizard .count{background:#ffffff3d;border:1px solid #ffffff88;border-radius:5px;color:#3e576b;padding:4px 8px;font-size:10px}
+.rolegain-ui.ui-v2 .file-icon{background:#ffffff42;color:#3a5468;border:1px solid #ffffff9c;border-radius:6px}
+.rolegain-ui.ui-v2 .no-insights{color:#516b7e;background:transparent}
+.rolegain-ui.ui-v2 .subsection-heading>small,
+.rolegain-ui.ui-v2 .evidence-source small,
+.rolegain-ui.ui-v2 .footer-action{color:#4b6275}
+@media(max-width:760px){.rolegain-ui.ui-v2 .evidence-link-fields{grid-template-columns:1fr;gap:17px}}
+@media(pointer:coarse){.rolegain-ui.ui-v2 .profile-wizard input:not([type=file]),.rolegain-ui.ui-v2 .profile-wizard select,.rolegain-ui.ui-v2 .profile-wizard textarea{font-size:16px}}
+.rolegain-ui.ui-v2 .profile-wizard .field-complete input:not([type=file]):not([type=checkbox]):not([type=radio]){border-bottom:2px solid #c9ff4b;box-shadow:none;background:transparent}
+.rolegain-ui.ui-v2 .url-prefix-input> :not(input){background:transparent;border:0;color:#536b7d;font-size:12px;font-weight:400;box-shadow:none}
+.rolegain-ui.ui-v2 .profile-field-label small{background:#ffffff42;border:0;border-radius:3px;color:#42586a;font-size:8px;font-weight:500;letter-spacing:.7px;padding:2px 5px}
+.rolegain-ui.ui-v2 .brand .brand-ai{color:#c9ff4b}
+.rolegain-ui.ui-v2 .brand strong{white-space:nowrap}
+.rolegain-ui.ui-v2 .shell{padding-top:0;overflow:hidden}
+.rolegain-ui.ui-v2 .nav{margin:0;border-radius:0;border:0;border-bottom:1px solid #445063;box-shadow:none;background:#0c121c;padding:19px 22px}
+.rolegain-ui.ui-v2 .nav-btn{border-radius:5px}
+.rolegain-ui.ui-v2 .nav-btn.active{background:#c9ff4b;border-color:#c9ff4b;border-radius:5px;box-shadow:none}
+@media(max-width:760px){.rolegain-ui.ui-v2 .nav{margin:0}}
+@media(max-width:460px){.rolegain-ui.ui-v2 .nav-btn{font-size:11px;padding-left:6px;padding-right:6px}}
+.rolegain-ui.ui-v2 .brand{min-width:160px;gap:10px}
+.rolegain-ui.ui-v2 .brand .logo-word{display:flex;flex-direction:row;align-items:baseline;white-space:nowrap;line-height:1.1;letter-spacing:-.7px;font-size:23px;font-weight:600;color:#fff}
+.rolegain-ui.ui-v2 .brand .logo-word .brand-ai{color:#c9ff4b}
+.rolegain-ui.ui-v2 .brand .logo-emblem{display:grid;place-items:center;flex-shrink:0;width:34px;height:34px;background:transparent;color:#c9ff4b;border-radius:8px;padding:0}
+.rolegain-ui.ui-v2 .brand .logo-emblem svg{width:25px;height:25px}
+.rolegain-ui.ui-v2 .brand .logo-emblem i{width:25px;height:25px}
+.rolegain-ui.ui-v2 .brand .logo-word{font-size:25px;font-weight:600;letter-spacing:-1.2px}
+.rolegain-ui.ui-v2 .brand .brand-ai{font-weight:800}
+@media(max-width:760px){.rolegain-ui.ui-v2 .brand{min-width:0}}
+.rolegain-ui.ui-v2 .brand{min-width:180px;margin-right:16px}
+.rolegain-ui.ui-v2 .nav-btn{font-family:Inter,ui-sans-serif,system-ui,sans-serif;font-size:13px;font-weight:500;letter-spacing:-.3px;padding:12px 16px;gap:9px;transition:background 140ms,color 140ms}
+.rolegain-ui.ui-v2 .nav-btn svg,.rolegain-ui.ui-v2 .nav-btn>i{display:none}
+.rolegain-ui.ui-v2 .nav-btn{grid-template-columns:1fr auto}
+.rolegain-ui.ui-v2 .nav-btn small{font:500 10px/1.2 Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:0;border-radius:4px;padding:3px 5px}
+.rolegain-ui.ui-v2 .nav-btn{border-radius:0}
+.rolegain-ui.ui-v2 .nav-btn.active{background:transparent;border:0;color:#c9ff4b;box-shadow:none;font-weight:600}
+.rolegain-ui.ui-v2 .nav-btn.active small{background:#c9ff4b14;color:#c9ff4b}
+@media(max-width:760px){.rolegain-ui.ui-v2 .brand{min-width:0;margin-right:0}.rolegain-ui.ui-v2 .nav-btn{flex:1;justify-content:center}}
+@media(max-width:460px){.rolegain-ui.ui-v2 .nav-btn{font-size:12px;padding-left:10px;padding-right:10px}}
+.rolegain-ui.ui-v2 .brand .logo-word,
+.rolegain-ui.ui-v2 .nav-btn{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.rolegain-ui.ui-v2 .nav-btn{font-size:16px;font-weight:600;letter-spacing:-.5px;padding:13px 17px}
+.rolegain-ui.ui-v2 .nav-btn.active{font-weight:700;color:#c9ff4b}
+.rolegain-ui.ui-v2 .nav-btn small{font-size:10px;font-weight:500;letter-spacing:0}
+@media(max-width:760px){.rolegain-ui.ui-v2 .nav-btn{font-size:15px;padding:12px}}
+@media(max-width:460px){.rolegain-ui.ui-v2 .nav-btn{font-size:14px;padding:12px 7px;letter-spacing:-.3px}}
+.rolegain-ui.ui-v2{background:radial-gradient(ellipse at 94% 10%,#b9c4d0,transparent 45%),radial-gradient(ellipse at 5% 75%,#c7d7a6,transparent 30%),linear-gradient(125deg,#8c9baa,#d3dae2 50%,#aab7c5)}
+.rolegain-ui.ui-v2{background-size:100% 100%;background-position:center top;background-repeat:no-repeat;background-color:#aab7c5}
+.rolegain-ui.ui-v2{background:linear-gradient(116deg,transparent 0% 18%,#eff6ffb0 18.2% 19%,transparent 19.3% 57%,#e5f6c280 57.2% 58%,transparent 58.3%),linear-gradient(116deg,#8397aa 0% 18%,#bbc9d6 18% 42%,#dae2e9 42% 57%,#a9bac9 57% 78%,#c3ced8 78%)}
+.rolegain-ui.ui-v2{background-size:100% 100%;background-repeat:no-repeat}
+.rolegain-ui.ui-v2 .shell{background:#ffffff20;backdrop-filter:blur(10px) saturate(110%);border:1px solid #ffffffe0;box-shadow:inset 0 1px #fff,inset 1px 0 #ffffffa6,inset 0 -2px #ffffff80,0 14px 28px #18324720}
+.rolegain-ui.ui-v2:before{opacity:.25}
+.rolegain-ui.ui-v2 .topbar h1{color:#122434}
+/* Shared app chrome and live-control behavior. */
+.rolegain-ui{min-height:100vh;font-family:var(--rg-font-sans);color:#202327}
+.rolegain-ui .brand .logo-word{display:block;color:#fff;font-family:var(--rg-font-sans);font-size:25px;font-weight:600;letter-spacing:-1.2px;white-space:nowrap;line-height:1.2}
+.rolegain-ui .brand .brand-ai{color:#c9ff4b;font-weight:800}
+.rolegain-ui .shell{min-height:calc(100vh - 46px)}
+.rolegain-ui.ui-v1{background:#f0f2f3;border:0;border-radius:0}
+.rolegain-ui.ui-v1 .shell{min-height:100vh}
+.rolegain-ui.ui-v1 .brand{margin-bottom:30px}
+.rolegain-ui.ui-v1 .brand .logo-word{font-size:21px}
+.rolegain-ui.ui-v1 .candidate-identity{margin-top:auto}
+.rolegain-ui.ui-v2 .nav{position:sticky;top:0;z-index:30}
+.rolegain-ui.ui-v2 .brand{min-width:160px;margin-right:12px}
+.rolegain-ui.ui-v2 .candidate-identity{display:none}
+.rolegain-ui .ui-version-switch{display:flex;align-items:center;gap:3px;order:4;padding:4px;border:1px solid #414b58;border-radius:7px;margin-left:auto;flex-shrink:0;background:#0c121c;color:#aab8c8}
+.rolegain-ui .ui-version-switch>span{font-size:9px;padding:0 5px;letter-spacing:1px}
+.rolegain-ui .ui-version-switch button{border:0;background:transparent;color:#d2ddea;font-size:11px;font-weight:600;padding:7px 8px;border-radius:4px;cursor:pointer}
+.rolegain-ui .ui-version-switch button[aria-pressed=true]{background:#c9ff4b;color:#202719}
+.rolegain-ui.ui-v1 .ui-version-switch{margin:16px 0 0;justify-content:center}
+.rolegain-ui .settings-popover{background:#fff;color:#202327;backdrop-filter:none;z-index:60}
+.rolegain-ui :is(input,textarea,select):focus-visible{outline:2px solid #627e24;outline-offset:2px}
+.rolegain-ui button:focus-visible,.rolegain-ui a:focus-visible{outline:2px solid #91bb2b;outline-offset:3px}
+.rolegain-ui .nav button:focus-visible{outline-color:#e0ffa5}
+.rolegain-ui.ui-v2 .profile-wizard .field-complete input:not([type=file]):not([type=checkbox]):not([type=radio]){border-bottom:2px solid #c9ff4b;box-shadow:none}
+.rolegain-ui.ui-v2 .url-prefix-input> :not(input){background:transparent;border:0;color:#536b7d;box-shadow:none}
+.rolegain-ui.ui-v2 .profile-field-label small{background:#ffffff42;color:#42586a;border:0}
+@media(min-width:761px){.rolegain-ui.ui-v1 .nav{position:sticky;top:0;height:100vh;align-self:start;overflow-y:auto}.rolegain-ui.ui-v1 .settings-menu{order:5}}
+@media(max-width:1000px){.rolegain-ui.ui-v2 .brand{min-width:0;margin-right:0}.rolegain-ui.ui-v2 .nav{gap:4px}.rolegain-ui.ui-v2 .nav-btn{padding:12px 10px}}
+@media(max-width:760px){.rolegain-ui .shell{min-height:0}.rolegain-ui.ui-v1 .brand{margin-bottom:0}.rolegain-ui.ui-v1 .ui-version-switch{margin:0 0 0 auto}.rolegain-ui.ui-v2 .nav{position:relative}.rolegain-ui .ui-version-switch{order:0}.rolegain-ui.ui-v2 .brand{width:auto;margin:0 auto 8px 0}.rolegain-ui.ui-v2 .ui-version-switch{margin:0 0 8px}.rolegain-ui.ui-v2 .settings-menu{order:1}.rolegain-ui .nav-btn{order:2}.rolegain-ui .ui-version-switch button{min-height:32px}}
+@media(max-width:460px){.rolegain-ui .ui-version-switch>span{display:none}.rolegain-ui.ui-v2 .brand .logo-word{font-size:23px}.rolegain-ui.ui-v2 .nav-btn{font-size:13px;padding:12px 7px}.rolegain-ui.ui-v2 .settings-menu{display:block}.rolegain-ui.ui-v2 .settings-popover{width:min(280px,calc(100vw - 50px));right:0}}
+/* Keep settings available when the rail is short or the screen is narrow. */
+@media(min-width:761px){.rolegain-ui.ui-v1 .nav{overflow:visible}.rolegain-ui.ui-v1 .settings-popover{top:auto;bottom:calc(100% + 10px);left:0;right:auto;width:270px}}
+@media(max-width:460px){.rolegain-ui.ui-v1 .settings-menu{display:block}.rolegain-ui.ui-v1 .settings-popover{width:min(270px,calc(100vw - 40px))}}
+@media(prefers-reduced-transparency:reduce){.rolegain-ui.ui-v2 .shell{background:#dbe3eb;backdrop-filter:none}.rolegain-ui.ui-v2 .nav{background:#0c121c;backdrop-filter:none}}

@@ -6,6 +6,7 @@ import { AuthGate } from "./auth.js";
 import "./design-system.css";
 import "./styles.css";
 import "./cv-workspace.css";
+import "./ui-themes.css";
 
 const adminRoute = window.location.pathname.replace(/\/+$/, "") === "/admin";
 

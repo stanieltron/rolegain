@@ -338,6 +338,21 @@ type StagedEvidenceSource = {
 
 export function App() {
   const authActions = useAuthActions();
+  const [uiVersion, setUiVersion] = useState<"v1" | "v2">(() => {
+    try {
+      return localStorage.getItem("rolegain.ui-version") === "v1" ? "v1" : "v2";
+    } catch {
+      return "v2";
+    }
+  });
+  const selectUiVersion = (version: "v1" | "v2") => {
+    setUiVersion(version);
+    try {
+      localStorage.setItem("rolegain.ui-version", version);
+    } catch {
+      // The theme remains usable when browser storage is unavailable.
+    }
+  };
   const [workspace, setWorkspace] = useState<JobSearchWorkspace>();
   const [beta, setBeta] = useState<BetaStatus>();
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus>();
@@ -680,16 +695,13 @@ export function App() {
     discoveryReady &&
     (workspace.phase === "applications" || preparedApplications.length > 0);
   return (
+    <div className={`rolegain-ui ui-${uiVersion}`}>
     <div className="shell">
       <nav className="nav" aria-label="Primary navigation">
         <div className="brand">
-          <span>
-            <Sparkles size={18} />
-          </span>
-          <div>
-            <strong>RolegAIn</strong>
-            <small>Agentic job search</small>
-          </div>
+          <strong className="logo-word" aria-label="Rolegain">
+            Roleg<span className="brand-ai">AI</span>n
+          </strong>
         </div>
         <div className="candidate-identity">
           <span>Candidate</span>
@@ -728,6 +740,20 @@ export function App() {
             setView("applications");
           }}
         />
+        <div className="ui-version-switch" role="group" aria-label="UI version">
+          <span>UI</span>
+          {(["v1", "v2"] as const).map((version) => (
+            <button
+              key={version}
+              type="button"
+              aria-pressed={uiVersion === version}
+              title={version === "v1" ? "Signal" : "Window Light glass"}
+              onClick={() => selectUiVersion(version)}
+            >
+              {version.toUpperCase()}
+            </button>
+          ))}
+        </div>
         <div className="settings-menu">
           <button
             className="settings-trigger"
@@ -935,6 +961,7 @@ export function App() {
           }}
         />
       )}
+    </div>
     </div>
   );
 }
