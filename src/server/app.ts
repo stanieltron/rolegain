@@ -166,6 +166,10 @@ export async function createRolegainApp(
     } catch (error) {
       const invalidCv = error instanceof CvValidationError;
       const httpError = error instanceof HttpError ? error : undefined;
+      console.error(
+        `HTTP ${request.method || "UNKNOWN"} ${new URL(request.url ?? "/", "http://127.0.0.1").pathname} failed`,
+        error,
+      );
       sendJson(response, httpError?.status ?? (invalidCv ? 422 : 500), {
         error: error instanceof Error ? error.message : String(error),
         ...(httpError?.code ? { code: httpError.code } : {}),

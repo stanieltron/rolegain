@@ -215,7 +215,7 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
       this.service.stopBackgroundWork(userId),
       this.codex.pauseTurnsForUser(userId),
     ]);
-    await this.waitForCancelledRuns(result.rows.map((row) => row.id));
+    await this.waitForCancelledRuns(userId, result.rows.map((row) => row.id));
   }
 
   async purgeUserJobs(userId: string) {
@@ -383,18 +383,45 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
     }
   }
 
-  private async waitForCancelledRuns(runIds: string[]): Promise<void> {
+  private async waitForCancelledRuns(
+    userId: string,
+    runIds: string[],
+  ): Promise<void> {
     if (!runIds.length) return;
     const deadline = Date.now() + CANCELLATION_DRAIN_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      const result = await this.pool.query<{ active: string }>(
-        `select count(*)::text as active
-         from rolegain_workflow_runs
-         where id = any($1::uuid[]) and status = 'running'`,
-        [runIds],
-      );
-      if (Number(result.rows[0]?.active ?? 0) === 0) return;
-      await delay(CANCELLATION_POLL_INTERVAL_MS);
+    const client = await this.lockPool.connect();
+    let acquired = false;
+    try {
+      while (Date.now() < deadline) {
+        const result = await client.query<{ acquired: boolean }>(
+          "select pg_try_advisory_lock(hashtext($1)) as acquired",
+          [userId],
+        );
+        acquired = Boolean(result.rows[0]?.acquired);
+        if (acquired) {
+          // The advisory lock is the source of truth for worker ownership.
+          // A deployment or worker crash can leave our audit row marked as
+          // running even though no process still owns the candidate. Repair
+          // those stale rows after cancellation has been requested.
+          await this.pool.query(
+            `update rolegain_workflow_runs
+             set status = 'cancelled', error = null,
+                 completed_at = coalesce(completed_at, now())
+             where id = any($1::uuid[])
+               and status = 'running'
+               and cancellation_requested_at is not null`,
+            [runIds],
+          );
+          return;
+        }
+        await delay(CANCELLATION_POLL_INTERVAL_MS);
+      }
+    } finally {
+      if (acquired)
+        await client
+          .query("select pg_advisory_unlock(hashtext($1))", [userId])
+          .catch(() => undefined);
+      client.release();
     }
     throw new Error(
       "The running workflow did not stop within 30 seconds; user data was not reset",
