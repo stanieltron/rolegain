@@ -361,6 +361,16 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [resettingUser, setResettingUser] = useState(false);
+  const [resetComplete, setResetComplete] = useState(() => {
+    try {
+      const completed = sessionStorage.getItem("rolegain.reset-complete") === "true";
+      if (completed) sessionStorage.removeItem("rolegain.reset-complete");
+      return completed;
+    } catch {
+      return false;
+    }
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [preferenceSaveState, setPreferenceSaveState] =
     useState<PreferenceSaveState>("idle");
@@ -606,6 +616,45 @@ export function App() {
     }
   };
 
+  const resetCandidate = async () => {
+    setSettingsOpen(false);
+    setSelectedId(undefined);
+    setBusy(true);
+    setResettingUser(true);
+    setResetComplete(false);
+    setError(undefined);
+    try {
+      const reset = await resetUser();
+      const isEmpty =
+        reset.phase === "intake" &&
+        !reset.profile.name &&
+        !reset.profile.email &&
+        reset.sources.length === 0 &&
+        reset.opportunities.length === 0 &&
+        reset.applications.length === 0;
+      if (!isEmpty)
+        throw new Error(
+          "The server did not return an empty candidate profile. Nothing was hidden locally; please try again.",
+        );
+      try {
+        sessionStorage.setItem("rolegain.reset-complete", "true");
+      } catch {
+        setWorkspace(reset);
+        setResetComplete(true);
+        setResettingUser(false);
+        setBusy(false);
+        return;
+      }
+      window.location.reload();
+    } catch (cause) {
+      setError(
+        `Candidate reset failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+      setResettingUser(false);
+      setBusy(false);
+    }
+  };
+
   const saveSearchSettings = (
     patch: Partial<
       Pick<
@@ -820,9 +869,7 @@ export function App() {
                     "Permanently reset this user? This deletes the profile, preferences, uploaded files, evidence and knowledge, jobs, applications, history, and numbering. This cannot be undone.",
                   );
                   if (!confirmed) return;
-                  setSettingsOpen(false);
-                  setSelectedId(undefined);
-                  void act(resetUser, "profile");
+                  void resetCandidate();
                 }}
               >
                 <Trash2 size={15} />
@@ -894,6 +941,21 @@ export function App() {
             <button onClick={() => setError(undefined)}>
               <X size={15} />
             </button>
+          </div>
+        )}
+        {resetComplete && (
+          <div className="reset-complete" role="status">
+            <CheckCircle2 size={18} />
+            <span>Candidate reset complete. Profile, evidence, jobs, and applications were deleted.</span>
+            <button onClick={() => setResetComplete(false)} aria-label="Dismiss reset confirmation">
+              <X size={15} />
+            </button>
+          </div>
+        )}
+        {resettingUser && (
+          <div className="reset-progress" role="status" aria-live="polite">
+            <LoaderCircle className="spin" size={18} />
+            <span>Resetting candidate and verifying deletion…</span>
           </div>
         )}
         <div className="page">

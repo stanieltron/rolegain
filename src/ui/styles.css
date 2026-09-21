@@ -372,6 +372,41 @@ main {
   border: 0;
   background: transparent;
 }
+
+.reset-complete,
+.reset-progress {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  margin: 0 24px 12px;
+  padding: 11px 14px;
+  border: 1px solid #a9c98a;
+  border-radius: 8px;
+  background: #f1f8e9;
+  color: #31551f;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.reset-progress {
+  border-color: #a9bfd8;
+  background: #eef5fb;
+  color: #294e72;
+}
+
+.reset-complete span,
+.reset-progress span {
+  flex: 1;
+}
+
+.reset-complete button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: grid;
+  padding: 3px;
+  place-items: center;
+}
 .band {
   background: var(--rg-color-surface);
   border: var(--rg-border-width) solid var(--rg-color-border);
