@@ -517,7 +517,7 @@ export async function openApplicationControlWithAgent(
   const runtime = await codex.start();
   const model =
     process.env.ROLEGAIN_FAST_MODEL ||
-    runtime.models.find((item) => item.id === "gpt-5.4-mini")?.id ||
+    runtime.models.find((item) => item.id === "gpt-5.6-luna")?.id ||
     runtime.model;
   const thread = await codex.startThread({
     cwd,
@@ -1091,7 +1091,7 @@ export async function auditApplicationFieldsWithAgent(
     const runtime = await codex.start();
     const model =
       process.env.ROLEGAIN_FAST_MODEL ||
-      runtime.models.find((item) => item.id === "gpt-5.4-mini")?.id ||
+      runtime.models.find((item) => item.id === "gpt-5.6-luna")?.id ||
       runtime.model;
     const thread = await codex.startThread({
       cwd,

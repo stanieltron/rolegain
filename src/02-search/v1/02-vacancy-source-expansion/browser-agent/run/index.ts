@@ -141,7 +141,7 @@ export async function runSourceBrowserAgent(
       const runtime = await input.codex.start();
       const model =
         process.env.ROLEGAIN_FAST_MODEL ||
-        runtime.models.find((item) => item.id === "gpt-5.4-mini")?.id ||
+        runtime.models.find((item) => item.id === "gpt-5.6-luna")?.id ||
         runtime.model;
       const thread = await input.codex.startThread({
         cwd: input.cwd,

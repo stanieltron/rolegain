@@ -2,7 +2,7 @@ export const command = {
   runtime: "codex-exec",
   role: "vacancy-source-navigator",
   modelEnvironment: "ROLEGAIN_FAST_MODEL",
-  defaultModel: "gpt-5.4-mini",
+  defaultModel: "gpt-5.6-luna",
   sandbox: "readOnly",
   approvalPolicy: "never",
   effort: "low",

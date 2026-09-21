@@ -59,8 +59,8 @@ await initializeDiagnosticLog({
   llmRunRoot: process.env.ROLEGAIN_LLM_RUN_ROOT,
   apiOrigin,
   uiOrigin,
-  model: process.env.ROLEGAIN_MODEL || "gpt-5.4",
-  fastModel: process.env.ROLEGAIN_FAST_MODEL || "gpt-5.4-mini",
+  model: process.env.ROLEGAIN_MODEL || "gpt-5.6-terra",
+  fastModel: process.env.ROLEGAIN_FAST_MODEL || "gpt-5.6-luna",
 });
 
 const app = await createRolegainApp({

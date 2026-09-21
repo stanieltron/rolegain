@@ -163,9 +163,16 @@ export class CodexExecClient {
       stderr: error instanceof Error ? error.message : String(error),
     }));
     const loginText = `${login.stdout || ""}\n${login.stderr || ""}`;
-    const primary = process.env.ROLEGAIN_MODEL || "gpt-5.4";
-    const fast = process.env.ROLEGAIN_FAST_MODEL || "gpt-5.4-mini";
-    const search = process.env.ROLEGAIN_SEARCH_MODEL || fast;
+    const authMode = /chatgpt/i.test(loginText) ? "chatgpt" : "unknown";
+    const compatibleModel = (model: string) =>
+      authMode === "chatgpt" ? codexChatGptModel(model) : model;
+    const primary = compatibleModel(
+      process.env.ROLEGAIN_MODEL || "gpt-5.6-terra",
+    );
+    const fast = compatibleModel(
+      process.env.ROLEGAIN_FAST_MODEL || "gpt-5.6-luna",
+    );
+    const search = compatibleModel(process.env.ROLEGAIN_SEARCH_MODEL || fast);
     const modelIds = [...new Set([primary, fast, search])];
     this.runtimeInfo = {
       available: true,
@@ -173,7 +180,7 @@ export class CodexExecClient {
       version,
       compatible: version === SUPPORTED_CODEX_VERSION,
       authenticated: loginStatusIsAuthenticated(loginText),
-      authMode: /chatgpt/i.test(loginText) ? "chatgpt" : "unknown",
+      authMode,
       model: primary,
       models: modelIds.map((id, index) => ({
         id,
@@ -227,7 +234,8 @@ export class CodexExecClient {
       configuration: this.llmConfiguration,
       callId: context.callId,
       production: {
-        model: options.model || context.model || runtime.model || "gpt-5.4",
+        model:
+          options.model || context.model || runtime.model || "gpt-5.6-terra",
         effort: options.effort || "medium",
         role: context.role,
         rolePrompt: context.developerInstructions,
@@ -239,6 +247,8 @@ export class CodexExecClient {
         timeoutMs: options.timeoutMs ?? 15 * 60_000,
         webSearch: context.webSearch?.mode || "disabled",
       },
+      modelTransform:
+        runtime.authMode === "chatgpt" ? codexChatGptModel : undefined,
     });
 
     const turnId = randomUUID();
@@ -618,6 +628,12 @@ export class CodexExecClient {
       );
     }
   }
+}
+
+export function codexChatGptModel(model: string) {
+  if (model === "gpt-5.4") return "gpt-5.6-terra";
+  if (model === "gpt-5.4-mini") return "gpt-5.6-luna";
+  return model;
 }
 
 /** Use the same authenticated Codex home as the CLI/Desktop unless overridden. */

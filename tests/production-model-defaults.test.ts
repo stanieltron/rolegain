@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { productionModel } from "../src/codex-runtime/call-manifest.js";
+import { codexChatGptModel } from "../src/codex-runtime/client.js";
 import { command as chunkAnalysis } from "../src/01-evidence-ingestion/v1/02-chunk-reader/llm-calls/01-chunk-analysis/index.js";
 import { command as chunkCoverage } from "../src/01-evidence-ingestion/v1/02-chunk-reader/llm-calls/02-coverage-verification/index.js";
 import { command as chunkRepair } from "../src/01-evidence-ingestion/v1/02-chunk-reader/llm-calls/03-chunk-repair/index.js";
@@ -15,6 +16,12 @@ import { command as matchRepair } from "../src/03-match/shared/01-requirement-ma
 afterEach(() => vi.unstubAllEnvs());
 
 describe("production model defaults", () => {
+  it("maps retired ChatGPT-authenticated Codex models to supported equivalents", () => {
+    expect(codexChatGptModel("gpt-5.4")).toBe("gpt-5.6-terra");
+    expect(codexChatGptModel("gpt-5.4-mini")).toBe("gpt-5.6-luna");
+    expect(codexChatGptModel("gpt-5.6-sol")).toBe("gpt-5.6-sol");
+  });
+
   it("uses the fastest fully passing real-input replay candidate per tested call", () => {
     expect([
       [chunkAnalysis.defaultModel, chunkAnalysis.effort],
@@ -39,7 +46,7 @@ describe("production model defaults", () => {
       ["gpt-5.6-terra", "medium"],
       ["gpt-5.6-terra", "low"],
       ["gpt-5.6-luna", "low"],
-      ["gpt-5.5", "low"],
+      ["gpt-5.6-terra", "low"],
     ]);
   });
 

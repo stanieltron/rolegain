@@ -83,6 +83,7 @@ export interface ResolveLlmCallConfigInput {
     timeoutMs: number;
     webSearch: "disabled" | "cached" | "live";
   };
+  modelTransform?: (model: string) => string;
 }
 
 export async function resolveLlmCallConfig(
@@ -121,7 +122,9 @@ export async function resolveLlmCallConfig(
   const base = {
     configurationId: input.configuration?.id || "production-default",
     callId: input.callId,
-    model: override?.model ?? input.production.model,
+    model: input.modelTransform
+      ? input.modelTransform(override?.model ?? input.production.model)
+      : override?.model ?? input.production.model,
     effort: override?.effort ?? input.production.effort,
     role: override?.role ?? input.production.role,
     rolePrompt,

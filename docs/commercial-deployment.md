@@ -175,7 +175,10 @@ Deploy the web and worker as separate Railway services from the same repository:
 - worker command: `node dist/server/scripts/start-worker.js`;
 - worker variables: `ROLEGAIN_LLM_TRANSPORT=codex`,
   `ROLEGAIN_CODEX_HOME=/data/codex`,
-  `ROLEGAIN_LLM_RUN_ROOT=/data/agent-runtime/runs`;
+  `ROLEGAIN_LLM_RUN_ROOT=/data/agent-runtime/runs`,
+  `ROLEGAIN_MODEL=gpt-5.6-terra`,
+  `ROLEGAIN_FAST_MODEL=gpt-5.6-luna`, and
+  `ROLEGAIN_SEARCH_MODEL=gpt-5.6-luna`;
 - optional worker alert variables: `RESEND_API_KEY`,
   `ROLEGAIN_ERROR_EMAIL_TO`, and `ROLEGAIN_ERROR_EMAIL_FROM`. Alerts contain a
   bounded, sanitized error summary and link to `/admin`; email failures never

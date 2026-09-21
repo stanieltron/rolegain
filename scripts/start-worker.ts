@@ -23,7 +23,15 @@ if (!dependencies.workflows)
     "The worker requires DATABASE_URL and ROLEGAIN_AUTH_MODE=supabase",
   );
 
-console.log("Rolegain workflow worker is ready.");
+const runtime = await dependencies.codex.start();
+console.log("Rolegain workflow worker is ready.", {
+  transport: runtime.binary,
+  version: runtime.version,
+  compatible: runtime.compatible,
+  authenticated: runtime.authenticated,
+  authMode: runtime.authMode,
+  model: runtime.model,
+});
 
 const shutdown = async () => {
   await dependencies.close();
