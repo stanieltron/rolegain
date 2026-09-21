@@ -1,0 +1,12 @@
+import {chromium} from 'playwright';
+const b=await chromium.launch();const page=await b.newPage({viewport:{width:1920,height:1080}});page.setDefaultTimeout(8000);page.on('pageerror',e=>console.log('ERROR',e.message));
+await page.goto('http://127.0.0.1:5186/video/rolegain-demo/film.html');const ui=page.frame({url:/ui.html/});await ui.locator('.dropzone').waitFor();await page.waitForTimeout(100);
+await ui.evaluate(()=>window.demo.stage('selected'));await ui.getByRole('button',{name:'Applications',exact:true}).click();await ui.getByRole('button',{name:'Open application',exact:true}).first().click();await ui.evaluate(()=>{window.demo.mode('form');window.scrollTo(0,0)});await page.waitForTimeout(150);
+await page.evaluate(()=>window.film.heading('Cover letter written. <em>CV attached.</em>',4,'EVIDENCE-BASED AUTOFILL'));
+await page.screenshot({path:'video/rolegain-demo/output/internal-cover-v2.png'});
+console.log('Internal boxes',await ui.locator('.cover-letter-field,.form-field:has([data-application-field="notice"]),.send-boundary').evaluateAll(els=>els.map(el=>({text:el.textContent.slice(0,80),top:el.getBoundingClientRect().top,height:el.clientHeight}))));
+await ui.evaluate(()=>window.scrollTo(0,250));await page.screenshot({path:'video/rolegain-demo/output/internal-answers-v2.png'});
+await ui.getByRole('textbox',{name:'Notice period',exact:true}).fill('2 weeks');await ui.getByRole('button',{name:'Open employer form',exact:true}).click();await ui.evaluate(()=>{window.demo.mode('employer');window.scrollTo(0,0)});await ui.frameLocator('.employer-browser-frame').locator('#resume').waitFor({state:'attached'});const em=page.frame({url:/employer.html/});await em.locator('#resume').setInputFiles({name:'Alex_Morgan_CV.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4 mock fixture')});
+await page.waitForTimeout(100);await page.evaluate(()=>window.film.heading('CV uploaded. <em>Cover letter autofilled.</em>',5,'ON THE EMPLOYER’S SITE'));await page.screenshot({path:'video/rolegain-demo/output/external-cover-v2.png'});
+console.log('External',await em.locator('body').evaluate(el=>({height:el.scrollHeight,viewport:innerHeight,cover:document.querySelector('[name="cover"]').value.length})));
+await em.evaluate(()=>window.scrollTo(0,document.scrollingElement.scrollHeight));await page.screenshot({path:'video/rolegain-demo/output/external-answers-v2.png'});await b.close();

@@ -1,7 +1,9 @@
 import { createReadStream } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
+import type { Pool } from "pg";
 import type { RolegainDependencies } from "../backend/control-flow/composition.js";
+import { withUserLock } from "../infrastructure/database.js";
 import { readJson, sendJson, setCors } from "./http.js";
 import { serveStatic } from "./static-files.js";
 import { HttpError, type AuthenticatedActor } from "./auth.js";
@@ -43,6 +45,7 @@ type RouteDependencies = Pick<
   | "platform"
 > & {
   root: string;
+  sessionDatabase?: Pool;
   actor?: AuthenticatedActor;
 };
 
@@ -572,10 +575,20 @@ export async function routeRequest(
     request.method === "POST" &&
     pathname === "/api/job-search/reset-user"
   ) {
+    // Cancellation must happen before taking the per-user advisory lock: a
+    // running worker owns that lock until it observes the cancellation and
+    // exits. Once drained, serialize the destructive reset so another web
+    // request cannot save the pre-reset workspace over the new empty one.
     await cancelBackgroundWork(dependencies, userId);
-    await dependencies.workflows?.purgeUserJobs(userId);
-    const workspace = await dependencies.jobSearch.resetUserCompletely(userId);
-    await dependencies.artifacts.delete(userId);
+    const reset = async () => {
+      await dependencies.workflows?.purgeUserJobs(userId);
+      const workspace = await dependencies.jobSearch.resetUserCompletely(userId);
+      await dependencies.artifacts.delete(userId);
+      return workspace;
+    };
+    const workspace = dependencies.sessionDatabase
+      ? await withUserLock(dependencies.sessionDatabase, userId, reset)
+      : await reset();
     sendJson(response, 200, workspace);
     return;
   }

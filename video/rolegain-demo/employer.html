@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><style>
+*{box-sizing:border-box}body{margin:0;color:#222831;background:#fff;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}header{position:sticky;top:0;z-index:3;background:#fff;padding:17px 48px;border-bottom:1px solid #e8ebee;display:flex;align-items:center;justify-content:space-between}.brand{font-size:23px;font-weight:720;letter-spacing:-1px;display:flex;gap:10px;align-items:center}.logo{background:#4957e8;color:white;width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font-size:21px}.crumb{font-size:12px;color:#79818a}main{max-width:1260px;margin:23px auto 28px;display:grid;grid-template-columns:268px 1fr;gap:38px;align-items:start}.intro{position:sticky;top:95px;padding-top:12px}.eyebrow{font-size:10px;color:#5561d2;letter-spacing:1.5px;font-weight:700}h1{font-size:30px;letter-spacing:-1.2px;line-height:1.12;font-weight:650;margin:15px 0}p{color:#6b7581;font-size:13px;line-height:1.6}.details{display:flex;gap:6px;margin-top:19px}.details span{border:1px solid #e1e6ed;padding:6px 8px;border-radius:5px;font-size:10px}.prefill{margin-top:28px;display:grid;gap:11px;color:#3f6651;font-size:12px}.prefill span{display:flex;align-items:center;gap:8px}.check{background:#eaf5ef;border-radius:50%;width:20px;height:20px;display:grid;place-items:center;font-style:normal}.form-title{margin:0 0 16px;display:flex;justify-content:space-between;align-items:center}.form-title h2{font-size:18px;margin:0;letter-spacing:-.5px}.auto{font-size:10px;font-weight:600;color:#4d695b;background:#f0f7f1;border:1px solid #d9e8da;padding:5px 8px;border-radius:5px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:13px 18px}label{font-size:11px;color:#4b5662;font-weight:600;display:grid;gap:6px}.label-row{display:flex;justify-content:space-between;align-items:center}.label-row small{font-size:9px;color:#6b8975;font-weight:500}input,textarea,select{font:12px -apple-system,BlinkMacSystemFont,sans-serif;color:#222c39;border:1px solid #dce2e9;border-radius:6px;padding:9px 11px;background:#fff;outline:none;width:100%}input,select{height:35px}textarea{height:119px;resize:none;line-height:1.5}.cover{height:151px;line-height:1.5}.full{grid-column:1/-1}.file{font-size:11px;border:1px dashed #bacfbe;background:#f5faf6;padding:10px 11px;border-radius:6px;color:#4b5a6b;display:flex;justify-content:space-between;gap:8px;align-items:center;min-height:35px}.file b{color:#328054;font-weight:600;font-size:10px;white-space:nowrap}input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.evidence{font-size:9px;font-weight:400;color:#728176}.bottom{display:flex;justify-content:space-between;align-items:center;margin-top:19px;padding:15px 0 0;border-top:1px solid #e8ecef}.bottom span{font-size:11px;color:#758179}button{background:#4856db;color:white;border:none;padding:12px 24px;border-radius:7px;font-size:14px;font-weight:600;cursor:pointer}.notice-row{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:end}.notice-row p{font-size:11px;margin:0 0 8px;color:#728176}#success{display:none;text-align:center;padding:40px 0 80px;grid-column:1/-1}#success .tick{margin:auto;border:1px solid #ccdfe0;border-radius:50%;background:#eef8f2;width:65px;height:65px;display:grid;place-items:center;font-size:30px;color:#348459}#success h1{font-size:34px;margin:23px 0 10px}#success p{margin:5px}.tag{display:inline-block;margin-top:24px;background:#f2f4fa;padding:8px 14px;border-radius:6px;font-size:12px;color:#556079}
+</style></head><body>
+<header><div class="brand"><span class="logo">↗</span>orbitlane</div><div class="crumb">Careers &nbsp; / &nbsp; Engineering &nbsp; / &nbsp; Apply</div></header>
+<main>
+<section class="intro"><span class="eyebrow">BUILD WHAT COMES NEXT</span><h1>Senior Full-stack<br>Engineer</h1><p>Help us make great developer tools.<br>Bring your curiosity. Own your impact.</p><div class="details"><span>Remote · Europe</span><span>Full-time</span></div><div class="prefill"><span><i class="check">✓</i> Cover letter included</span><span><i class="check">✓</i> Written answers completed</span><span><i class="check">✓</i> Review, then make the final click</span></div></section>
+<form id="form">
+<div class="form-title"><h2>Your application</h2><span class="auto">Autofilled · Ready for review</span></div>
+<div class="grid">
+<label>Full name *<input name="name" required></label>
+<label>Email address *<input name="email" type="email" required></label>
+<label>CV / Resume *<input id="resume" name="resume" type="file" accept=".pdf" required><div class="file"><span id="file-name">Alex_Morgan_CV.pdf</span><b id="file-status">Uploading CV…</b></div></label>
+<label>GitHub profile<input name="github"></label>
+<label class="full"><span class="label-row">Cover letter *<small>Autofilled</small></span><textarea class="cover" name="cover" required></textarea></label>
+<label><span class="label-row">Describe a technical achievement *<small>Autofilled</small></span><textarea name="project" required></textarea><span class="evidence">Evidence-based narrative answer</span></label>
+<label><span class="label-row">Why this role and company? *<small>Autofilled</small></span><textarea name="why" required></textarea><span class="evidence">Evidence-based narrative answer</span></label>
+<label>Work authorization *<select name="authorization" required><option value=""></option><option>Authorized to work in the EU</option><option>Sponsorship required</option></select></label>
+<label>Preferred workplace *<select name="workplace" required><option value=""></option><option>Remote</option><option>Hybrid</option><option>On-site</option></select></label>
+<div class="notice-row"><label>Notice period *<input id="notice" name="notice" required></label><p>Your final answer has been carried over.</p></div>
+</div>
+<div class="bottom"><span id="complete">9 of 10 fields completed</span><button type="submit">Apply now &nbsp; ↗</button></div>
+</form>
+<section id="success"><div class="tick">✓</div><h1>Application received.</h1><p>Thanks, Alex. We’re looking forward to learning more about you.</p><p>A confirmation has been sent to alex.morgan@example.com.</p><span class="tag">Senior Full-stack Engineer &nbsp; · &nbsp; Orbitlane</span></section>
+</main>
+<script>
+// Every value comes from the saved mock Rolegain application. There is no network submission.
+const application=JSON.parse(sessionStorage.getItem('rolegain.demo.application')||'{}');
+for(const [key,value] of Object.entries(application.fields||{})){
+ const field=document.querySelector(`[name="${key}"]`);
+ if(field&&field.type!=='file')field.value=value;
+}
+document.querySelector('#resume').addEventListener('change',event=>{
+ const file=event.target.files[0];if(!file)return;
+ document.querySelector('#file-name').textContent=file.name;
+ document.querySelector('#file-status').textContent='✓ Uploaded automatically';
+ document.querySelector('#complete').textContent='10 of 10 fields completed';
+});
+document.querySelector('#form').addEventListener('submit',event=>{
+ event.preventDefault();document.querySelector('.intro').style.display='none';
+ document.querySelector('#form').style.display='none';document.querySelector('#success').style.display='block';
+ window.scrollTo(0,0);window.parent.postMessage({type:'demo-submitted'},location.origin);
+});
+</script></body></html>

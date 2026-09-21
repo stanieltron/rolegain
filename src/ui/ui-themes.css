@@ -526,3 +526,70 @@
 @media(min-width:761px){.rolegain-ui.ui-v1 .nav{overflow:visible}.rolegain-ui.ui-v1 .settings-popover{top:auto;bottom:calc(100% + 10px);left:0;right:auto;width:270px}}
 @media(max-width:460px){.rolegain-ui.ui-v1 .settings-menu{display:block}.rolegain-ui.ui-v1 .settings-popover{width:min(270px,calc(100vw - 40px))}}
 @media(prefers-reduced-transparency:reduce){.rolegain-ui.ui-v2 .shell{background:#dbe3eb;backdrop-filter:none}.rolegain-ui.ui-v2 .nav{background:#0c121c;backdrop-filter:none}}
+
+/* V2 workspace surfaces. Keep document previews and employer pages paper-white. */
+.rolegain-ui.ui-v2 {
+ --v2-panel: #ffffff30;
+ --v2-panel-raised: #e5edf2ed;
+ --v2-line: #ffffffa6;
+ --v2-success: #dff3ba55;
+ --v2-warning: #fff0c866;
+}
+.rolegain-ui.ui-v2 :is(.question,.application-list,.application-heading,.application-review-details,.company-research-card,.tailored-cv-card,.form-studio,.application-review-footer) {
+ background:var(--v2-panel);border:1px solid var(--v2-line);border-radius:8px;box-shadow:none;
+ min-width:0;
+}
+.rolegain-ui.ui-v2 .question.answered {background:var(--v2-success);border-color:var(--v2-line);box-shadow:inset 3px 0 #789b39}
+.rolegain-ui.ui-v2 .question.needs-answer {background:var(--v2-warning);border-color:#bc924b;box-shadow:inset 3px 0 #bc924b}
+.rolegain-ui.ui-v2 .question.optional-empty {background:var(--v2-panel);border-color:var(--v2-line)}
+.rolegain-ui.ui-v2 :is(.amount-with-unit,.inline-check,.choice-grid label,.selected-language,.cover-chat-message) {background:var(--v2-panel);border-color:var(--v2-line);color:#243b4d}
+.rolegain-ui.ui-v2 .choice-grid label.selected {background:#dff3ba66;border-color:#789b39;color:#283e22}
+.rolegain-ui.ui-v2 .selected-language {background:var(--v2-success)}
+.rolegain-ui.ui-v2 .application-list-entry {background:transparent;border-color:var(--v2-line)}
+.rolegain-ui.ui-v2 .application-list-entry:hover {background:#ffffff45}
+.rolegain-ui.ui-v2 .application-list-entry.active {background:#dff3ba80;box-shadow:inset 3px 0 #789b39}
+.rolegain-ui.ui-v2 .list-title {background:var(--v2-panel-raised);border-color:var(--v2-line)}
+.rolegain-ui.ui-v2 .list-title {flex-wrap:wrap;gap:10px}
+.rolegain-ui.ui-v2 .queue-back {white-space:nowrap;gap:6px}
+.rolegain-ui.ui-v2 .requirement-breakdown>summary {background:var(--v2-panel);border-color:var(--v2-line)}
+.rolegain-ui.ui-v2 :is(.field-ai-adjuster,.cover-letter-chat) {background:var(--v2-panel);border-color:var(--v2-line)}
+.rolegain-ui.ui-v2 :is(.form-field.needs-input,.send-boundary.incomplete,.gap-box) {background:var(--v2-warning);border-color:#bc924b}
+.rolegain-ui.ui-v2 .form-field {grid-template-columns:170px minmax(0,1fr)}
+.rolegain-ui.ui-v2 .form-field>* {min-width:0;max-width:100%}
+.rolegain-ui.ui-v2 .application-list-group>header {background:#ffffff35;border-color:var(--v2-line)}
+.rolegain-ui.ui-v2 :is(.requirement-breakdown,.application-vacancy-details,.requirement-section>header,.cover-chat,.cover-chat-header,.application-section-summary) {background:var(--v2-panel);border-color:var(--v2-line)}
+.rolegain-ui.ui-v2 :is(.requirement-row,.requirement-list,.requirement-citations li) {background:transparent;border-color:var(--v2-line)}
+.rolegain-ui.ui-v2 :is(.readiness,.send-boundary) {background:var(--v2-success);border-color:#8fa87b;border-radius:6px}
+.rolegain-ui.ui-v2 :is(.settings-popover,.location-suggestions,.location-suggestions button) {background:var(--v2-panel-raised);color:#243b4d;border-color:var(--v2-line)}
+.rolegain-ui.ui-v2 :is(.application-editor,.application-intelligence,.application-columns,.requirement-content,.form-field,.form-field-value) {min-width:0}
+.rolegain-ui.ui-v2 .application-heading {flex-wrap:wrap}
+.rolegain-ui.ui-v2 .application-actions {flex-wrap:wrap;max-width:100%}
+.rolegain-ui.ui-v2 :is(.application-editor,.application-list) {overflow-wrap:anywhere}
+.rolegain-ui.ui-v2 .application-section-summary>button {min-width:0}
+.rolegain-ui.ui-v2 .application-intelligence {grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))}
+.rolegain-ui.ui-v2 :is(.company-research-sources,.job-meta) {flex-wrap:wrap}
+@media(max-width:1100px) {
+ .rolegain-ui.ui-v2 .applications-layout {grid-template-columns:220px minmax(0,1fr)}
+ .rolegain-ui.ui-v2 .application-intelligence {grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:760px) {
+ .rolegain-ui.ui-v2 .nav {height:auto;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));position:relative;inset:auto;padding:14px 8px;gap:8px}
+ .rolegain-ui.ui-v2 .brand {display:flex;grid-column:1;grid-row:1;margin:0}
+ .rolegain-ui.ui-v2 .ui-version-switch {grid-column:2;grid-row:1;justify-self:center;margin:0}
+ .rolegain-ui.ui-v2 .settings-menu {grid-column:3;grid-row:1;justify-self:end;margin:0}
+ .rolegain-ui.ui-v2 .nav-btn {grid-row:2;min-width:0;width:100%}
+ .rolegain-ui.ui-v2 .application-overview-card {grid-template-columns:minmax(0,1fr);gap:12px;padding:16px 0}
+ .rolegain-ui.ui-v2 .application-overview-card :is(.job-main,.job-side,.application-match-details) {grid-column:1;min-width:0;padding:0}
+ .rolegain-ui.ui-v2 .application-overview-card .job-rank {position:static;grid-column:1;grid-row:auto;padding:0;justify-self:start}
+ .rolegain-ui.ui-v2 .application-overview-card .job-side {display:flex;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:10px;border:0}
+ .rolegain-ui.ui-v2 .application-overview-card .job-side>* {grid-column:auto;grid-row:auto}
+ .rolegain-ui.ui-v2 .application-overview-card .job-side button {width:auto;margin-left:auto}
+ .rolegain-ui.ui-v2 .application-overview-card .job-title {display:flex;flex-wrap:wrap;padding-left:0}
+ .rolegain-ui.ui-v2 .application-overview-card .job-main>p {overflow-wrap:anywhere}
+ .rolegain-ui.ui-v2 .applications-layout {grid-template-columns:minmax(0,1fr)}
+ .rolegain-ui.ui-v2 .form-field {grid-template-columns:minmax(0,1fr)}
+ .rolegain-ui.ui-v2 :is(.application-heading,.application-review-details,.company-research-card,.tailored-cv-card,.form-studio,.application-review-footer) {padding:14px 10px}
+}
+@media(prefers-reduced-transparency:reduce) {
+ .rolegain-ui.ui-v2 {--v2-panel:#e4ebf0;--v2-panel-raised:#e4ebf0;--v2-success:#e1edce;--v2-warning:#f4e9ce;--v2-line:#b3c1cb}
+}

@@ -65,6 +65,46 @@ describe("HTTP surface", () => {
     expect(candidate.profile.name).toBe("Nina Novak");
   });
 
+  it("resets candidate data through the HTTP surface", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "rolegain-reset-server-"));
+    app = await createRolegainApp({ rootDir: root });
+    const port = await app.start(0);
+    const base = `http://127.0.0.1:${port}`;
+    await fetch(`${base}/api/job-search/profile`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Nina Novak",
+        email: "nina@example.test",
+        location: "Bratislava",
+      }),
+    });
+    await app.jobSearch.addOpportunity({
+      company: "Example Employer",
+      title: "Platform Engineer",
+      applyUrl: "https://jobs.example.test/platform",
+    });
+
+    const response = await fetch(`${base}/api/job-search/reset-user`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const reset = (await response.json()) as {
+      phase: string;
+      profile: { name: string; email: string };
+      opportunities: unknown[];
+    };
+
+    expect(response.status).toBe(200);
+    expect(reset).toMatchObject({
+      phase: "intake",
+      profile: { name: "", email: "" },
+      opportunities: [],
+    });
+    expect(await app.jobSearch.get()).toMatchObject(reset);
+  });
+
   it("creates a same-origin employer iframe session for an owned application", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "rolegain-proxy-session-"));
     app = await createRolegainApp({ rootDir: root });
