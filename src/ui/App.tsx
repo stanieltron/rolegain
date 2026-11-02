@@ -78,6 +78,7 @@ import {
   updateSearchConfig,
 } from "./api.js";
 import { useAuthActions } from "./auth.js";
+import { profileEvidenceNeedsAnalysis, sourceErrorMessage } from "./profile-readiness.js";
 import {
   applicationOutcomeState,
   coalescePipelineItems,
@@ -1231,14 +1232,7 @@ function ProfileView({
     sourceStarting ||
     cvSource?.status === "processing" ||
     (persistedStep < 2 && workspace.intelligence.status === "analyzing");
-  const evidenceNeedsAnalysis =
-    hasStagedEvidence ||
-    workspace.intelligence.status === "failed" ||
-    workspace.intelligence.evidenceRun?.readyForSearch === false ||
-    workspace.sources.some(
-      (source) =>
-        source.analysisRequired || source.status === "analysis_failed",
-    );
+  const evidenceNeedsAnalysis = profileEvidenceNeedsAnalysis(workspace, hasStagedEvidence);
   const jobInformationReady =
     basicReady &&
     !analyzing &&
@@ -1706,6 +1700,14 @@ function ProfileView({
           </section>
           {highestStep >= 3 && (
             <>
+              {workspace.sources.some((source) => source.kind !== "cv" && source.status === "analysis_failed") && (
+                <div className="source-error" role="status">
+                  Some additional sources could not be read. Your profile is ready,
+                  so you can continue with job preferences. Review the warnings
+                  under your evidence below and provide more direct links or upload
+                  the documents if you want to include those sources.
+                </div>
+              )}
               <PreferencesSection
                 workspace={workspace}
                 unanswered={unanswered}
@@ -2084,7 +2086,7 @@ function EvidenceLedger({
             {source.status === "processing" && (
               <p className="evidence-pending">Extracting evidence...</p>
             )}
-            {source.error && <p className="source-error">{source.error}</p>}
+            {source.error && <p className="source-error">{sourceErrorMessage(source.error)}</p>}
             {isEvidenceChunkLimitError(source.error) && (
               <button
                 className="evidence-limit-retry"

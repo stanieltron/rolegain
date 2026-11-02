@@ -12,6 +12,7 @@ const MAX_FILE_BYTES = 15 * 1024 * 1024;
 const MAX_WEB_BYTES = 3 * 1024 * 1024;
 const MAX_EXTRACTED_CHARS = 400_000;
 const MAX_RENDERED_PAGES = 12;
+const MAX_HTTP_REDIRECTS = 4;
 
 export interface SupplementalEvidenceInput {
   kind: Exclude<CandidateSource["kind"], "cv">;
@@ -657,7 +658,7 @@ async function fetchPublic(
   signal?: AbortSignal,
 ): Promise<{ url: URL; buffer: Buffer; contentType: string }> {
   let url = initialUrl;
-  for (let redirect = 0; redirect < 4; redirect += 1) {
+  for (let redirect = 0; redirect <= MAX_HTTP_REDIRECTS; redirect += 1) {
     signal?.throwIfAborted();
     await assertPublicHttpUrl(url);
     const timeout = AbortSignal.timeout(15_000);
@@ -665,7 +666,12 @@ async function fetchPublic(
       ? AbortSignal.any([signal, timeout])
       : timeout;
     const response = await fetch(url, { headers: { "User-Agent": "Job-Apply-Go/0.1", ...headers }, redirect: "manual", signal: requestSignal });
-    if (response.status >= 300 && response.status < 400 && response.headers.get("location")) { url = new URL(response.headers.get("location")!, url); continue; }
+    if (response.status >= 300 && response.status < 400 && response.headers.get("location")) {
+      await response.body?.cancel();
+      if (redirect === MAX_HTTP_REDIRECTS) break;
+      url = new URL(response.headers.get("location")!, url);
+      continue;
+    }
     if (!response.ok) throw new Error(`Could not read ${url.hostname} (${response.status})`);
     const length = Number(response.headers.get("content-length") || 0);
     if (length > MAX_WEB_BYTES) throw new Error("Web source is larger than 3 MB");
@@ -673,7 +679,7 @@ async function fetchPublic(
     if (buffer.length > MAX_WEB_BYTES) throw new Error("Web source is larger than 3 MB");
     return { url, buffer, contentType: response.headers.get("content-type")?.split(";")[0] || "application/octet-stream" };
   }
-  throw new Error("Too many redirects while reading the source");
+  throw new Error(`This link exceeded the limit of ${MAX_HTTP_REDIRECTS} redirects. The website may be redirecting in a loop. Provide a more direct link to the page or upload the document instead.`);
 }
 
 function htmlToText(html: string, url?: URL): string {
