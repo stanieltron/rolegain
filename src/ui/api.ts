@@ -134,7 +134,7 @@ export const trackAnalyticsEvent = (
 ) =>
   post<{ recorded: boolean }>("/api/analytics/events", { name, metadata })
     .catch(() => undefined);
-export const updateCandidateProfile = (body: {
+export const updateCandidateProfile = (body: Partial<{
   name: string;
   email: string;
   phone: string;
@@ -144,7 +144,7 @@ export const updateCandidateProfile = (body: {
   location?: string;
   workAuthorization: string;
   deferEvidenceAnalysis?: boolean;
-}) => workspacePost("/api/job-search/profile", body);
+}>) => workspacePost("/api/job-search/profile", body);
 export const exploreProfileEvidence = (field: "github" | "website") =>
   workspacePost("/api/job-search/profile-evidence/explore", { field });
 export const stopBackgroundWork = () =>

@@ -29,7 +29,21 @@ export async function captureSearchV2Leads(input: {
   return mapConcurrent(
     input.leads,
     input.configuration.captureConcurrency,
-    (lead) => captureOne(input.browser, lead, input.configuration),
+    async (lead) => {
+      try {
+        return await captureOne(input.browser, lead, input.configuration);
+      } catch (error) {
+        // A bad discovery URL is evidence about this lead, not a failed search.
+        // In particular, DNS/security checks happen before opening a page.
+        const capture: Omit<SearchV2Capture, "signals"> = {
+          id: lead.id, lead, suppliedUrl: lead.url, finalUrl: lead.url,
+          httpStatus: 0,
+          navigationError: error instanceof Error ? error.message : String(error),
+          pageTitle: "", body: "", links: [], forms: [],
+        };
+        return { ...capture, signals: extractSignals(capture) };
+      }
+    },
   );
 }
 

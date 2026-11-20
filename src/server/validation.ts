@@ -3,8 +3,17 @@ import { HttpError } from "./auth.js";
 
 const optionalText = (maximum: number) =>
   z.string().trim().max(maximum).optional();
-const optionalUrl = z
-  .union([z.literal(""), z.string().url().max(2_000)])
+const optionalUrl = z.string().trim().transform((value) =>
+  /^[\w-]+(?:\.[\w-]+)+(?:[/:?#]|$)/.test(value)
+    ? `https://${value}`
+    : value,
+).pipe(z.union([
+  z.literal(""),
+  z.string().url().max(2_000).refine(
+    (value) => /^https?:\/\//i.test(value),
+    "Use an HTTP or HTTPS link",
+  ),
+]))
   .optional();
 
 export const profileSchema = z.object({
@@ -102,7 +111,9 @@ export function validate<T>(schema: ZodType<T>, value: unknown): T {
   if (result.success) return result.data;
   throw new HttpError(
     400,
-    result.error.issues[0]?.message || "Invalid request",
+    result.error.issues[0]
+      ? `${result.error.issues[0].path.join(".") || "Request"}: ${result.error.issues[0].message}`
+      : "Invalid request",
     "invalid_request",
   );
 }

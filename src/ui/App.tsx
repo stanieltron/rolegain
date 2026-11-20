@@ -1390,22 +1390,13 @@ function ProfileView({
     }
   };
 
-  const saveEvidenceLinkDrafts = () =>
-    updateCandidateProfile({
-      name: workspace.profile.name,
-      email: workspace.profile.email,
-      phone: workspace.profile.phone,
-      linkedin: evidenceLinks.linkedin,
-      github: evidenceLinks.github,
-      website: evidenceLinks.website,
-      workAuthorization: workspace.profile.workAuthorization,
-      deferEvidenceAnalysis: true,
-    });
-
   const exploreEvidenceLink = (field: "github" | "website") =>
     void act(
       async () => {
-        await saveEvidenceLinkDrafts();
+        await updateCandidateProfile({
+          [field]: evidenceLinks[field],
+          deferEvidenceAnalysis: true,
+        });
         return exploreProfileEvidence(field);
       },
       undefined,

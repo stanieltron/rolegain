@@ -22,6 +22,7 @@ import { ApiRateLimiter } from "./rate-limit.js";
 import { withUserLock } from "../infrastructure/database.js";
 import { AdminRoutes } from "./admin-routes.js";
 import { appendDiagnosticEvent } from "../diagnostics/run-log.js";
+import { ArtifactSync } from "../backend/persistence/artifact-sync.js";
 
 const projectRoot = process.cwd();
 
@@ -52,7 +53,7 @@ export async function createRolegainApp(
       lockPool: dependencies.sessionDatabase,
     },
   );
-  const restoredUsers = new Set<string>();
+  const artifactSync = new ArtifactSync(dependencies.artifacts);
   const applicationFormAutofillScript = await readFile(
     path.join(
       projectRoot,
@@ -135,10 +136,6 @@ export async function createRolegainApp(
         !pathname.startsWith("/api/")
           ? undefined
           : await authenticator.authenticate(request);
-      if (actor && !restoredUsers.has(actor.userId)) {
-        await dependencies.artifacts.restore(actor.userId);
-        restoredUsers.add(actor.userId);
-      }
       if (actor) rateLimiter.enforce(request, actor);
       const route = () =>
         routeRequest(request, response, {
@@ -147,12 +144,33 @@ export async function createRolegainApp(
           root,
         });
       if (actor) {
-        const runAuthenticatedRoute = () =>
-          codex.runWithExecutionContext({ userId: actor.userId }, route);
+        const runAuthenticatedRoute = () => {
+          const execute = () =>
+            codex.runWithExecutionContext({ userId: actor.userId }, route);
+          // SSE, cancellation and analytics must never wait for artifact access.
+          if (
+            !dependencies.database ||
+            (!pathname.startsWith("/api/job-search/") && pathname !== "/api/job-search") ||
+            pathname === "/api/job-search/background/stop" ||
+            pathname === "/api/job-search/reset-user"
+          )
+            return execute();
+          return artifactSync.run(actor.userId, async () => {
+            // Completed is written only AFTER the worker uploads its snapshot.
+            // Use the latest successful run even when a newer run is queued/failed.
+            const result = await dependencies.database!.query<{ id: string }>(
+              `select id from rolegain_workflow_runs
+               where user_id = $1 and status = 'completed'
+               order by completed_at desc limit 1`, [actor.userId],
+            );
+            return result.rows[0]?.id ?? "initial";
+          }, execute);
+        };
         if (
           dependencies.database &&
           request.method !== "GET" &&
           request.method !== "HEAD" &&
+          pathname !== "/api/analytics/events" &&
           pathname !== "/api/job-search/background/stop" &&
           pathname !== "/api/job-search/reset-user"
         )
