@@ -96,7 +96,11 @@ export class OpenAiCompatibleClient extends CodexExecClient {
     return { id: threadId, modelProvider: "openai-compatible-api" };
   }
 
-  override async runTurn(options: StartTurnOptions): Promise<CodexTurnResult> {
+  protected override turnExecutionUser(threadId: string): string | undefined {
+    return this.apiThreads.get(threadId)?.executionContext?.userId;
+  }
+
+  protected override async runTurnAttempt(options: StartTurnOptions): Promise<CodexTurnResult> {
     await this.beforeTurn();
     this.assertApiExecutionAllowed();
     const executionGeneration = this.apiExecutionGeneration;
@@ -246,13 +250,14 @@ export class OpenAiCompatibleClient extends CodexExecClient {
       },
     });
 
+    let timedOut = false;
     let timer: NodeJS.Timeout | undefined;
     let usage: JsonObject = {};
     let providerResponseId: string | undefined;
     try {
       this.assertApiExecutionAllowed(executionGeneration);
       timer = setTimeout(
-        () => controller.abort(),
+        () => { timedOut = true; controller.abort(); },
         resolvedConfig.timeoutMs,
       );
       let finalText: string;
@@ -421,7 +426,7 @@ export class OpenAiCompatibleClient extends CodexExecClient {
       };
     } catch (error) {
       const normalized =
-        error instanceof Error && error.name === "AbortError"
+        timedOut && error instanceof Error && error.name === "AbortError"
           ? new Error(
               `LLM API turn ${turnId} timed out after ${resolvedConfig.timeoutMs}ms`,
             )
@@ -477,17 +482,20 @@ export class OpenAiCompatibleClient extends CodexExecClient {
   }
 
   override async pauseAllTurns(): Promise<void> {
+    await super.pauseAllTurns();
     this.apiExecutionPaused = true;
     this.apiExecutionGeneration += 1;
     for (const active of this.apiActive.values()) active.controller.abort();
   }
 
   override async pauseTurnsForUser(userId: string): Promise<void> {
+    await super.pauseTurnsForUser(userId);
     for (const active of this.apiActive.values())
       if (active.userId === userId) active.controller.abort();
   }
 
   override resumeTurns(): void {
+    super.resumeTurns();
     this.apiExecutionPaused = false;
   }
 
@@ -500,6 +508,7 @@ export class OpenAiCompatibleClient extends CodexExecClient {
   }
 
   override async close(): Promise<void> {
+    await super.close();
     this.apiExecutionPaused = true;
     this.apiExecutionGeneration += 1;
     for (const active of this.apiActive.values()) active.controller.abort();

@@ -159,7 +159,9 @@ export class PostgresWorkflowQueue implements WorkflowQueue {
         } satisfies WorkflowPayload,
         {
           singletonKey: userId,
-          retryLimit: type === "revalidate-search" ? 0 : 2,
+          // Provider retries are bounded at the model-turn boundary. Replaying
+          // a whole failed batch repeats successful calls and multiplies cost.
+          retryLimit: 0,
           retryDelay: 15,
           retryBackoff: true,
           heartbeatSeconds: 30,

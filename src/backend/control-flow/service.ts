@@ -4539,7 +4539,9 @@ function setSearchStage(
     activity,
     updatedAt: new Date().toISOString(),
     items: current?.items ?? [],
-    events: events.slice(-10),
+    // Keep the run's origin when pruning activity history; the elapsed timer
+    // must not restart every time an older progress event is discarded.
+    events: events.length > 10 ? [events[0], ...events.slice(-9)] : events,
   };
 }
 

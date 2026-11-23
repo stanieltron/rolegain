@@ -362,6 +362,7 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [progressConnectionLost, setProgressConnectionLost] = useState(false);
   const [resettingUser, setResettingUser] = useState(false);
   const [resetComplete, setResetComplete] = useState(() => {
     try {
@@ -508,6 +509,30 @@ export function App() {
     if (!monitoring) return;
     const controller = new AbortController();
     setLiveProgressEvents([]);
+    // SSE notifications are transient. Reconcile with durable state even if a
+    // completion event was missed while the tab was asleep or disconnected.
+    let refreshing = false;
+    const refreshProgress = async () => {
+      if (refreshing || controller.signal.aborted) return;
+      refreshing = true;
+      try {
+        const nextWorkspace = await getWorkspace(AbortSignal.any([
+          controller.signal, AbortSignal.timeout(10_000),
+        ]));
+        if (!controller.signal.aborted) {
+          setWorkspace(nextWorkspace);
+          setProgressConnectionLost(false);
+        }
+      } catch {
+        if (!controller.signal.aborted) setProgressConnectionLost(true);
+      } finally {
+        refreshing = false;
+      }
+    };
+    void refreshProgress();
+    const poll = window.setInterval(() => void refreshProgress(), 15_000);
+    const onFocus = () => void refreshProgress();
+    window.addEventListener("focus", onFocus);
     void streamWorkflowProgress((event) => {
       setLiveProgressEvents((current) => [...current, event].slice(-30));
       if (event.analysisProgress)
@@ -535,7 +560,11 @@ export function App() {
           });
       }
     }, controller.signal);
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      window.clearInterval(poll);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [monitoring, workspace?.workflowExecution?.id]);
   useEffect(() => {
     if (!workspace) return;
@@ -935,6 +964,13 @@ export function App() {
             </div>
           </div>
         </header>
+        {monitoring && progressConnectionLost && (
+          <div className="error" role="alert">
+            <CircleHelp size={18} />
+            <span>Cannot verify the current workflow status. Reconnecting automatically. The displayed time does not confirm that AI is still running.</span>
+            <button onClick={() => window.location.reload()}>Refresh status</button>
+          </div>
+        )}
         {error && (
           <div className="error">
             <CircleHelp size={18} />
@@ -3770,10 +3806,6 @@ function PipelineElapsedTime({
 }) {
   const inferredStart =
     progress.events?.[0]?.createdAt ?? progress.updatedAt ?? new Date().toISOString();
-  const startedAtRef = useRef(inferredStart);
-  const wasRunningRef = useRef(running);
-  if (running && !wasRunningRef.current) startedAtRef.current = inferredStart;
-  wasRunningRef.current = running;
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -3783,14 +3815,14 @@ function PipelineElapsedTime({
     return () => window.clearInterval(timer);
   }, [running]);
 
-  const start = Date.parse(startedAtRef.current);
-  const stoppedAt = Date.parse(progress.updatedAt ?? startedAtRef.current);
+  const start = Date.parse(inferredStart);
+  const stoppedAt = Date.parse(progress.updatedAt ?? inferredStart);
   const end = running ? now : stoppedAt;
   const elapsed = formatElapsedTime(
     Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0,
   );
   const label = running
-    ? "Live agent activity"
+    ? "Elapsed time for this run"
     : progress.stage === "ready"
       ? "Completed in"
       : "Stopped after";

@@ -26,6 +26,7 @@ import {
   serializableResolvedConfig,
   type LlmConfigurationSet,
 } from "./llm-call-config.js";
+import { withProviderRetry } from "../llm-runtime/provider-retry.js";
 import { llmRunRoot } from "../llm-runtime/run-root.js";
 
 type JsonObject = Record<string, unknown>;
@@ -120,6 +121,7 @@ export class CodexExecClient {
     new AsyncLocalStorage<LlmExecutionContext>();
   private executionPaused = false;
   private executionGeneration = 0;
+  private readonly userRetryGeneration = new Map<string, number>();
 
   constructor(
     private readonly projectRoot = process.cwd(),
@@ -221,6 +223,21 @@ export class CodexExecClient {
   }
 
   async runTurn(options: StartTurnOptions): Promise<CodexTurnResult> {
+    const generation = this.executionGeneration;
+    const userId = this.turnExecutionUser(options.threadId);
+    const userGeneration = userId ? this.userRetryGeneration.get(userId) : undefined;
+    return withProviderRetry(() => this.runTurnAttempt(options), () => {
+      this.assertExecutionAllowed(generation);
+      if (userId && this.userRetryGeneration.get(userId) !== userGeneration)
+        throw new Error("Workflow cancelled by user");
+    });
+  }
+
+  protected turnExecutionUser(threadId: string): string | undefined {
+    return this.threads.get(threadId)?.executionContext?.userId;
+  }
+
+  protected async runTurnAttempt(options: StartTurnOptions): Promise<CodexTurnResult> {
     await this.beforeTurn();
     this.assertExecutionAllowed();
     const executionGeneration = this.executionGeneration;
@@ -565,6 +582,7 @@ export class CodexExecClient {
   }
 
   async pauseTurnsForUser(userId: string): Promise<void> {
+    this.userRetryGeneration.set(userId, (this.userRetryGeneration.get(userId) ?? 0) + 1);
     await Promise.all(
       [...this.active.values()]
         .filter((active) => active.executionContext?.userId === userId)

@@ -48,8 +48,8 @@ export interface WorkflowProgressEvent {
   workflowStatus?: "completed" | "failed" | "cancelled";
 }
 
-export const getWorkspace = () =>
-  get<JobSearchWorkspace>("/api/job-search").then(normalizeWorkspace);
+export const getWorkspace = (signal?: AbortSignal) =>
+  get<JobSearchWorkspace>("/api/job-search", signal).then(normalizeWorkspace);
 export const getCanonicalEvidence = (candidateId: string) =>
   get<CanonicalEvidenceModel>(
     `/api/job-search/candidates/${encodeURIComponent(candidateId)}/evidence`,
@@ -247,9 +247,10 @@ export const setApplicationOutcome = (
   workspacePost(`/api/job-search/applications/${id}/outcome`, {
     outcome: outcome ?? null,
   });
-async function get<T>(url: string): Promise<T> {
+async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(url, {
     cache: "no-store",
+    signal,
     headers: await authorizationHeader(),
   });
   if (!response.ok) throw new Error(await error(response));

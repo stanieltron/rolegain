@@ -20,6 +20,34 @@ afterEach(async () => {
 });
 
 describe("OpenAI-compatible LLM transport", () => {
+  it("retries an unavailable provider once through the real transport", async () => {
+    const root = await temporaryProjectWithAnswerSkill();
+    vi.stubEnv("ROLEGAIN_API_KEY", "test-api-key");
+    vi.stubEnv("ROLEGAIN_API_BASE_URL", "https://provider.example/v1");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{"error":{"message":"Unavailable"}}', { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({ value: "Answer", evidenceBasis: "CV" }) } }],
+        usage: { total_tokens: 10 },
+      }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new OpenAiCompatibleClient(root);
+    const observations: string[] = [];
+    client.onRunCompleted = (run) => { observations.push(run.status); };
+    const thread = await client.startThread({
+      cwd: root, callId: "application.answer-refine", role: "application-answer-editor",
+      sandbox: "read-only", developerInstructions: "Return JSON.",
+    });
+    try {
+      const result = await client.runTurn({ threadId: thread.id, prompt: "Answer", cwd: root, sandbox: "readOnly" });
+      expect(result.status).toBe("completed");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(observations).toEqual(["failed", "completed"]);
+    } finally {
+      await client.close();
+    }
+  });
+
   it("uses the existing call harness and result gateway", async () => {
     const root = await temporaryProjectWithAnswerSkill();
     const requests: Array<Record<string, unknown>> = [];
